@@ -8,6 +8,7 @@ import AddTrackModal from './components/AddTrackModal';
 import AdminDashboard from './components/admin/AdminDashboard';
 import OutsideTelegram from './components/OutsideTelegram';
 import { Tab } from './types';
+import { api } from './services/api';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
@@ -15,9 +16,10 @@ function App() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [isAdminPreview, setIsAdminPreview] = useState(false);
 
-  // Check Telegram WebApp environment
+  // Authentication & environment states
   const [isTelegramEnv, setIsTelegramEnv] = useState<boolean>(true);
-  const [devPreviewActive, setDevPreviewActive] = useState<boolean>(false);
+  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
@@ -29,15 +31,31 @@ function App() {
       } catch (e) {
         // Ignored
       }
-      // If opened in Telegram, initData is present
-      if (!tg.initData && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        setIsTelegramEnv(false);
-      }
+    }
+
+    const initData = tg?.initData;
+    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+    if (!initData && !isLocalhost) {
+      setIsTelegramEnv(false);
+      setAuthLoading(false);
+      return;
+    }
+
+    // Attempt authentication if initData is present
+    if (initData) {
+      api.authWithTelegram(initData)
+        .then(() => {
+          setAuthLoading(false);
+        })
+        .catch((err) => {
+          console.warn('Auth issue:', err.message);
+          setAuthError(err.message);
+          setAuthLoading(false);
+        });
     } else {
-      // In local dev, allow by default; in production web browser, gatekeep
-      if (window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
-        setIsTelegramEnv(false);
-      }
+      // Local dev mode
+      setAuthLoading(false);
     }
 
     // Check URL hash for admin preview
@@ -52,8 +70,8 @@ function App() {
   };
 
   // If opened directly outside Telegram in a normal browser
-  if (!isTelegramEnv && !devPreviewActive) {
-    return <OutsideTelegram onDevBypass={() => setDevPreviewActive(true)} />;
+  if (!isTelegramEnv) {
+    return <OutsideTelegram />;
   }
 
   // Admin Preview Mode
@@ -65,6 +83,37 @@ function App() {
           window.location.hash = '';
         }} 
       />
+    );
+  }
+
+  // Loading state
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6">
+        <div className="animate-spin h-8 w-8 border-3 border-primary border-t-transparent rounded-full mb-3"></div>
+        <p className="text-xs font-bold text-gray-500">Yuklanmoqda...</p>
+      </div>
+    );
+  }
+
+  // Auth Error (e.g. Needs onboarding or blocked)
+  if (authError) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6 text-center">
+        <div className="w-full max-w-sm bg-white p-6 rounded-3xl shadow-soft space-y-4">
+          <span className="text-3xl block">⚠️</span>
+          <h3 className="font-black text-gray-900 text-base">Diqqat</h3>
+          <p className="text-xs text-gray-500 leading-relaxed">{authError}</p>
+          <a
+            href="https://t.me/yuklago_bot"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block w-full py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20"
+          >
+            Telegram botga o'tish
+          </a>
+        </div>
+      </div>
     );
   }
 

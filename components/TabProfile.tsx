@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserProfile } from '../types';
+import { UserProfile, DeliveryBranchSnapshot } from '../types';
 import { api } from '../services/api';
 
 const TabProfile: React.FC = () => {
@@ -7,9 +7,47 @@ const TabProfile: React.FC = () => {
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [showOfertaModal, setShowOfertaModal] = useState(false);
 
+  // Address change modal state
+  const [selectedProvider, setSelectedProvider] = useState<'BTS' | 'EMU' | 'UZPOST'>('BTS');
+  const [availableBranches, setAvailableBranches] = useState<any[]>([]);
+  const [selectedBranchId, setSelectedBranchId] = useState<string>('');
+  const [submitting, setSubmitting] = useState(false);
+  const [requestFeedback, setRequestFeedback] = useState<string | null>(null);
+
   useEffect(() => {
-    api.getProfile().then(setProfile);
+    api.getProfile().then(setProfile).catch(() => {});
   }, []);
+
+  useEffect(() => {
+    if (showAddressModal) {
+      api.getBranches(selectedProvider).then(branches => {
+        setAvailableBranches(branches);
+        if (branches.length > 0) {
+          setSelectedBranchId((branches[0] as any).id);
+        }
+      }).catch(() => {});
+    }
+  }, [showAddressModal, selectedProvider]);
+
+  const handleAddressSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedBranchId) return;
+
+    setSubmitting(true);
+    setRequestFeedback(null);
+    try {
+      const res = await api.requestLocationChange(selectedBranchId);
+      setRequestFeedback(res.message || 'So\'rov yuborildi');
+      setTimeout(() => {
+        setShowAddressModal(false);
+        setRequestFeedback(null);
+      }, 2000);
+    } catch (err: any) {
+      setRequestFeedback(err.message || 'Xatolik yuz berdi');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   const branch = profile?.defaultDeliveryBranch;
 
@@ -24,12 +62,12 @@ const TabProfile: React.FC = () => {
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2">
-            <h3 className="font-bold text-base text-gray-900 truncate">{profile?.name}</h3>
+            <h3 className="font-bold text-base text-gray-900 truncate">{profile?.name || 'Mijoz'}</h3>
             <span className="bg-primary/10 text-primary px-2 py-0.5 rounded text-[10px] font-mono font-bold shrink-0">
-              {profile?.customerCode}
+              {profile?.customerCode || 'YK-###'}
             </span>
           </div>
-          <p className="text-gray-500 font-mono text-xs mt-0.5">{profile?.phone}</p>
+          <p className="text-gray-500 font-mono text-xs mt-0.5">{profile?.phone || '-'}</p>
         </div>
       </div>
 
@@ -118,23 +156,63 @@ const TabProfile: React.FC = () => {
         <p className="text-[10px] text-gray-400">Telegram Mini App • v0.1.0</p>
       </div>
 
-      {/* Address Request Placeholder Modal */}
+      {/* Address Change Request Modal */}
       {showAddressModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
-          <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 animate-slide-up text-center">
-            <div className="w-12 h-12 rounded-full bg-blue-50 text-primary flex items-center justify-center mx-auto text-xl">
-              📍
+          <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 animate-slide-up">
+            <div className="flex justify-between items-center">
+              <h3 className="font-black text-base text-gray-900">Manzilni o'zgartirish</h3>
+              <button onClick={() => setShowAddressModal(false)} className="text-gray-400 hover:text-gray-600 text-lg">&times;</button>
             </div>
-            <h3 className="font-black text-base text-gray-900">Manzilni o'zgartirish</h3>
-            <p className="text-xs text-gray-500 leading-relaxed">
-              Manzilni o'zgartirish so'rovi Stage 5 da faollashadi. Siz yangi filialni tanlaysiz va admin tasdiqlagach, manzilingiz yangilanadi.
-            </p>
-            <button
-              onClick={() => setShowAddressModal(false)}
-              className="w-full py-3 bg-primary text-white rounded-xl text-xs font-bold active:scale-95 transition-transform"
-            >
-              Tushunarli
-            </button>
+
+            <form onSubmit={handleAddressSubmit} className="space-y-3">
+              {/* Provider Selection */}
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Xizmat turi</label>
+                <div className="grid grid-cols-3 gap-1 bg-gray-100 p-1 rounded-xl text-xs font-bold">
+                  {(['BTS', 'EMU', 'UZPOST'] as const).map(p => (
+                    <button
+                      key={p}
+                      type="button"
+                      onClick={() => setSelectedProvider(p)}
+                      className={`py-1.5 rounded-lg transition-all ${selectedProvider === p ? 'bg-white text-primary shadow-sm' : 'text-gray-500'}`}
+                    >
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Branch Selection */}
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">Yangi filial</label>
+                <select
+                  value={selectedBranchId}
+                  onChange={(e) => setSelectedBranchId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-800 outline-none focus:border-primary"
+                >
+                  {availableBranches.map((b: any) => (
+                    <option key={b.id} value={b.id}>
+                      {b.region} — {b.branch_name || b.branchName}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {requestFeedback && (
+                <p className="text-xs text-center font-bold text-primary bg-blue-50 py-2 rounded-xl">
+                  {requestFeedback}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="w-full py-3 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold active:scale-95 transition-all shadow-md shadow-primary/20"
+              >
+                {submitting ? 'Yuborilmoqda...' : 'So\'rov yuborish'}
+              </button>
+            </form>
           </div>
         </div>
       )}

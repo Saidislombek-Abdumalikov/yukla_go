@@ -1,10 +1,6 @@
 import React from 'react';
 
-interface OutsideTelegramProps {
-  onDevBypass?: () => void;
-}
-
-const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onDevBypass }) => {
+const OutsideTelegram: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6 text-center animate-fade-in">
       <div className="w-full max-w-sm bg-white p-8 rounded-[36px] shadow-soft border border-gray-100 space-y-5">
@@ -30,18 +26,6 @@ const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onDevBypass }) => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
           </svg>
         </a>
-
-        {/* Development mode preview toggle */}
-        {onDevBypass && (
-          <div className="pt-2 border-t border-gray-100">
-            <button
-              onClick={onDevBypass}
-              className="text-[11px] text-gray-400 hover:text-primary transition-colors font-medium underline"
-            >
-              [DEV ONLY] Interfeysni ko'rish (Preview)
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );
