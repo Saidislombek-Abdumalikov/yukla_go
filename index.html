@@ -1,66 +1,52 @@
-
 <!DOCTYPE html>
-<html lang="en">
+<html lang="uz">
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
-    <title>YAQIIN CARGO</title>
+    <title>Yukla Go</title>
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     
-    <!-- Tailwind CSS (via CDN for simplicity) -->
+    <!-- Tailwind CSS (via CDN) -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
       tailwind.config = {
         theme: {
           extend: {
             colors: {
-              primary: '#fe7d08', // YAQIIN Orange
-              'primary-dark': '#cc5a00', // Darker Orange
+              primary: '#185A96', // Yukla Go Brand Blue
+              'primary-dark': '#114270', // Darker Blue
               secondary: '#F5F7FA',
               surface: '#FFFFFF',
-              accent: '#0066FF', // Blue for contrast
-              text: '#1F2937', // Dark Gray text
-              'text-secondary': '#6B7280', // Gray text
+              accent: '#3B82F6',
+              text: '#1F2937',
+              'text-secondary': '#6B7280',
             },
             fontFamily: {
               sans: ['Inter', 'system-ui', 'sans-serif'],
             },
             boxShadow: {
-              'soft': '0 8px 30px rgba(254, 125, 8, 0.06)',
-              'glow': '0 0 20px rgba(254, 125, 8, 0.3)',
+              'soft': '0 8px 30px rgba(24, 90, 150, 0.07)',
+              'glow': '0 0 20px rgba(24, 90, 150, 0.3)',
             },
             animation: {
-              'fade-in': 'fadeIn 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
-              'slide-up': 'slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1)',
-              'slide-up-mobile': 'slideUpMobile 0.4s cubic-bezier(0.16, 1, 0.3, 1)',
+              'fade-in': 'fadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+              'slide-up': 'slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
+              'slide-up-mobile': 'slideUpMobile 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
             },
             keyframes: {
               fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
-              slideUp: { '0%': { opacity: '0', transform: 'translateY(20px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
+              slideUp: { '0%': { opacity: '0', transform: 'translateY(15px)' }, '100%': { opacity: '1', transform: 'translateY(0)' } },
               slideUpMobile: { '0%': { transform: 'translateY(100%)' }, '100%': { transform: 'translateY(0)' } }
             }
           },
         },
       }
     </script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
-<script type="importmap">
-{
-  "imports": {
-    "react": "https://esm.sh/react@^19.2.3",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
-    "react/": "https://esm.sh/react@^19.2.3/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.34.0",
-    "xlsx": "https://esm.sh/xlsx@^0.18.5",
-    "vite": "https://esm.sh/vite@^7.3.0",
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2"
-  }
-}
-</script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/style.css">
 </head>
-<body class="bg-[#F5F7FA] text-[#1F2937] min-h-screen relative overflow-x-hidden selection:bg-orange-200">
+<body class="bg-[#F5F7FA] text-[#1F2937] min-h-screen relative overflow-x-hidden selection:bg-blue-100">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
 </body>

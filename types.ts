@@ -1,108 +1,87 @@
-
 export enum Tab {
   HOME = 'HOME',
   MY_PARCELS = 'MY_PARCELS',
   CALCULATOR = 'CALCULATOR',
-  SUPPORT = 'SUPPORT',
   PROFILE = 'PROFILE',
 }
 
-export enum CargoType {
-  AVTO = 'AVTO',
-  AVIA = 'AVIA',
+export type ParcelStatus = 
+  | 'added'            // Kiritildi
+  | 'china_warehouse'  // Xitoy omborida
+  | 'in_transit'        // Yo'lda
+  | 'uzbekistan'       // O'zbekistonda
+  | 'delivered';       // Yetkazildi
+
+export type PaymentStatus = 'pending' | 'paid';
+
+export interface DeliveryBranchSnapshot {
+  provider: 'EMU' | 'BTS' | 'UZPOST' | string;
+  branchName: string;
+  region: string;
+  address: string;
 }
 
-export interface TrackingEvent {
-  date: string;
-  time: string;
-  status: string;
-  location: string;
-  completed: boolean;
-}
-
-export interface ParcelData {
+export interface Parcel {
   id: string;
-  sender: string; 
-  receiver: string; 
-  weight: string;
-  boxCode?: string; 
-  price?: number; 
-  history: TrackingEvent[];
-}
-
-export interface SavedTrack {
-  id: string;
-  note?: string; 
-  addedAt: number;
+  trackingNumber: string;
+  customerCode: string; // e.g. YK-100
+  status: ParcelStatus;
+  paymentStatus: PaymentStatus;
+  weightKg: number;
+  amount: number;
+  currency: string;
+  chinaDate?: string;
+  estimatedArrival?: string;
+  deliveryBranchSnapshot?: DeliveryBranchSnapshot;
+  cargoAddressSnapshot?: {
+    warehouseCode: string;
+    fullAddress: string;
+  };
+  cargoSubmittedAt?: string | null;
+  createdAt: string;
 }
 
 export interface UserProfile {
-  name: string;
-  phone: string;
-  clientId: string; 
-  registeredAt: number;
-  lastActive?: number;
-}
-
-export interface AppSettings {
-  exchangeRate: number; 
-  prices: {
-    avto: {
-      standard: number;
-      bulk: number; 
-    };
-    avia: {
-      standard: number;
-      bulk: number;
-    };
-  };
-  deliveryTime: {
-    avto: string;
-    avia: string;
-  };
-}
-
-export interface ClientActivity {
   id: string;
+  telegramUserId: number;
+  customerCode: string; // e.g. YK-100
   name: string;
-  clientId: string;
   phone: string;
-  lastActive?: string;
-  parcelsCount?: number;
+  phoneVerified: boolean;
+  defaultDeliveryBranch?: DeliveryBranchSnapshot;
+  ofertaAccepted: boolean;
+  status: 'active' | 'blocked';
 }
 
-export interface ChatMessage {
-  role: 'user' | 'model';
-  text: string;
-  isError?: boolean;
+export interface ChinaWarehouseAddress {
+  receiver: string;
+  phone: string;
+  region: string;
+  address: string;
+  customerCode: string;
+}
+
+export interface ShippingRates {
+  pricePerKg: number;
+  exchangeRate: number; // 1 USD = ? UZS
 }
 
 declare global {
-  namespace NodeJS {
-    interface ProcessEnv {
-      API_KEY: string;
-    }
-  }
   interface Window {
-    Telegram: {
-      WebApp: {
+    Telegram?: {
+      WebApp?: {
         ready: () => void;
         expand: () => void;
         enableClosingConfirmation: () => void;
-        MainButton: {
-          text: string;
-          show: () => void;
-          hide: () => void;
-          onClick: (cb: () => void) => void;
-        };
+        initData?: string;
         initDataUnsafe?: {
           user?: {
             id: number;
             first_name: string;
             last_name?: string;
             username?: string;
-          }
-        }
+          };
+        };
       };
     };
   }

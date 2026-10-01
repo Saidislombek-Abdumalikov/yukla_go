@@ -1,6 +1,5 @@
-
 import React, { useState } from 'react';
-import { saveUserTrack } from '../services/storageService';
+import { api } from '../services/api';
 
 interface AddTrackModalProps {
   onClose: () => void;
@@ -9,32 +8,47 @@ interface AddTrackModalProps {
 
 const AddTrackModal: React.FC<AddTrackModalProps> = ({ onClose, onAdded }) => {
   const [trackInput, setTrackInput] = useState('');
+  const [loading, setLoading] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const handleClose = () => {
     setIsClosing(true);
-    setTimeout(onClose, 300);
+    setTimeout(onClose, 250);
   };
 
-  const handleAdd = (e: React.FormEvent) => {
+  const handleAdd = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!trackInput.trim()) return;
-    
-    // Split by comma, filter out empty strings, and trim each ID
-    const trackIds = trackInput
-      .split(',')
-      .map(id => id.trim())
-      .filter(id => id.length > 0);
+    setError(null);
+    const cleaned = trackInput.trim();
+    if (!cleaned) return;
 
-    if (trackIds.length === 0) return;
+    setLoading(true);
+    try {
+      // Split by comma or newlines for multiple tracks
+      const trackIds = cleaned
+        .split(/[\n,]+/)
+        .map(id => id.trim().toUpperCase())
+        .filter(id => id.length > 0);
 
-    // Save each track ID
-    trackIds.forEach(id => {
-      saveUserTrack(id);
-    });
+      if (trackIds.length === 0) {
+        setError('Trek raqamini kiriting');
+        setLoading(false);
+        return;
+      }
 
-    onAdded();
-    handleClose();
+      // Add each tracking code
+      for (const id of trackIds) {
+        await api.addTracking(id);
+      }
+
+      onAdded();
+      handleClose();
+    } catch (err: any) {
+      setError(err?.message || 'Xatolik yuz berdi. Qayta urinib ko\'ring.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -44,33 +58,45 @@ const AddTrackModal: React.FC<AddTrackModalProps> = ({ onClose, onAdded }) => {
         onClick={handleClose}
       ></div>
       
-      <div className={`bg-white w-full max-w-sm rounded-[32px] p-8 shadow-2xl z-10 relative transform transition-all duration-300 ${isClosing ? 'scale-95 opacity-0' : 'scale-100 opacity-100 animate-slide-up'}`}>
-        <h3 className="text-2xl font-black text-text mb-2 text-center">Yuk Qo'shish</h3>
-        <p className="text-text-secondary text-sm text-center mb-6 px-2">
-          Track ID raqamlarini kiriting. Bir nechta bo'lsa vergul (,) bilan ajrating.
+      <div className={`bg-white w-full max-w-sm rounded-[32px] p-6 shadow-2xl z-10 relative transform transition-all duration-300 ${isClosing ? 'scale-95 opacity-0' : 'scale-100 opacity-100 animate-slide-up'}`}>
+        <div className="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-4 sm:hidden"></div>
+
+        <h3 className="text-xl font-black text-gray-900 mb-1 text-center">Track qo'shish</h3>
+        <p className="text-gray-500 text-xs text-center mb-5">
+          Xitoy buyurtmangizning kuzatuv (track) raqamini kiriting
         </p>
         
         <form onSubmit={handleAdd} className="space-y-4">
-          <div className="relative">
-             <textarea 
-                value={trackInput}
-                onChange={(e) => setTrackInput(e.target.value)}
-                placeholder="785..., 786..., 787..."
-                autoFocus
-                rows={3}
-                className="w-full pl-4 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all uppercase font-bold text-lg resize-none"
-             />
+          <div>
+            <textarea 
+              value={trackInput}
+              onChange={(e) => setTrackInput(e.target.value)}
+              placeholder="Masalan: YT882910291CN"
+              autoFocus
+              rows={3}
+              className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:border-primary focus:ring-4 focus:ring-primary/10 transition-all font-mono font-bold text-base uppercase resize-none text-gray-800 placeholder:text-gray-400 placeholder:font-sans placeholder:font-normal placeholder:text-sm"
+            />
+            {error && (
+              <p className="text-xs text-red-500 font-medium mt-1 text-center">{error}</p>
+            )}
           </div>
+
           <button 
-              type="submit"
-              className="w-full bg-primary text-white py-4 rounded-2xl font-bold text-lg shadow-lg shadow-primary/20 active:scale-95 transition-transform"
+            type="submit"
+            disabled={loading || !trackInput.trim()}
+            className={`w-full py-3.5 rounded-2xl font-bold text-base transition-all active:scale-95 ${
+              loading || !trackInput.trim() 
+                ? 'bg-gray-200 text-gray-400 cursor-not-allowed shadow-none' 
+                : 'bg-primary text-white shadow-lg shadow-primary/20 hover:bg-primary-dark'
+            }`}
           >
-              Ro'yxatga qo'shish
+            {loading ? 'Qo\'shilmoqda...' : 'Qo\'shish'}
           </button>
+          
           <button 
             type="button"
             onClick={handleClose}
-            className="w-full py-2 text-text-secondary font-medium text-sm"
+            className="w-full py-2 text-gray-400 font-medium text-xs hover:text-gray-600 transition-colors"
           >
             Bekor qilish
           </button>
