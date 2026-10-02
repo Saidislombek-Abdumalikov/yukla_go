@@ -1,5 +1,6 @@
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'http';
+import { processTelegramUpdate } from './api/_lib/botEngine';
 
 interface DevParcel {
   id: string;
@@ -305,6 +306,17 @@ export function devApiPlugin(): Plugin {
               exchangeRate: { usd_to_uzs: 12850 },
             });
           }
+        }
+
+        // 9. Bot Webhook
+        if (path === '/api/bot/webhook' && req.method === 'POST') {
+          const body = await readBody(req);
+          try {
+            await processTelegramUpdate(body);
+          } catch (err: any) {
+            console.error('Bot webhook error:', err.message);
+          }
+          return sendJson(res, 200, { ok: true });
         }
 
         // Default response for unmatched /api/*
