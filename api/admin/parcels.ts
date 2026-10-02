@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifySessionToken } from '../_lib/auth';
 import { getSupabase } from '../_lib/supabase';
+import { notifyParcelStatusUpdate } from '../_lib/botNotifications';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
@@ -141,6 +142,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         entity_id: parcelIds.join(','),
         details: { action, value, count: parcelIds.length },
       });
+
+      // Dispatch real-time Telegram status alerts
+      if (action === 'status') {
+        try {
+          const { data: affectedParcels } = await supabase
+            .from('parcels')
+            .select('id, tracking_number, weight_kg, amount, users:user_id (telegram_user_id)')
+            .in('id', parcelIds);
+
+          if (affectedParcels) {
+            for (const ap of affectedParcels) {
+              const tgId = (ap as any).users?.telegram_user_id;
+              if (tgId) {
+                notifyParcelStatusUpdate(
+                  tgId,
+                  ap.tracking_number,
+                  value,
+                  Number(ap.weight_kg) || 0,
+                  Number(ap.amount) || 0
+                ).catch(() => {});
+              }
+            }
+          }
+        } catch {
+          // Notification error shouldn't fail the response
+        }
+      }
 
       return res.status(200).json({
         success: true,

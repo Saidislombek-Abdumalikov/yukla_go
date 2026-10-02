@@ -1,7 +1,9 @@
 /**
- * Automated script to set Telegram Webhook for Yukla Go
+ * Automated script to configure Telegram Webhook, Bot Commands, and Menu Button for Yukla Go
  * Usage: node --experimental-strip-types scripts/setup-webhook.ts
  */
+
+export {};
 
 const botToken = process.env.BOT_TOKEN;
 const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -17,10 +19,14 @@ if (!miniAppUrl) {
   process.exit(1);
 }
 
-const webhookUrl = `${miniAppUrl.replace(/\/$/, '')}/api/bot/webhook`;
+const cleanAppUrl = miniAppUrl.replace(/\/$/, '');
+const webhookUrl = `${cleanAppUrl}/api/bot/webhook`;
 
-async function configureWebhook() {
-  console.log(`Setting Telegram Webhook to: ${webhookUrl}...`);
+async function configureBot() {
+  console.log(`--- YUKLA GO TELEGRAM BOTNI SOZLASH ---`);
+
+  // 1. Set Webhook
+  console.log(`1. Webhook o'rnatilmoqda: ${webhookUrl}...`);
   try {
     const res = await fetch(`https://api.telegram.org/bot${botToken}/setWebhook`, {
       method: 'POST',
@@ -29,19 +35,74 @@ async function configureWebhook() {
         url: webhookUrl,
         secret_token: webhookSecret || undefined,
         allowed_updates: ['message', 'callback_query'],
+        drop_pending_updates: false,
       }),
     });
 
     const data = await res.json();
     if (data.ok) {
-      console.log('✅ Webhook muvaffaqiyatli o\'rnatildi!');
-      console.log(data);
+      console.log('   ✅ Webhook muvaffaqiyatli o\'rnatildi!');
     } else {
-      console.error('❌ Telegram xatosi:', data.description);
+      console.error('   ❌ Webhook xatosi:', data.description);
     }
   } catch (err: any) {
-    console.error('❌ Tarmoq xatosi:', err.message);
+    console.error('   ❌ Webhook tarmoq xatosi:', err.message);
   }
+
+  // 2. Set Bot Commands Menu
+  console.log('2. Bot komandalari menyusi sozlanmoqda (setMyCommands)...');
+  try {
+    const commands = [
+      { command: 'start', description: 'Botni ishga tushirish / Asosiy menyu' },
+      { command: 'track', description: 'Yuk holatini trek kod orqali tekshirish' },
+      { command: 'address', description: 'Xitoy ombor manzili (nusxalash)' },
+      { command: 'myid', description: 'Mening profilim va mijoz kodim (YK-###)' },
+      { command: 'calculator', description: 'Yetkazib berish narxini hisoblash' },
+      { command: 'help', description: 'Qo\'llanma va ma\'muriyat bilan bog\'lanish' },
+    ];
+
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/setMyCommands`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ commands }),
+    });
+
+    const data = await res.json();
+    if (data.ok) {
+      console.log('   ✅ Komandalar muvaffaqiyatli ro\'yxatdan o\'tkazildi!');
+    } else {
+      console.error('   ❌ Komandalar xatosi:', data.description);
+    }
+  } catch (err: any) {
+    console.error('   ❌ Komandalar tarmoq xatosi:', err.message);
+  }
+
+  // 3. Set Web App Menu Button (Bottom left button in Telegram)
+  console.log('3. Chat Menu tugmasi sozlanmoqda (setChatMenuButton)...');
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/setChatMenuButton`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        menu_button: {
+          type: 'web_app',
+          text: '📦 Yukla Go',
+          web_app: { url: cleanAppUrl },
+        },
+      }),
+    });
+
+    const data = await res.json();
+    if (data.ok) {
+      console.log('   ✅ Mini App Chat Menu tugmasi muvaffaqiyatli o\'rnatildi!');
+    } else {
+      console.error('   ❌ Chat Menu tugmasi xatosi:', data.description);
+    }
+  } catch (err: any) {
+    console.error('   ❌ Chat Menu tarmoq xatosi:', err.message);
+  }
+
+  console.log('--- SOZLASH YAKUNLANDI ---');
 }
 
-configureWebhook();
+configureBot();

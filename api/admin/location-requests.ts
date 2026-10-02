@@ -1,6 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifySessionToken } from '../_lib/auth';
 import { getSupabase } from '../_lib/supabase';
+import { sendTelegramMessage } from '../_lib/botNotifications';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
@@ -94,6 +95,24 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         entity_id: requestId,
         details: { userId: request.user_id, status, requestedBranchId: request.requested_branch_id },
       });
+
+      // 5. Send Telegram notification to user
+      try {
+        const { data: userRec } = await supabase
+          .from('users')
+          .select('telegram_user_id')
+          .eq('id', request.user_id)
+          .single();
+
+        if (userRec?.telegram_user_id) {
+          const msg = status === 'approved'
+            ? '✅ <b>Yetkazib berish manzilingiz muvaffaqiyatli o\'zgartirildi!</b>\n\nYangi buyurtmalaringiz belgilangan yangi filialga yo\'naltiriladi.'
+            : '⚠️ <b>Manzilni o\'zgartirish so\'rovingiz ma\'qullanmadi.</b>\nBatafsil ma\'lumot uchun admin bilan bog\'laning: @yuklago_support';
+          sendTelegramMessage(userRec.telegram_user_id, msg).catch(() => {});
+        }
+      } catch {
+        // Non-blocking
+      }
 
       return res.status(200).json({
         success: true,
