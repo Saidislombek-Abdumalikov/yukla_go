@@ -35,8 +35,9 @@ function App() {
 
     const initData = tg?.initData;
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    const isDevEnv = import.meta.env.DEV || isLocalhost || window.location.search.includes('preview=true') || window.location.search.includes('dev=true');
 
-    if (!initData && !isLocalhost) {
+    if (!initData && !isDevEnv) {
       setIsTelegramEnv(false);
       setAuthLoading(false);
       return;
@@ -54,8 +55,10 @@ function App() {
           setAuthLoading(false);
         });
     } else {
-      // Local dev mode
-      setAuthLoading(false);
+      // Dev / Preview mode: preload profile
+      api.getProfile().finally(() => {
+        setAuthLoading(false);
+      });
     }
 
     // Check URL hash for admin preview
@@ -71,7 +74,14 @@ function App() {
 
   // If opened directly outside Telegram in a normal browser
   if (!isTelegramEnv) {
-    return <OutsideTelegram />;
+    return (
+      <OutsideTelegram 
+        onPreviewMode={() => {
+          setIsTelegramEnv(true);
+          setAuthLoading(false);
+        }} 
+      />
+    );
   }
 
   // Admin Preview Mode
@@ -104,14 +114,22 @@ function App() {
           <span className="text-3xl block">⚠️</span>
           <h3 className="font-black text-gray-900 text-base">Diqqat</h3>
           <p className="text-xs text-gray-500 leading-relaxed">{authError}</p>
-          <a
-            href="https://t.me/yuklago_bot"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="block w-full py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20"
-          >
-            Telegram botga o'tish
-          </a>
+          <div className="space-y-2">
+            <a
+              href="https://t.me/yuklago_bot"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block w-full py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20"
+            >
+              Telegram botga o'tish
+            </a>
+            <button
+              onClick={() => setAuthError(null)}
+              className="block w-full py-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl text-xs font-medium"
+            >
+              Ko'rish rejimida davom etish
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -120,15 +138,32 @@ function App() {
   const renderContent = () => {
     switch (activeTab) {
       case Tab.HOME:
-        return <TabHome onNavigate={setActiveTab} onAddClick={() => setIsAddModalOpen(true)} />;
+        return (
+          <TabHome 
+            refreshTrigger={refreshKey}
+            onNavigate={setActiveTab} 
+            onAddClick={() => setIsAddModalOpen(true)} 
+          />
+        );
       case Tab.MY_PARCELS:
-        return <TabMyParcels refreshTrigger={refreshKey} />;
+        return (
+          <TabMyParcels 
+            refreshTrigger={refreshKey} 
+            onAddClick={() => setIsAddModalOpen(true)}
+          />
+        );
       case Tab.CALCULATOR:
         return <TabCalculator />;
       case Tab.PROFILE:
         return <TabProfile />;
       default:
-        return <TabHome onNavigate={setActiveTab} onAddClick={() => setIsAddModalOpen(true)} />;
+        return (
+          <TabHome 
+            refreshTrigger={refreshKey}
+            onNavigate={setActiveTab} 
+            onAddClick={() => setIsAddModalOpen(true)} 
+          />
+        );
     }
   };
 
@@ -155,7 +190,7 @@ function App() {
       <Navbar 
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
-        onAddClick={() => setIsAddModalOpen(true)}
+        onAddClick={() => setIsAddModalOpen(true)} 
       />
     </div>
   );

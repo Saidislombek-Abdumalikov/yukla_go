@@ -5,6 +5,7 @@ import { DEV_DEFAULT_RATES } from '../constants';
 
 interface TabMyParcelsProps {
   refreshTrigger?: number;
+  onAddClick?: () => void;
 }
 
 type FilterTab = 'ALL' | 'TRANSIT' | 'UZBEKISTAN' | 'DELIVERED';
@@ -17,7 +18,7 @@ const statusLabels: Record<ParcelStatus, { label: string; color: string }> = {
   delivered: { label: 'Yetkazildi', color: 'bg-green-100 text-green-800' },
 };
 
-const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
+const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0, onAddClick }) => {
   const [parcels, setParcels] = useState<Parcel[]>([]);
   const [activeTab, setActiveTab] = useState<FilterTab>('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -27,14 +28,21 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
 
   useEffect(() => {
     setLoading(true);
-    api.getParcels().then(data => {
-      setParcels(data);
-      setLoading(false);
-    });
+    api.getParcels()
+      .then(data => {
+        setParcels(Array.isArray(data) ? data : []);
+        setLoading(false);
+      })
+      .catch(() => {
+        setParcels([]);
+        setLoading(false);
+      });
   }, [refreshTrigger]);
 
+  const safeParcels = Array.isArray(parcels) ? parcels : [];
+
   const filteredParcels = useMemo(() => {
-    return parcels.filter(p => {
+    return safeParcels.filter(p => {
       // Tab filter
       if (activeTab === 'TRANSIT' && !(p.status === 'in_transit' || p.status === 'china_warehouse' || p.status === 'added')) return false;
       if (activeTab === 'UZBEKISTAN' && p.status !== 'uzbekistan') return false;
@@ -48,7 +56,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
 
       return true;
     });
-  }, [parcels, activeTab, searchQuery]);
+  }, [safeParcels, activeTab, searchQuery]);
 
   const toggleSelect = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
@@ -60,7 +68,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
 
   const toggleSelectAll = () => {
     const currentIds = filteredParcels.map(p => p.id);
-    const allSelected = currentIds.every(id => selectedIds.has(id));
+    const allSelected = currentIds.length > 0 && currentIds.every(id => selectedIds.has(id));
     const next = new Set(selectedIds);
     if (allSelected) {
       currentIds.forEach(id => next.delete(id));
@@ -74,14 +82,14 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
     let weight = 0;
     let price = 0;
     selectedIds.forEach(id => {
-      const p = parcels.find(item => item.id === id);
+      const p = safeParcels.find(item => item.id === id);
       if (p) {
         weight += p.weightKg || 0;
         price += p.amount || 0;
       }
     });
     return { weight, price, count: selectedIds.size };
-  }, [selectedIds, parcels]);
+  }, [selectedIds, safeParcels]);
 
   return (
     <div className="flex flex-col h-[calc(100vh-140px)] animate-fade-in">
@@ -90,8 +98,8 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
       <div className="shrink-0 space-y-3 mb-3 z-10">
         <div className="flex items-center justify-between px-1">
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Yuklarim</h2>
-          <span className="text-xs font-bold text-gray-400 bg-white px-2.5 py-1 rounded-full border border-gray-100">
-            {parcels.length} ta yuk
+          <span className="text-xs font-bold text-gray-500 bg-white px-2.5 py-1 rounded-full border border-gray-100 shadow-sm font-mono">
+            {safeParcels.length} ta yuk
           </span>
         </div>
 
@@ -127,7 +135,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
             onClick={() => setActiveTab('UZBEKISTAN')}
             className={`flex-1 py-2 rounded-xl transition-all ${activeTab === 'UZBEKISTAN' ? 'bg-primary text-white shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
           >
-            Toshkentda
+            O'zbekistonda
           </button>
           <button
             onClick={() => setActiveTab('DELIVERED')}
@@ -145,7 +153,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
             onClick={toggleSelectAll}
             className="text-[11px] font-bold text-primary hover:underline"
           >
-            {filteredParcels.every(p => selectedIds.has(p.id)) ? 'Bekor qilish' : 'Hammasini tanlash'}
+            {filteredParcels.every(p => selectedIds.has(p.id)) ? 'Tanlashni bekor qilish' : 'Hammasini tanlash'}
           </button>
         </div>
       )}
@@ -158,9 +166,22 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
             <p className="text-gray-400 text-xs font-bold mt-2">Yuklanmoqda...</p>
           </div>
         ) : filteredParcels.length === 0 ? (
-          <div className="text-center py-16 bg-white rounded-3xl border border-dashed border-gray-200 p-6">
-            <p className="text-gray-500 font-bold text-sm">Yuklar topilmadi</p>
-            <p className="text-gray-400 text-xs mt-1">Yangi kuzatuv kodini qo'shish uchun pastdagi "+" tugmasini bosing</p>
+          <div className="text-center py-12 bg-white rounded-3xl border border-dashed border-gray-200 p-6 space-y-3">
+            <div className="w-12 h-12 bg-primary/10 text-primary rounded-2xl flex items-center justify-center text-xl mx-auto">
+              📦
+            </div>
+            <p className="text-gray-700 font-bold text-sm">Yuklar topilmadi</p>
+            <p className="text-gray-400 text-xs max-w-xs mx-auto">
+              {searchQuery ? "Ushbu qidiruv bo'yicha hech qanday yuk topilmadi" : "Buyurtmangiz trek raqamini qo'shib, uning yo'nalishini kuzating"}
+            </p>
+            {onAddClick && (
+              <button
+                onClick={onAddClick}
+                className="mt-2 px-5 py-2.5 bg-primary text-white text-xs font-bold rounded-xl active:scale-95 transition-transform shadow-md shadow-primary/20"
+              >
+                + Trek qo'shish
+              </button>
+            )}
           </div>
         ) : (
           filteredParcels.map(parcel => {
@@ -207,7 +228,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
                         {parcel.weightKg ? `${parcel.weightKg} kg` : '-'}
                       </span>
                       <span>•</span>
-                      <span>${parcel.amount?.toFixed(2) || '0.00'}</span>
+                      <span className="font-mono">${parcel.amount?.toFixed(2) || '0.00'}</span>
                       <span>•</span>
                       <span className={parcel.paymentStatus === 'paid' ? 'text-green-600 font-bold' : 'text-amber-600 font-bold'}>
                         {parcel.paymentStatus === 'paid' ? 'To\'langan' : 'To\'lov kutilmoqda'}
@@ -237,7 +258,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
 
                     {parcel.deliveryBranchSnapshot && (
                       <div className="bg-white p-2.5 rounded-xl border border-gray-100">
-                        <p className="text-[10px] text-gray-400 font-bold uppercase">Yetkazish filiali (Snapshot)</p>
+                        <p className="text-[10px] text-gray-400 font-bold uppercase">Yetkazish filiali</p>
                         <p className="font-bold text-gray-800">
                           {parcel.deliveryBranchSnapshot.provider} — {parcel.deliveryBranchSnapshot.branchName}
                         </p>
@@ -264,8 +285,8 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0 }) => {
                 <span className="text-xl font-black">${totals.price.toFixed(2)}</span>
                 <span className="text-xs text-blue-200 font-medium">({totals.weight.toFixed(1)} kg)</span>
               </div>
-              <p className="text-[10px] text-blue-200">
-                ≈ {(totals.price * DEV_DEFAULT_RATES.exchangeRate).toLocaleString()} UZS
+              <p className="text-[10px] text-blue-200 font-mono">
+                ≈ {Math.round(totals.price * DEV_DEFAULT_RATES.exchangeRate).toLocaleString()} UZS
               </p>
             </div>
             <button

@@ -1,6 +1,10 @@
 import React from 'react';
 
-const OutsideTelegram: React.FC = () => {
+interface OutsideTelegramProps {
+  onPreviewMode?: () => void;
+}
+
+const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onPreviewMode }) => {
   return (
     <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6 text-center animate-fade-in">
       <div className="w-full max-w-sm bg-white p-8 rounded-[36px] shadow-soft border border-gray-100 space-y-5">
@@ -26,6 +30,16 @@ const OutsideTelegram: React.FC = () => {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
           </svg>
         </a>
+
+        {onPreviewMode && (
+          <button
+            type="button"
+            onClick={onPreviewMode}
+            className="w-full py-2.5 px-4 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-2xl font-bold text-xs transition-colors"
+          >
+            Demo / Ko'rish rejimida ochish
+          </button>
+        )}
       </div>
     </div>
   );

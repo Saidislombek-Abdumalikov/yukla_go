@@ -38,10 +38,22 @@ const TabProfile: React.FC = () => {
     try {
       const res = await api.requestLocationChange(selectedBranchId);
       setRequestFeedback(res.message || 'So\'rov yuborildi');
+      const target = availableBranches.find(b => b.id === selectedBranchId || b.branchName === selectedBranchId);
+      if (target) {
+        setProfile(prev => prev ? ({
+          ...prev,
+          defaultDeliveryBranch: {
+            provider: target.provider,
+            branchName: target.branch_name || target.branchName,
+            region: target.region,
+            address: target.address,
+          }
+        }) : null);
+      }
       setTimeout(() => {
         setShowAddressModal(false);
         setRequestFeedback(null);
-      }, 2000);
+      }, 1500);
     } catch (err: any) {
       setRequestFeedback(err.message || 'Xatolik yuz berdi');
     } finally {
@@ -192,7 +204,7 @@ const TabProfile: React.FC = () => {
                   className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-xs font-medium text-gray-800 outline-none focus:border-primary"
                 >
                   {availableBranches.map((b: any) => (
-                    <option key={b.id} value={b.id}>
+                    <option key={b.id || b.branchName || b.branch_name} value={b.id || b.branchName || b.branch_name}>
                       {b.region} — {b.branch_name || b.branchName}
                     </option>
                   ))}

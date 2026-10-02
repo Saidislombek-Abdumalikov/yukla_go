@@ -5,21 +5,27 @@ import { api } from '../services/api';
 interface TabHomeProps {
   onNavigate: (tab: Tab) => void;
   onAddClick: () => void;
+  refreshTrigger?: number;
 }
 
-const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick }) => {
+const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick, refreshTrigger = 0 }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [warehouse, setWarehouse] = useState<ChinaWarehouseAddress | null>(null);
   const [parcels, setParcels] = useState<Parcel[]>([]);
   const [copied, setCopied] = useState(false);
+  const [copiedField, setCopiedField] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getProfile().then(setUser);
-    api.getWarehouseAddress().then(setWarehouse);
-    api.getParcels().then(setParcels);
-  }, []);
+    api.getProfile().then(setUser).catch(() => {});
+    api.getWarehouseAddress().then(setWarehouse).catch(() => {});
+    api.getParcels().then(data => {
+      setParcels(Array.isArray(data) ? data : []);
+    }).catch(() => {
+      setParcels([]);
+    });
+  }, [refreshTrigger]);
 
-  const handleCopy = () => {
+  const handleCopyFull = () => {
     if (!warehouse) return;
     const textToCopy = `收件人: ${warehouse.receiver}\n手机号码: ${warehouse.phone}\n所在地区: ${warehouse.region}\n详细地址: ${warehouse.address}`;
     navigator.clipboard.writeText(textToCopy).then(() => {
@@ -28,9 +34,17 @@ const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick }) => {
     });
   };
 
-  const inTransitCount = parcels.filter(p => p.status === 'in_transit' || p.status === 'china_warehouse').length;
-  const uzbCount = parcels.filter(p => p.status === 'uzbekistan').length;
-  const deliveredCount = parcels.filter(p => p.status === 'delivered').length;
+  const handleCopySingle = (text: string, fieldName: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedField(fieldName);
+      setTimeout(() => setCopiedField(null), 1500);
+    });
+  };
+
+  const safeParcels = Array.isArray(parcels) ? parcels : [];
+  const inTransitCount = safeParcels.filter(p => p.status === 'in_transit' || p.status === 'china_warehouse' || p.status === 'added').length;
+  const uzbCount = safeParcels.filter(p => p.status === 'uzbekistan').length;
+  const deliveredCount = safeParcels.filter(p => p.status === 'delivered').length;
 
   return (
     <div className="space-y-5 pb-32 animate-fade-in">
@@ -63,27 +77,53 @@ const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick }) => {
             </span>
           </div>
 
-          {/* Address Details */}
-          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 mb-4 border border-white/10 space-y-2 text-xs">
-            <div>
-              <span className="text-blue-200 block text-[10px] font-medium uppercase">Qabul qiluvchi (收件人):</span>
-              <span className="font-bold text-white select-all">{warehouse?.receiver || 'Yukla Go'}</span>
+          {/* Address Details with quick single-copy clicks */}
+          <div className="bg-white/10 backdrop-blur-sm rounded-2xl p-4 mb-4 border border-white/10 space-y-2.5 text-xs">
+            <div 
+              onClick={() => warehouse && handleCopySingle(warehouse.receiver, 'receiver')}
+              className="flex justify-between items-center cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors"
+            >
+              <div>
+                <span className="text-blue-200 block text-[10px] font-medium uppercase">Qabul qiluvchi (收件人):</span>
+                <span className="font-bold text-white select-all">{warehouse?.receiver || 'Yukla Go'}</span>
+              </div>
+              <span className="text-[10px] text-blue-200 opacity-75 font-mono">
+                {copiedField === 'receiver' ? '✓ Nusxalandi' : 'Nusxa'}
+              </span>
             </div>
-            <div>
-              <span className="text-blue-200 block text-[10px] font-medium uppercase">Telefon (手机号码):</span>
-              <span className="font-bold font-mono text-white select-all">{warehouse?.phone || '-'}</span>
+
+            <div 
+              onClick={() => warehouse && handleCopySingle(warehouse.phone, 'phone')}
+              className="flex justify-between items-center cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors"
+            >
+              <div>
+                <span className="text-blue-200 block text-[10px] font-medium uppercase">Telefon (手机号码):</span>
+                <span className="font-bold font-mono text-white select-all">{warehouse?.phone || '-'}</span>
+              </div>
+              <span className="text-[10px] text-blue-200 opacity-75 font-mono">
+                {copiedField === 'phone' ? '✓ Nusxalandi' : 'Nusxa'}
+              </span>
             </div>
-            <div>
-              <span className="text-blue-200 block text-[10px] font-medium uppercase">Manzil (详细地址):</span>
-              <span className="font-bold text-white leading-relaxed select-all">
-                {warehouse?.region} {warehouse?.address}
+
+            <div 
+              onClick={() => warehouse && handleCopySingle(`${warehouse.region} ${warehouse.address}`, 'address')}
+              className="flex justify-between items-start cursor-pointer hover:bg-white/5 p-1 rounded-lg transition-colors"
+            >
+              <div className="pr-2">
+                <span className="text-blue-200 block text-[10px] font-medium uppercase">Manzil (详细地址):</span>
+                <span className="font-bold text-white leading-relaxed select-all">
+                  {warehouse?.region} {warehouse?.address}
+                </span>
+              </div>
+              <span className="text-[10px] text-blue-200 opacity-75 font-mono shrink-0 mt-3">
+                {copiedField === 'address' ? '✓ Nusxalandi' : 'Nusxa'}
               </span>
             </div>
           </div>
 
-          {/* Copy Button */}
+          {/* Copy Full Address Button */}
           <button
-            onClick={handleCopy}
+            onClick={handleCopyFull}
             className={`w-full py-3 rounded-xl font-bold text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-95 ${
               copied 
                 ? 'bg-green-500 text-white shadow-sm' 
@@ -93,12 +133,12 @@ const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick }) => {
             {copied ? (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                <span>Nusxalandi!</span>
+                <span>To'liq manzil nusxalandi!</span>
               </>
             ) : (
               <>
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" /></svg>
-                <span>Manzilni nusxalash</span>
+                <span>To'liq manzilni nusxalash</span>
               </>
             )}
           </button>
