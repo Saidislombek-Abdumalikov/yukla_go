@@ -63,6 +63,7 @@ curl -F "url=https://your-domain.vercel.app/api/bot/webhook" \
 ## 5. Helpful Commands
 
 - `npm run dev` — Run frontend locally on port 3000
-- `npm test` — Run security audit and E2E integration tests
+- `npm test` — Run security audit, E2E integration tests, and Telegram bot tests
+- `npm run bot:poll` — Run local long-polling Telegram bot tester without deploying
+- `npm run bot:webhook` — Set Telegram bot webhook and commands menu automatically
 - `npm run db:verify` — Verify Supabase tables and connection
-- `npm run bot:webhook` — Set Telegram bot webhook automatically
