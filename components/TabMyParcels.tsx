@@ -27,16 +27,22 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0, onAddCl
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    setLoading(true);
-    api.getParcels()
-      .then(data => {
-        setParcels(Array.isArray(data) ? data : []);
-        setLoading(false);
-      })
-      .catch(() => {
-        setParcels([]);
-        setLoading(false);
-      });
+    const fetchParcels = () => {
+      setLoading(true);
+      api.getParcels()
+        .then(data => {
+          setParcels(Array.isArray(data) ? data : []);
+          setLoading(false);
+        })
+        .catch(() => {
+          setParcels([]);
+          setLoading(false);
+        });
+    };
+
+    fetchParcels();
+    window.addEventListener('focus', fetchParcels);
+    return () => window.removeEventListener('focus', fetchParcels);
   }, [refreshTrigger]);
 
   const safeParcels = Array.isArray(parcels) ? parcels : [];

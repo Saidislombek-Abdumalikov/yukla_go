@@ -8,7 +8,10 @@ const TabCalculator: React.FC = () => {
   const [weightInput, setWeightInput] = useState<string>('');
 
   useEffect(() => {
-    api.getRates().then(setRates);
+    const fetchRates = () => api.getRates().then(setRates).catch(() => {});
+    fetchRates();
+    window.addEventListener('focus', fetchRates);
+    return () => window.removeEventListener('focus', fetchRates);
   }, []);
 
   const weight = parseFloat(weightInput.replace(',', '.')) || 0;

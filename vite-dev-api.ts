@@ -13,6 +13,7 @@ interface DevParcel {
   currency: string;
   chinaDate?: string;
   estimatedArrival?: string;
+  cargoSubmittedAt?: string | null;
   deliveryBranchSnapshot?: {
     provider: string;
     branchName: string;
@@ -40,6 +41,24 @@ let devUser = {
   },
 };
 
+let devRates = {
+  pricePerKg: 9.5,
+  exchangeRate: 12850,
+  supportUsername: 'yuklago_support',
+};
+
+let devWarehouse = {
+  id: 'cp_1',
+  internal_name: 'Main China Air Hub',
+  receiver_name: 'Yukla Go',
+  phone: '13335957161',
+  province: '浙江省',
+  city: '金华市义乌市',
+  warehouse_code: '077库房/70099号',
+  address_template: '077库房/70099号 {customer_id}',
+  active: true,
+};
+
 const devBranches = [
   { id: 'b_1', provider: 'BTS', branch_name: 'BTS Chorsu', branchName: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12-uy' },
   { id: 'b_2', provider: 'BTS', branch_name: 'BTS Chilonzor', branchName: 'BTS Chilonzor', region: 'Toshkent', address: 'Chilonzor 9-mavze, Qatortol 1' },
@@ -61,6 +80,7 @@ let devParcels: DevParcel[] = [
     currency: 'USD',
     chinaDate: '28.09.2026',
     estimatedArrival: '05.10.2026',
+    cargoSubmittedAt: '2026-09-28T12:00:00.000Z',
     deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
     createdAt: '2026-09-28T10:00:00.000Z',
   },
@@ -75,6 +95,7 @@ let devParcels: DevParcel[] = [
     currency: 'USD',
     chinaDate: '01.10.2026',
     estimatedArrival: '08.10.2026',
+    cargoSubmittedAt: null,
     deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
     createdAt: '2026-10-01T08:30:00.000Z',
   },
@@ -89,6 +110,7 @@ let devParcels: DevParcel[] = [
     currency: 'USD',
     chinaDate: '20.09.2026',
     estimatedArrival: '02.10.2026',
+    cargoSubmittedAt: '2026-09-20T16:00:00.000Z',
     deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
     createdAt: '2026-09-20T14:15:00.000Z',
   },
@@ -103,6 +125,7 @@ let devParcels: DevParcel[] = [
     currency: 'USD',
     chinaDate: '10.09.2026',
     estimatedArrival: '18.09.2026',
+    cargoSubmittedAt: '2026-09-10T14:00:00.000Z',
     deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
     createdAt: '2026-09-10T11:00:00.000Z',
   },
@@ -131,7 +154,7 @@ function sendJson(res: ServerResponse, status: number, data: any) {
   res.statusCode = status;
   res.setHeader('Content-Type', 'application/json; charset=utf-8');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
   res.end(JSON.stringify(data));
 }
@@ -151,7 +174,7 @@ export function devApiPlugin(): Plugin {
         if (req.method === 'OPTIONS') {
           res.statusCode = 204;
           res.setHeader('Access-Control-Allow-Origin', '*');
-          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PATCH, PUT, DELETE, OPTIONS');
           res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
           return res.end();
         }
@@ -171,22 +194,27 @@ export function devApiPlugin(): Plugin {
           return sendJson(res, 200, devUser);
         }
 
-        // 3. Warehouse address
+        // 3. Warehouse address (Dynamic from devWarehouse)
         if (path === '/api/config/warehouse') {
+          const region = `${devWarehouse.province} ${devWarehouse.city}`.trim();
+          const address = devWarehouse.address_template
+            .replace('{warehouse_code}', devWarehouse.warehouse_code)
+            .replace('{customer_id}', devUser.customerCode);
+
           return sendJson(res, 200, {
-            receiver: `Yukla Go (${devUser.customerCode})`,
-            phone: '13335957161',
-            region: '浙江省金华市义乌市',
-            address: `077库房/70099号 ${devUser.customerCode}`,
+            receiver: `${devWarehouse.receiver_name} (${devUser.customerCode})`,
+            phone: devWarehouse.phone,
+            region,
+            address,
             customerCode: devUser.customerCode,
           });
         }
 
-        // 4. Shipping rates
+        // 4. Shipping rates (Dynamic from devRates)
         if (path === '/api/config/rates') {
           return sendJson(res, 200, {
-            pricePerKg: 9.5,
-            exchangeRate: 12850,
+            pricePerKg: devRates.pricePerKg,
+            exchangeRate: devRates.exchangeRate,
           });
         }
 
@@ -218,7 +246,7 @@ export function devApiPlugin(): Plugin {
           });
         }
 
-        // 7. Parcels GET / POST
+        // 7. Parcels GET / POST (Customer App)
         if (path === '/api/parcels') {
           if (req.method === 'GET') {
             return sendJson(res, 200, devParcels);
@@ -253,6 +281,7 @@ export function devApiPlugin(): Plugin {
                 currency: 'USD',
                 chinaDate: new Date().toLocaleDateString('ru-RU'),
                 estimatedArrival: 'Aniqlanmoqda',
+                cargoSubmittedAt: null,
                 deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
                 createdAt: new Date().toISOString(),
               };
@@ -270,41 +299,154 @@ export function devApiPlugin(): Plugin {
         // 8. Admin preview endpoints
         if (path.startsWith('/api/admin/')) {
           if (path === '/api/admin/stats') {
+            const unsubmittedCount = devParcels.filter(p => !p.cargoSubmittedAt).length;
             return sendJson(res, 200, {
               totalUsers: 142,
               activeParcels: devParcels.filter(p => p.status !== 'delivered').length,
+              unsubmittedTracks: unsubmittedCount,
               deliveredParcels: devParcels.filter(p => p.status === 'delivered').length,
               pendingLocationRequests: 2,
             });
           }
+
           if (path === '/api/admin/users') {
             return sendJson(res, 200, [devUser]);
           }
+
           if (path === '/api/admin/parcels') {
-            return sendJson(res, 200, devParcels);
+            if (req.method === 'GET') {
+              let result = devParcels;
+              const unsubmitted = params.get('unsubmitted');
+              const search = params.get('search');
+              if (unsubmitted === 'true') {
+                result = result.filter(p => !p.cargoSubmittedAt);
+              }
+              if (search) {
+                const s = search.toLowerCase();
+                result = result.filter(p => p.trackingNumber.toLowerCase().includes(s) || p.customerCode.toLowerCase().includes(s));
+              }
+              return sendJson(res, 200, result);
+            }
+
+            // PATCH: Bulk status, payment, mark_submitted, or update weight/amount
+            if (req.method === 'PATCH') {
+              const body = await readBody(req);
+              const { action, parcelIds, value, weightKg, amount } = body;
+              if (Array.isArray(parcelIds)) {
+                for (const id of parcelIds) {
+                  const p = devParcels.find(item => item.id === id);
+                  if (p) {
+                    if (action === 'status') p.status = value;
+                    if (action === 'payment') p.paymentStatus = value;
+                    if (action === 'mark_submitted') p.cargoSubmittedAt = new Date().toISOString();
+                    if (weightKg !== undefined) {
+                      p.weightKg = Number(weightKg);
+                      p.amount = Number((p.weightKg * devRates.pricePerKg).toFixed(2));
+                    }
+                    if (amount !== undefined) p.amount = Number(amount);
+                  }
+                }
+              }
+              return sendJson(res, 200, {
+                success: true,
+                message: 'Yuklar muvaffaqiyatli yangilandi',
+                parcels: devParcels,
+              });
+            }
+
+            // POST: Admin enters / imports tracks for users
+            if (req.method === 'POST') {
+              const body = await readBody(req);
+              const { trackingNumbers, customerCode, status = 'china_warehouse', weightKg = 0 } = body;
+              let tracks: string[] = [];
+              if (typeof body.trackingNumber === 'string') tracks = [body.trackingNumber];
+              else if (Array.isArray(trackingNumbers)) tracks = trackingNumbers;
+
+              const cleanTracks = tracks
+                .map(t => t.trim().toUpperCase())
+                .filter(t => t.length > 0);
+
+              let addedCount = 0;
+              for (const trk of cleanTracks) {
+                if (!devParcels.some(p => p.trackingNumber === trk)) {
+                  const weight = Number(weightKg) || 0;
+                  const price = Number((weight * devRates.pricePerKg).toFixed(2));
+                  devParcels.unshift({
+                    id: `p_dev_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                    trackingNumber: trk,
+                    customerCode: customerCode || devUser.customerCode,
+                    status: status as any,
+                    paymentStatus: 'pending',
+                    weightKg: weight,
+                    amount: price,
+                    currency: 'USD',
+                    chinaDate: new Date().toLocaleDateString('ru-RU'),
+                    estimatedArrival: 'Aniqlanmoqda',
+                    cargoSubmittedAt: null,
+                    deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
+                    createdAt: new Date().toISOString(),
+                  });
+                  addedCount++;
+                }
+              }
+
+              return sendJson(res, 201, {
+                success: true,
+                message: `${addedCount} ta yangi trek kiritildi`,
+                parcels: devParcels,
+              });
+            }
           }
+
+          // Cargo providers (China Warehouse Settings)
           if (path === '/api/admin/cargo-providers') {
-            return sendJson(res, 200, [
-              {
-                id: 'cp_1',
-                name: 'Yukla Go Yiwu Primary',
-                warehouse_code: '077库房',
-                province: 'Zhejiang',
-                city: 'Yiwu',
-                full_address: 'Beiyuan Industrial District, No. 88',
-                phone: '13335957161',
-                active: true,
-              },
-            ]);
+            if (req.method === 'GET') {
+              return sendJson(res, 200, [devWarehouse]);
+            }
+            if (req.method === 'PATCH') {
+              const body = await readBody(req);
+              if (body.receiver_name !== undefined) devWarehouse.receiver_name = body.receiver_name;
+              if (body.phone !== undefined) devWarehouse.phone = body.phone;
+              if (body.province !== undefined) devWarehouse.province = body.province;
+              if (body.city !== undefined) devWarehouse.city = body.city;
+              if (body.warehouse_code !== undefined) devWarehouse.warehouse_code = body.warehouse_code;
+              if (body.address_template !== undefined) devWarehouse.address_template = body.address_template;
+              return sendJson(res, 200, {
+                success: true,
+                message: 'Xitoy ombor manzili muvaffaqiyatli yangilandi',
+                warehouse: devWarehouse,
+              });
+            }
           }
+
           if (path === '/api/admin/location-requests') {
             return sendJson(res, 200, []);
           }
+
+          // System Settings (Rates & Support)
           if (path === '/api/admin/settings') {
-            return sendJson(res, 200, {
-              cargoRates: { price_per_kg: 9.5 },
-              exchangeRate: { usd_to_uzs: 12850 },
-            });
+            if (req.method === 'GET') {
+              return sendJson(res, 200, devRates);
+            }
+            if (req.method === 'PATCH') {
+              const body = await readBody(req);
+              if (body.pricePerKg !== undefined) devRates.pricePerKg = Number(body.pricePerKg);
+              if (body.exchangeRate !== undefined) devRates.exchangeRate = Number(body.exchangeRate);
+              if (body.supportUsername !== undefined) devRates.supportUsername = String(body.supportUsername);
+
+              // Recalculate parcel amounts if pricePerKg changed
+              devParcels.forEach(p => {
+                if (p.weightKg > 0) {
+                  p.amount = Number((p.weightKg * devRates.pricePerKg).toFixed(2));
+                }
+              });
+
+              return sendJson(res, 200, {
+                success: true,
+                message: 'Tariflar va sozlamalar muvaffaqiyatli saqlandi',
+                settings: devRates,
+              });
+            }
           }
         }
 

@@ -43,33 +43,47 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   if (req.method === 'PATCH') {
-    const { providerId, setActive } = req.body || {};
-    if (!providerId || setActive === undefined) {
-      return res.status(400).json({ error: 'providerId va setActive talab qilinadi' });
-    }
+    const { providerId, setActive, phone, province, city, warehouse_code, address_template, receiver_name } = req.body || {};
 
     if (!supabase) {
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, message: 'Ombor sozlamalari yangilandi' });
     }
 
     try {
-      if (setActive) {
-        // First set all others inactive to enforce single active provider rule
-        await supabase.from('cargo_providers').update({ active: false }).neq('id', providerId);
-        await supabase.from('cargo_providers').update({ active: true }).eq('id', providerId);
-      } else {
-        await supabase.from('cargo_providers').update({ active: false }).eq('id', providerId);
+      if (setActive !== undefined) {
+        if (setActive) {
+          await supabase.from('cargo_providers').update({ active: false }).neq('id', providerId);
+          await supabase.from('cargo_providers').update({ active: true }).eq('id', providerId);
+        } else {
+          await supabase.from('cargo_providers').update({ active: false }).eq('id', providerId);
+        }
+      }
+
+      // Allow updating address fields
+      const updateData: Record<string, any> = {};
+      if (phone !== undefined) updateData.phone = phone;
+      if (province !== undefined) updateData.province = province;
+      if (city !== undefined) updateData.city = city;
+      if (warehouse_code !== undefined) updateData.warehouse_code = warehouse_code;
+      if (address_template !== undefined) updateData.address_template = address_template;
+      if (receiver_name !== undefined) updateData.receiver_name = receiver_name;
+
+      if (Object.keys(updateData).length > 0) {
+        const targetId = providerId || (await supabase.from('cargo_providers').select('id').eq('active', true).single()).data?.id;
+        if (targetId) {
+          await supabase.from('cargo_providers').update(updateData).eq('id', targetId);
+        }
       }
 
       await supabase.from('admin_audit_logs').insert({
         admin_telegram_id: session.telegramUserId,
-        action: 'SWITCH_CARGO_PROVIDER',
+        action: 'UPDATE_CARGO_PROVIDER',
         entity_type: 'cargo_providers',
-        entity_id: providerId,
-        details: { active: setActive },
+        entity_id: providerId || 'active',
+        details: { setActive, ...updateData },
       });
 
-      return res.status(200).json({ success: true, message: 'Karqo provayderi yangilandi' });
+      return res.status(200).json({ success: true, message: 'Karqo ombori sozlamalari yangilandi' });
     } catch (err) {
       return res.status(500).json({ error: 'Xatolik' });
     }
