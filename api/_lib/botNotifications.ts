@@ -6,8 +6,27 @@
  * statuses change, location change requests are approved, etc.
  */
 
-const BOT_TOKEN = process.env.BOT_TOKEN || '';
+import fs from 'fs';
+import path from 'path';
+
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yukla-go.vercel.app';
+
+export function getBotToken(): string {
+  if (process.env.BOT_TOKEN) return process.env.BOT_TOKEN;
+  try {
+    const envPath = path.resolve(process.cwd(), '.env');
+    if (fs.existsSync(envPath)) {
+      const content = fs.readFileSync(envPath, 'utf-8');
+      const match = content.match(/^BOT_TOKEN=(.+)$/m);
+      if (match && match[1]) {
+        const val = match[1].trim();
+        process.env.BOT_TOKEN = val;
+        return val;
+      }
+    }
+  } catch {}
+  return '';
+}
 
 export const STATUS_MESSAGES: Record<string, { title: string; desc: string }> = {
   added: {
@@ -32,14 +51,15 @@ export const STATUS_MESSAGES: Record<string, { title: string; desc: string }> = 
   },
 };
 
-export async function sendTelegramMessage(chatId: number | string, text: string, replyMarkup?: any) {
-  if (!BOT_TOKEN) {
-    console.log(`[BOT DEV NOTIFY] To ${chatId}: ${text}`);
+export async function sendTelegramMessage(chatId: number | string, text: string, replyMarkup?: any): Promise<boolean> {
+  const token = getBotToken();
+  if (!token) {
+    console.log(`[BOT DEV NOTIFY] No BOT_TOKEN. Message to ${chatId}: ${text}`);
     return false;
   }
 
   try {
-    const res = await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -49,7 +69,12 @@ export async function sendTelegramMessage(chatId: number | string, text: string,
         reply_markup: replyMarkup,
       }),
     });
-    return res.ok;
+    const json = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error(`Telegram API error for chat ${chatId}:`, json);
+      return false;
+    }
+    return true;
   } catch (err) {
     console.error('Failed to send Telegram notification:', err);
     return false;

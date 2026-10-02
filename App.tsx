@@ -116,7 +116,7 @@ function App() {
           <p className="text-xs text-gray-500 leading-relaxed">{authError}</p>
           <div className="space-y-2">
             <a
-              href="https://t.me/yuklago_bot"
+              href="https://t.me/yuklakargobot"
               target="_blank"
               rel="noopener noreferrer"
               className="block w-full py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20"

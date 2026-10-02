@@ -20,26 +20,38 @@ const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onPreviewMode }) => {
         </div>
 
         <a
-          href="https://t.me/yuklago_bot"
+          href="https://t.me/yuklakargobot"
           target="_blank"
           rel="noopener noreferrer"
           className="w-full py-3.5 px-4 bg-primary hover:bg-primary-dark text-white rounded-2xl font-bold text-xs uppercase tracking-wider shadow-lg shadow-primary/25 transition-all flex items-center justify-center gap-2 active:scale-95"
         >
-          <span>Telegram botni ochish</span>
+          <span>Telegram botni ochish (@yuklakargobot)</span>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
           </svg>
         </a>
 
-        {onPreviewMode && (
+        <div className="flex gap-2">
+          {onPreviewMode && (
+            <button
+              type="button"
+              onClick={onPreviewMode}
+              className="flex-1 py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl font-bold text-xs transition-colors border border-gray-200"
+            >
+              Mijoz ilovasi (Demo)
+            </button>
+          )}
           <button
             type="button"
-            onClick={onPreviewMode}
-            className="w-full py-2.5 px-4 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-2xl font-bold text-xs transition-colors"
+            onClick={() => {
+              window.location.hash = '#admin';
+              window.location.reload();
+            }}
+            className="flex-1 py-2.5 px-3 bg-blue-50 hover:bg-blue-100 text-primary rounded-xl font-bold text-xs transition-colors border border-blue-200"
           >
-            Demo / Ko'rish rejimida ochish
+            Admin panel &rarr;
           </button>
-        )}
+        </div>
       </div>
     </div>
   );

@@ -560,13 +560,16 @@ async function sendWarehouseAddress(chatId: number, customerCode: string, supaba
     }
   }
 
+  const fullOneLine = `${receiver}，${phone}，${region} ${address}`;
+
   const message =
     `🇨🇳 <b>Xitoydagi ombor manzilingiz:</b>\n\n` +
     `👤 <b>Qabul qiluvchi (收件人):</b>\n<code>${receiver}</code>\n\n` +
     `📱 <b>Telefon (手机号码):</b>\n<code>${phone}</code>\n\n` +
     `📍 <b>Hudud (所在地区):</b>\n<code>${region}</code>\n\n` +
     `🏢 <b>Batafsil manzil (详细地址):</b>\n<code>${address}</code>\n\n` +
-    `💡 <i>Nusxalash uchun matn ustiga bosing. Taobao / 1688 / Pinduoduo ilovalarida manzil sifatida kiriting.</i>`;
+    `📋 <b>Bitta bosishda nusxalash (Taobao/1688 uchun):</b>\n<code>${fullOneLine}</code>\n\n` +
+    `💡 <i>Nusxalash uchun matn ustiga bir marta bosing. Taobao ilovasida manzil qo'shish oynasiga kirsangiz, avtomatik to'ldirish taklif qilinadi.</i>`;
 
   const keyboard = {
     inline_keyboard: [

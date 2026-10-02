@@ -2,19 +2,16 @@
  * ==============================================================================
  * LOCAL BOT POLLER (DEV TESTER)
  * ==============================================================================
- * Runs long-polling against Telegram Bot API.
- * Forwards updates to local dev server (http://localhost:3000/api/bot/webhook)
- * or executes them directly in-process if server is offline.
+ * Runs long-polling against Telegram Bot API and processes updates directly.
  *
  * Usage:
  *   npm run bot:poll
  */
 
 import { processTelegramUpdate } from '../api/_lib/botEngine.ts';
+import { getBotToken } from '../api/_lib/botNotifications.ts';
 
-const botToken = process.env.BOT_TOKEN;
-const webhookSecret = process.env.TELEGRAM_WEBHOOK_SECRET || '';
-const localWebhookUrl = process.env.LOCAL_WEBHOOK_URL || 'http://localhost:3000/api/bot/webhook';
+const botToken = getBotToken();
 
 if (!botToken) {
   console.log('\n⚠️ BOT_TOKEN topilmadi.');
@@ -56,39 +53,20 @@ async function pollUpdates() {
           const msgText = update.message?.text || update.callback_query?.data || '[Action]';
           console.log(`[Update #${update.update_id}] ${userSender}: ${msgText}`);
 
-          // Try forwarding to local dev server
-          let forwarded = false;
+          // Process update directly in-process
           try {
-            const hookRes = await fetch(localWebhookUrl, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'x-telegram-bot-api-secret-token': webhookSecret,
-              },
-              body: JSON.stringify(update),
-            });
-            if (hookRes.ok) {
-              forwarded = true;
-            }
-          } catch {
-            // Local dev server not running
-          }
-
-          // If dev server was not reachable, process update directly in-process!
-          if (!forwarded) {
-            try {
-              await processTelegramUpdate(update);
-            } catch (err: any) {
-              console.error('Xatolik:', err.message);
-            }
+            await processTelegramUpdate(update);
+            console.log(`✓ Javob yuborildi: [Update #${update.update_id}]`);
+          } catch (err: any) {
+            console.error('Xatolik:', err.message);
           }
         }
       } else {
-        await new Promise((r) => setTimeout(r, 1500));
+        await new Promise((r) => setTimeout(r, 1000));
       }
     } catch (err: any) {
       console.error('Tarmoq xatosi:', err.message);
-      await new Promise((r) => setTimeout(r, 3000));
+      await new Promise((r) => setTimeout(r, 2000));
     }
   }
 }
