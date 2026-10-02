@@ -139,7 +139,7 @@ const TabProfile: React.FC = () => {
 
         {/* Telegram Admin Support */}
         <a 
-          href="https://t.me/yuklago_support" 
+          href="https://t.me/nothing_related" 
           target="_blank" 
           rel="noopener noreferrer"
           className="w-full p-4 flex items-center justify-between hover:bg-gray-50 transition-colors text-left"

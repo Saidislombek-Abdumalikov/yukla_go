@@ -1,5 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSupabase } from '../_lib/supabase';
+import { getBranches } from '../_lib/branchesData';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
@@ -10,18 +11,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const supabase = getSupabase();
 
   if (!supabase) {
-    // Development fallback branches
-    const devBranches = [
-      { id: 'b_1', provider: 'BTS', branch_name: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12' },
-      { id: 'b_2', provider: 'BTS', branch_name: 'BTS Chilonzor', region: 'Toshkent', address: 'Chilonzor 9-mavze, Qatortol 1' },
-      { id: 'b_3', provider: 'EMU', branch_name: 'EMU Yunusobod', region: 'Toshkent', address: 'Yunusobod 4-mavze' },
-      { id: 'b_4', provider: 'EMU', branch_name: 'EMU Chortoq', region: 'Namangan', address: 'Mustaqillik ko\'chasi 10' },
-      { id: 'b_5', provider: 'UZPOST', branch_name: 'Bosh Pochtampt', region: 'Toshkent', address: 'Shahrisabz ko\'chasi 7' },
-    ];
-    let filtered = devBranches;
-    if (provider) filtered = filtered.filter(b => b.provider === String(provider).toUpperCase());
-    if (region) filtered = filtered.filter(b => b.region.toLowerCase() === String(region).toLowerCase());
-    return res.status(200).json(filtered);
+    const list = getBranches(
+      provider ? String(provider) : undefined,
+      region ? String(region) : undefined
+    ).map(b => ({
+      ...b,
+      branch_name: b.branchName,
+    }));
+    return res.status(200).json(list);
   }
 
   try {

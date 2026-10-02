@@ -107,7 +107,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (userRec?.telegram_user_id) {
           const msg = status === 'approved'
             ? '✅ <b>Yetkazib berish manzilingiz muvaffaqiyatli o\'zgartirildi!</b>\n\nYangi buyurtmalaringiz belgilangan yangi filialga yo\'naltiriladi.'
-            : '⚠️ <b>Manzilni o\'zgartirish so\'rovingiz ma\'qullanmadi.</b>\nBatafsil ma\'lumot uchun admin bilan bog\'laning: @yuklago_support';
+            : '⚠️ <b>Manzilni o\'zgartirish so\'rovingiz ma\'qullanmadi.</b>\nBatafsil ma\'lumot uchun admin bilan bog\'laning: @nothing_related';
           sendTelegramMessage(userRec.telegram_user_id, msg).catch(() => {});
         }
       } catch {

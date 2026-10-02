@@ -13,19 +13,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (req.method === 'GET') {
     if (!supabase) {
-      return res.status(200).json({ pricePerKg: 9.5, exchangeRate: 12850, supportUsername: 'yuklago_support' });
+      return res.status(200).json({ pricePerKg: 9.5, exchangeRate: 12850, supportUsername: 'nothing_related' });
     }
 
     try {
       const { data } = await supabase.from('app_settings').select('*');
       let pricePerKg = 9.5;
       let exchangeRate = 12850;
-      let supportUsername = 'yuklago_support';
+      let supportUsername = 'nothing_related';
 
       data?.forEach(s => {
         if (s.key === 'cargo_rates') pricePerKg = s.value?.price_per_kg ?? 9.5;
         if (s.key === 'exchange_rate') exchangeRate = s.value?.usd_to_uzs ?? 12850;
-        if (s.key === 'support_contact') supportUsername = s.value?.telegram_username ?? 'yuklago_support';
+        if (s.key === 'support_contact') supportUsername = s.value?.telegram_username ?? 'nothing_related';
       });
 
       return res.status(200).json({ pricePerKg, exchangeRate, supportUsername });

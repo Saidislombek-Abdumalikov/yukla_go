@@ -1,6 +1,7 @@
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { processTelegramUpdate } from './api/_lib/botEngine';
+import { ALL_BRANCHES, findBranchById } from './api/_lib/branchesData';
 
 interface DevParcel {
   id: string;
@@ -34,17 +35,17 @@ let devUser = {
   status: 'active',
   ofertaAccepted: true,
   defaultDeliveryBranch: {
-    provider: 'BTS',
-    branchName: 'BTS Chorsu',
-    region: 'Namangan',
-    address: 'Namangan sh., Chorsu dahasi, 12-uy',
+    provider: 'EMU',
+    branchName: 'EMU Chortoq',
+    region: 'Namangan viloyati',
+    address: 'Mustaqillik ko\'chasi 10',
   },
 };
 
 let devRates = {
   pricePerKg: 9.5,
   exchangeRate: 12850,
-  supportUsername: 'yuklago_support',
+  supportUsername: 'nothing_related',
 };
 
 let devWarehouse = {
@@ -59,14 +60,15 @@ let devWarehouse = {
   active: true,
 };
 
-const devBranches = [
-  { id: 'b_1', provider: 'BTS', branch_name: 'BTS Chorsu', branchName: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12-uy' },
-  { id: 'b_2', provider: 'BTS', branch_name: 'BTS Chilonzor', branchName: 'BTS Chilonzor', region: 'Toshkent', address: 'Chilonzor 9-mavze, Qatortol 1' },
-  { id: 'b_3', provider: 'BTS', branch_name: 'BTS Samarqand Markaz', branchName: 'BTS Samarqand Markaz', region: 'Samarqand', address: 'Mirzo Ulug\'bek ko\'chasi 45' },
-  { id: 'b_4', provider: 'EMU', branch_name: 'EMU Yunusobod', branchName: 'EMU Yunusobod', region: 'Toshkent', address: 'Yunusobod 4-mavze, 15-uy' },
-  { id: 'b_5', provider: 'EMU', branch_name: 'EMU Chortoq', branchName: 'EMU Chortoq', region: 'Namangan', address: 'Mustaqillik ko\'chasi 10' },
-  { id: 'b_6', provider: 'UZPOST', branch_name: 'Bosh Pochtampt', branchName: 'Bosh Pochtampt', region: 'Toshkent', address: 'Shahrisabz ko\'chasi 7' },
-];
+const devBranches = ALL_BRANCHES.map(b => ({
+  id: b.id,
+  provider: b.provider,
+  branch_name: b.branchName,
+  branchName: b.branchName,
+  region: b.region,
+  address: b.address,
+  phone: b.phone,
+}));
 
 let devParcels: DevParcel[] = [
   {
@@ -81,7 +83,12 @@ let devParcels: DevParcel[] = [
     chinaDate: '28.09.2026',
     estimatedArrival: '05.10.2026',
     cargoSubmittedAt: '2026-09-28T12:00:00.000Z',
-    deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
+    deliveryBranchSnapshot: {
+      provider: 'EMU',
+      branchName: 'EMU Chortoq',
+      region: 'Namangan viloyati',
+      address: 'Mustaqillik ko\'chasi 10',
+    },
     createdAt: '2026-09-28T10:00:00.000Z',
   },
   {
@@ -96,13 +103,18 @@ let devParcels: DevParcel[] = [
     chinaDate: '01.10.2026',
     estimatedArrival: '08.10.2026',
     cargoSubmittedAt: null,
-    deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
+    deliveryBranchSnapshot: {
+      provider: 'EMU',
+      branchName: 'EMU Chortoq',
+      region: 'Namangan viloyati',
+      address: 'Mustaqillik ko\'chasi 10',
+    },
     createdAt: '2026-10-01T08:30:00.000Z',
   },
   {
     id: 'p_3',
     trackingNumber: 'JT382910381CN',
-    customerCode: 'YK-100',
+    customerCode: 'YK-101',
     status: 'uzbekistan',
     paymentStatus: 'paid',
     weightKg: 4.8,
@@ -111,23 +123,113 @@ let devParcels: DevParcel[] = [
     chinaDate: '20.09.2026',
     estimatedArrival: '02.10.2026',
     cargoSubmittedAt: '2026-09-20T16:00:00.000Z',
-    deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
+    deliveryBranchSnapshot: {
+      provider: 'BTS',
+      branchName: 'BTS Chilonzor',
+      region: 'Toshkent shahri',
+      address: 'Chilonzor 9-mavze, Qatortol 1',
+    },
     createdAt: '2026-09-20T14:15:00.000Z',
   },
   {
     id: 'p_4',
     trackingNumber: 'YT771928371CN',
-    customerCode: 'YK-100',
+    customerCode: 'YK-102',
     status: 'delivered',
     paymentStatus: 'paid',
     weightKg: 2.1,
     amount: 19.95,
     currency: 'USD',
-    chinaDate: '10.09.2026',
-    estimatedArrival: '18.09.2026',
-    cargoSubmittedAt: '2026-09-10T14:00:00.000Z',
-    deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
-    createdAt: '2026-09-10T11:00:00.000Z',
+    chinaDate: '15.09.2026',
+    estimatedArrival: '23.09.2026',
+    cargoSubmittedAt: '2026-09-15T12:00:00.000Z',
+    deliveryBranchSnapshot: {
+      provider: 'BTS',
+      branchName: 'BTS Chorsu Markaz',
+      region: 'Namangan viloyati',
+      address: 'Namangan sh., Chorsu dahasi, 12-uy',
+    },
+    createdAt: '2026-09-15T10:00:00.000Z',
+  },
+  {
+    id: 'p_5',
+    trackingNumber: 'SF391820192CN',
+    customerCode: 'YK-103',
+    status: 'china_warehouse',
+    paymentStatus: 'pending',
+    weightKg: 5.4,
+    amount: 51.30,
+    currency: 'USD',
+    chinaDate: '01.10.2026',
+    estimatedArrival: '08.10.2026',
+    cargoSubmittedAt: null,
+    deliveryBranchSnapshot: {
+      provider: 'BTS',
+      branchName: 'BTS Samarqand Markaz',
+      region: 'Samarqand viloyati',
+      address: 'Mirzo Ulug\'bek ko\'chasi 45',
+    },
+    createdAt: '2026-10-01T11:00:00.000Z',
+  },
+  {
+    id: 'p_6',
+    trackingNumber: 'YT559281729CN',
+    customerCode: 'YK-104',
+    status: 'in_transit',
+    paymentStatus: 'pending',
+    weightKg: 1.8,
+    amount: 17.10,
+    currency: 'USD',
+    chinaDate: '29.09.2026',
+    estimatedArrival: '06.10.2026',
+    cargoSubmittedAt: '2026-09-29T14:00:00.000Z',
+    deliveryBranchSnapshot: {
+      provider: 'EMU',
+      branchName: 'EMU Yunusobod',
+      region: 'Toshkent shahri',
+      address: 'Yunusobod 4-mavze, 15-uy',
+    },
+    createdAt: '2026-09-29T09:00:00.000Z',
+  },
+  {
+    id: 'p_7',
+    trackingNumber: 'JT920192841CN',
+    customerCode: 'YK-105',
+    status: 'china_warehouse',
+    paymentStatus: 'pending',
+    weightKg: 2.6,
+    amount: 24.70,
+    currency: 'USD',
+    chinaDate: '02.10.2026',
+    estimatedArrival: '09.10.2026',
+    cargoSubmittedAt: null,
+    deliveryBranchSnapshot: {
+      provider: 'EMU',
+      branchName: 'EMU Andijon Markaz',
+      region: 'Andijon viloyati',
+      address: 'Mashrab ko\'chasi 18',
+    },
+    createdAt: '2026-10-02T08:00:00.000Z',
+  },
+  {
+    id: 'p_8',
+    trackingNumber: 'YT661928301CN',
+    customerCode: 'YK-106',
+    status: 'uzbekistan',
+    paymentStatus: 'pending',
+    weightKg: 3.5,
+    amount: 33.25,
+    currency: 'USD',
+    chinaDate: '25.09.2026',
+    estimatedArrival: '03.10.2026',
+    cargoSubmittedAt: '2026-09-25T10:00:00.000Z',
+    deliveryBranchSnapshot: {
+      provider: 'BTS',
+      branchName: 'BTS Qo\'qon',
+      region: 'Farg\'ona viloyati',
+      address: 'Turkiston ko\'chasi 54',
+    },
+    createdAt: '2026-09-25T07:30:00.000Z',
   },
 ];
 
@@ -318,8 +420,21 @@ export function devApiPlugin(): Plugin {
               let result = devParcels;
               const unsubmitted = params.get('unsubmitted');
               const search = params.get('search');
+              const provider = params.get('provider');
+              const region = params.get('region');
+              const branchId = params.get('branchId');
+
               if (unsubmitted === 'true') {
                 result = result.filter(p => !p.cargoSubmittedAt);
+              }
+              if (provider && provider !== 'ALL') {
+                result = result.filter(p => p.deliveryBranchSnapshot?.provider?.toUpperCase() === provider.toUpperCase());
+              }
+              if (region && region !== 'ALL') {
+                result = result.filter(p => p.deliveryBranchSnapshot?.region?.toLowerCase().includes(region.toLowerCase()));
+              }
+              if (branchId && branchId !== 'ALL') {
+                result = result.filter(p => p.deliveryBranchSnapshot?.branchName?.toLowerCase().includes(branchId.toLowerCase()) || p.deliveryBranchSnapshot?.address?.toLowerCase().includes(branchId.toLowerCase()));
               }
               if (search) {
                 const s = search.toLowerCase();
@@ -357,7 +472,7 @@ export function devApiPlugin(): Plugin {
             // POST: Admin enters / imports tracks for users
             if (req.method === 'POST') {
               const body = await readBody(req);
-              const { trackingNumbers, customerCode, status = 'china_warehouse', weightKg = 0 } = body;
+              const { trackingNumbers, customerCode, status = 'china_warehouse', weightKg = 0, branchId, branch } = body;
               let tracks: string[] = [];
               if (typeof body.trackingNumber === 'string') tracks = [body.trackingNumber];
               else if (Array.isArray(trackingNumbers)) tracks = trackingNumbers;
@@ -365,6 +480,14 @@ export function devApiPlugin(): Plugin {
               const cleanTracks = tracks
                 .map(t => t.trim().toUpperCase())
                 .filter(t => t.length > 0);
+
+              const chosenBranch = branchId ? findBranchById(branchId) : (branch || null);
+              const branchSnapshot = chosenBranch ? {
+                provider: chosenBranch.provider,
+                branchName: chosenBranch.branchName || chosenBranch.branch_name,
+                region: chosenBranch.region,
+                address: chosenBranch.address,
+              } : devUser.defaultDeliveryBranch;
 
               let addedCount = 0;
               for (const trk of cleanTracks) {
@@ -383,7 +506,7 @@ export function devApiPlugin(): Plugin {
                     chinaDate: new Date().toLocaleDateString('ru-RU'),
                     estimatedArrival: 'Aniqlanmoqda',
                     cargoSubmittedAt: null,
-                    deliveryBranchSnapshot: devUser.defaultDeliveryBranch,
+                    deliveryBranchSnapshot: branchSnapshot,
                     createdAt: new Date().toISOString(),
                   });
                   addedCount++;

@@ -1,5 +1,6 @@
 import { getSupabase } from './supabase.ts';
 import { STATUS_MESSAGES, sendTelegramMessage } from './botNotifications.ts';
+import { ALL_BRANCHES, REGIONS_LIST, getBranches, getRegionsForProvider, findBranchById } from './branchesData.ts';
 
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yukla-go.vercel.app';
 
@@ -24,15 +25,6 @@ export interface BotUser {
 // In-memory user state for dev fallback or when database is connecting
 const inMemoryUsers = new Map<number, BotUser>();
 let nextCustomerCodeNum = 100;
-
-const DEV_BRANCHES = [
-  { id: 'b_1', provider: 'BTS', branchName: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12-uy' },
-  { id: 'b_2', provider: 'BTS', branchName: 'BTS Chilonzor', region: 'Toshkent', address: 'Chilonzor 9-mavze, Qatortol 1' },
-  { id: 'b_3', provider: 'BTS', branchName: 'BTS Samarqand Markaz', region: 'Samarqand', address: 'Mirzo Ulug\'bek ko\'chasi 45' },
-  { id: 'b_4', provider: 'EMU', branchName: 'EMU Yunusobod', region: 'Toshkent', address: 'Yunusobod 4-mavze, 15-uy' },
-  { id: 'b_5', provider: 'EMU', branchName: 'EMU Chortoq', region: 'Namangan', address: 'Mustaqillik ko\'chasi 10' },
-  { id: 'b_6', provider: 'UZPOST', branchName: 'Bosh Pochtampt', region: 'Toshkent', address: 'Shahrisabz ko\'chasi 7' },
-];
 
 export const getMainKeyboard = () => ({
   keyboard: [
@@ -77,7 +69,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     dbUser = data;
 
     if (dbUser?.status === 'blocked') {
-      await sendTelegramMessage(chatId, '❌ Sizning hisobingiz bloklangan. Iltimos, admin bilan bog\'laning: @yuklago_support');
+      await sendTelegramMessage(chatId, '❌ Sizning hisobingiz bloklangan. Iltimos, admin bilan bog\'laning: @nothing_related');
       return true;
     }
   }
@@ -176,18 +168,42 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
           .eq('provider', provider)
           .eq('active', true);
         regions = Array.from(new Set(branches?.map(b => b.region) || []));
-      } else {
-        regions = Array.from(new Set(DEV_BRANCHES.filter(b => b.provider === provider).map(b => b.region)));
+      }
+      if (regions.length === 0) {
+        regions = getRegionsForProvider(provider);
       }
 
-      const buttons = regions.map(reg => [{ text: reg, callback_data: `region_${provider}_${reg}` }]);
+      // 2-column inline keyboard layout for mobile Telegram
+      const buttons: any[][] = [];
+      for (let i = 0; i < regions.length; i += 2) {
+        const row: any[] = [{ text: regions[i], callback_data: `reg_${provider}_${i}` }];
+        if (regions[i + 1]) {
+          row.push({ text: regions[i + 1], callback_data: `reg_${provider}_${i + 1}` });
+        }
+        buttons.push(row);
+      }
+
       await sendTelegramMessage(chatId, `📍 <b>${provider}</b> uchun viloyatingizni tanlang:`, { inline_keyboard: buttons });
       return true;
     }
 
     // Region selection
-    if (data?.startsWith('region_')) {
-      const [, provider, region] = data.split('_');
+    if (data?.startsWith('reg_') || data?.startsWith('region_')) {
+      let provider = '';
+      let region = '';
+
+      if (data.startsWith('reg_')) {
+        const parts = data.split('_');
+        provider = parts[1];
+        const idx = parseInt(parts[2], 10);
+        const provRegions = getRegionsForProvider(provider);
+        region = provRegions[idx] || REGIONS_LIST[idx] || parts.slice(2).join('_');
+      } else {
+        const parts = data.split('_');
+        provider = parts[1];
+        region = parts.slice(2).join('_');
+      }
+
       localUser.selectedRegion = region;
       localUser.onboardingStep = 'branch';
 
@@ -201,22 +217,23 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
           .eq('region', region)
           .eq('active', true);
         branchesList = branches || [];
-      } else {
-        branchesList = DEV_BRANCHES.filter(b => b.provider === provider && b.region === region).map(b => ({
+      }
+      if (branchesList.length === 0) {
+        branchesList = getBranches(provider, region).map(b => ({
           id: b.id,
           branch_name: b.branchName,
         }));
       }
 
       const buttons = branchesList.map(b => [{ text: b.branch_name, callback_data: `branch_${b.id}` }]);
-      await sendTelegramMessage(chatId, `🏢 O'zingizga yaqin filialni tanlang:`, { inline_keyboard: buttons });
+      await sendTelegramMessage(chatId, `🏢 <b>${region}</b> bo'yicha filialni tanlang:`, { inline_keyboard: buttons });
       return true;
     }
 
     // Branch selection -> Complete Onboarding!
     if (data?.startsWith('branch_')) {
       const branchId = data.replace('branch_', '');
-      let chosenBranch: any = DEV_BRANCHES.find(b => b.id === branchId) || DEV_BRANCHES[0];
+      let chosenBranch: any = findBranchById(branchId) || ALL_BRANCHES[0];
 
       if (supabase && dbUser) {
         const { data: updated } = await supabase
@@ -447,10 +464,10 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         `2️⃣ <b>Xarid qiling:</b> Taobao, 1688 yoki Pinduoduo ilovalarida manzilga o'z kodingizni (<code>${customerCode}</code>) kiriting.\n` +
         `3️⃣ <b>Trekni kiriting:</b> Buyurtma jo'natilgach, berilgan trek kodini botga yuboring yoki ilovaga qo'shing.\n` +
         `4️⃣ <b>Kuzatib boring:</b> Yukingiz O'zbekistonga yetib kelguncha bot orqali avtomatik bildirishnoma olasiz.\n\n` +
-        `Savollaringiz bormi? Admin: @yuklago_support`,
+        `Savollaringiz bormi? Admin: @nothing_related`,
         {
           inline_keyboard: [
-            [{ text: '☎️ Admin bilan bog\'lanish', url: 'https://t.me/yuklago_support' }],
+            [{ text: '☎️ Admin bilan bog\'lanish', url: 'https://t.me/nothing_related' }],
             [{ text: '📦 Ilovani ochish', web_app: { url: MINI_APP_URL } }],
           ],
         }
