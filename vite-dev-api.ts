@@ -2,6 +2,17 @@ import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { processTelegramUpdate } from './api/_lib/botEngine';
 import { ALL_BRANCHES, findBranchById } from './api/_lib/branchesData';
+import {
+  getCoursesWithUserProgress,
+  getCourseLessonsForUser,
+  recordUserLessonProgress,
+  getStudentsProgressSummary,
+  resetStudentProgress,
+  addLessonToCourse,
+  deleteLesson,
+  INITIAL_COURSES,
+  STORED_LESSONS,
+} from './api/_lib/academyData';
 
 interface DevParcel {
   id: string;
@@ -571,6 +582,78 @@ export function devApiPlugin(): Plugin {
               });
             }
           }
+
+          // Academy Admin
+          if (path.startsWith('/api/admin/academy')) {
+            const courseId = params.get('courseId') || 'course_cargo_101';
+            const action = params.get('action');
+
+            if (req.method === 'GET') {
+              if (action === 'students' || path === '/api/admin/academy/students') {
+                const students = [
+                  devUser,
+                  { id: 'usr_dev_101', name: 'Bobur Mirzo', customerCode: 'YK-101' },
+                  { id: 'usr_dev_102', name: 'Madina Alimova', customerCode: 'YK-102' },
+                  { id: 'usr_dev_103', name: 'Jasur Bek', customerCode: 'YK-103' },
+                ];
+                return sendJson(res, 200, getStudentsProgressSummary(students, courseId));
+              }
+
+              if (action === 'lessons') {
+                const list = STORED_LESSONS.filter(l => l.courseId === courseId).sort((a, b) => a.order - b.order);
+                return sendJson(res, 200, list);
+              }
+
+              return sendJson(res, 200, { courses: INITIAL_COURSES, lessons: STORED_LESSONS });
+            }
+
+            if (req.method === 'POST') {
+              const body = await readBody(req);
+              if (body.action === 'reset_progress') {
+                resetStudentProgress(body.userId, body.courseId);
+                return sendJson(res, 200, { success: true, message: 'Talaba progressi qayta boshlandi' });
+              }
+
+              if (body.action === 'add_lesson') {
+                const created = addLessonToCourse(body.courseId || courseId, {
+                  title: body.title,
+                  youtubeUrlOrId: body.youtubeUrlOrId,
+                  durationSeconds: Number(body.durationSeconds) || 360,
+                  description: body.description,
+                  order: Number(body.order),
+                });
+                return sendJson(res, 201, { success: true, lesson: created });
+              }
+            }
+
+            if (req.method === 'DELETE') {
+              const lessonId = params.get('lessonId');
+              if (lessonId) {
+                deleteLesson(lessonId);
+                return sendJson(res, 200, { success: true, message: 'Dars o\'chirildi' });
+              }
+            }
+          }
+        }
+
+        // 8.5. Academy Customer Endpoints
+        if (path === '/api/academy/courses') {
+          const courseId = params.get('courseId');
+          if (courseId) {
+            return sendJson(res, 200, getCourseLessonsForUser(devUser.id, courseId));
+          }
+          return sendJson(res, 200, getCoursesWithUserProgress(devUser.id));
+        }
+
+        if (path === '/api/academy/progress' && req.method === 'POST') {
+          const body = await readBody(req);
+          const result = recordUserLessonProgress(
+            devUser.id,
+            body.lessonId,
+            Number(body.watchedSeconds),
+            Boolean(body.completed)
+          );
+          return sendJson(res, 200, result);
         }
 
         // 9. Bot Webhook

@@ -7,6 +7,7 @@ import TabProfile from './components/TabProfile';
 import AddTrackModal from './components/AddTrackModal';
 import AdminDashboard from './components/admin/AdminDashboard';
 import OutsideTelegram from './components/OutsideTelegram';
+import AcademyApp from './components/academy/AcademyApp';
 import { Tab } from './types';
 import { api } from './services/api';
 
@@ -15,6 +16,7 @@ function App() {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isAdminPreview, setIsAdminPreview] = useState(false);
+  const [isAcademyMode, setIsAcademyMode] = useState(false);
 
   // Authentication & environment states
   const [isTelegramEnv, setIsTelegramEnv] = useState<boolean>(true);
@@ -61,10 +63,24 @@ function App() {
       });
     }
 
-    // Check URL hash for admin preview
-    if (window.location.hash === '#admin') {
-      setIsAdminPreview(true);
-    }
+    // Check URL parameters and hash for specific apps
+    const checkModes = () => {
+      const search = window.location.search;
+      const hash = window.location.hash;
+      const startParam = (tg as any)?.initDataUnsafe?.start_param;
+
+      if (search.includes('app=academy') || hash === '#academy' || startParam === 'academy') {
+        setIsAcademyMode(true);
+      }
+
+      if (hash === '#admin') {
+        setIsAdminPreview(true);
+      }
+    };
+
+    checkModes();
+    window.addEventListener('hashchange', checkModes);
+    return () => window.removeEventListener('hashchange', checkModes);
   }, []);
 
   const handleTrackAdded = () => {
@@ -93,6 +109,24 @@ function App() {
           window.location.hash = '';
         }} 
       />
+    );
+  }
+
+  // Academy / Video Lessons Mode
+  if (isAcademyMode) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
+        <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-12 safe-area-top">
+          <AcademyApp 
+            onBackToCargo={() => {
+              setIsAcademyMode(false);
+              const url = new URL(window.location.href);
+              url.searchParams.delete('app');
+              window.history.replaceState({}, '', url.pathname + (window.location.hash === '#academy' ? '' : window.location.hash));
+            }}
+          />
+        </main>
+      </div>
     );
   }
 
@@ -143,6 +177,7 @@ function App() {
             refreshTrigger={refreshKey}
             onNavigate={setActiveTab} 
             onAddClick={() => setIsAddModalOpen(true)} 
+            onOpenAcademy={() => setIsAcademyMode(true)}
           />
         );
       case Tab.MY_PARCELS:
@@ -162,6 +197,7 @@ function App() {
             refreshTrigger={refreshKey}
             onNavigate={setActiveTab} 
             onAddClick={() => setIsAddModalOpen(true)} 
+            onOpenAcademy={() => setIsAcademyMode(true)}
           />
         );
     }

@@ -26,15 +26,22 @@ export interface BotUser {
 const inMemoryUsers = new Map<number, BotUser>();
 let nextCustomerCodeNum = 100;
 
-export const getMainKeyboard = () => ({
-  keyboard: [
-    [{ text: '📦 Yukla Go ilovasi', web_app: { url: MINI_APP_URL } }],
-    [{ text: '🇨🇳 Xitoy manzili' }, { text: '🔍 Trek tekshirish' }],
-    [{ text: '👤 Mening profilim' }, { text: '☎️ Yordam' }],
-  ],
-  resize_keyboard: true,
-  is_persistent: true,
-});
+export const getMainKeyboard = () => {
+  const academyUrl = MINI_APP_URL.includes('?') ? `${MINI_APP_URL}&app=academy` : `${MINI_APP_URL}?app=academy`;
+  return {
+    keyboard: [
+      [{ text: '📦 Yukla Go ilovasi', web_app: { url: MINI_APP_URL } }],
+      [
+        { text: '🎓 Video darslar', web_app: { url: academyUrl } },
+        { text: '🇨🇳 Xitoy manzili' },
+      ],
+      [{ text: '🔍 Trek tekshirish' }, { text: '👤 Mening profilim' }],
+      [{ text: '☎️ Yordam' }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+};
 
 export async function processTelegramUpdate(update: any): Promise<boolean> {
   const message = update.message;
@@ -385,6 +392,28 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
       );
       return true;
     }
+  }
+
+  // Academy & Video Lessons command (available to all users)
+  if (textLower === '/academy' || textLower === '/kurs' || textLower === '/darslar' || textLower === '🎓 video darslar') {
+    const academyUrl = MINI_APP_URL.includes('?') ? `${MINI_APP_URL}&app=academy` : `${MINI_APP_URL}?app=academy`;
+    await sendTelegramMessage(
+      chatId,
+      `🎓 <b>Yukla Go Akademiya — Video Darslar</b>\n\n` +
+      `Xitoydan to'g'ri tovar buyurtma qilish bo'yicha bosqichma-bosqich amaliy darslar:\n\n` +
+      `✅ 1. Kirish: Xitoy karqo qanday ishlaydi?\n` +
+      `▶️ 2. Taobao va 1688 ilovalarida ro'yxatdan o'tish\n` +
+      `🔒 3. Xitoy ombor manzilini to'g'ri kiritish\n` +
+      `🔒 4. To'lov qilish va mahsulot sifatini tekshirish\n` +
+      `🔒 5. Trek kodini kiritish va O'zbekistonda qabul qilish\n\n` +
+      `<i>Darslar ketma-ketlikda ochiladi. Har bir darsni to'liq ko'rgach, keyingi dars ochiladi.</i>`,
+      {
+        inline_keyboard: [
+          [{ text: '▶️ Darslarni ochish (Mini App)', web_app: { url: academyUrl } }],
+        ],
+      }
+    );
+    return true;
   }
 
   // ---------------------------------------------------------------------------

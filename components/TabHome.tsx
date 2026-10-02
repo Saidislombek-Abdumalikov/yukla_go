@@ -5,10 +5,11 @@ import { api } from '../services/api';
 interface TabHomeProps {
   onNavigate: (tab: Tab) => void;
   onAddClick: () => void;
+  onOpenAcademy?: () => void;
   refreshTrigger?: number;
 }
 
-const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick, refreshTrigger = 0 }) => {
+const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick, onOpenAcademy, refreshTrigger = 0 }) => {
   const [user, setUser] = useState<UserProfile | null>(null);
   const [warehouse, setWarehouse] = useState<ChinaWarehouseAddress | null>(null);
   const [parcels, setParcels] = useState<Parcel[]>([]);
@@ -161,6 +162,32 @@ const TabHome: React.FC<TabHomeProps> = ({ onNavigate, onAddClick, refreshTrigge
           </svg>
         </button>
       </div>
+
+      {/* Akademiya / Video Darslar Promotional Card */}
+      {onOpenAcademy && (
+        <div 
+          onClick={onOpenAcademy}
+          className="bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 rounded-2xl p-4 text-white shadow-lg shadow-orange-500/20 cursor-pointer active:scale-[0.99] transition-all flex items-center justify-between group hover:shadow-xl"
+        >
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-white/20 backdrop-blur-sm flex items-center justify-center text-xl shadow-inner">
+              🎓
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h4 className="font-black text-sm text-white">Video Darslar & Akademiya</h4>
+                <span className="text-[9px] bg-white/25 px-1.5 py-0.5 rounded font-bold uppercase tracking-wider">BEPUL</span>
+              </div>
+              <p className="text-[11px] text-amber-100 font-medium">Xitoydan to'g'ri buyurtma berish kursi</p>
+            </div>
+          </div>
+          <div className="w-7 h-7 rounded-full bg-white/20 flex items-center justify-center group-hover:translate-x-1 transition-transform">
+            <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+          </div>
+        </div>
+      )}
 
       {/* Warehouse Address Modal */}
       {showAddressModal && (

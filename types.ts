@@ -66,6 +66,56 @@ export interface ShippingRates {
   exchangeRate: number; // 1 USD = ? UZS
 }
 
+export interface Course {
+  id: string;
+  title: string;
+  description: string;
+  category: string;
+  icon: string;
+  order: number;
+  lessonsCount?: number;
+  completedLessonsCount?: number;
+}
+
+export interface Lesson {
+  id: string;
+  courseId: string;
+  order: number;
+  title: string;
+  description?: string;
+  youtubeVideoId: string;
+  durationSeconds: number;
+  isLocked: boolean;
+  isCompleted: boolean;
+  maxWatchedSeconds: number;
+  lastPositionSeconds: number;
+}
+
+export interface UserLessonProgress {
+  userId: string;
+  lessonId: string;
+  maxWatchedSeconds: number;
+  lastPositionSeconds: number;
+  completed: boolean;
+  updatedAt: string;
+}
+
+export interface StudentProgressSummary {
+  userId: string;
+  name: string;
+  customerCode: string;
+  completedCount: number;
+  totalLessons: number;
+  progressPercent: number;
+  lessons?: {
+    lessonId: string;
+    title: string;
+    order: number;
+    completed: boolean;
+    watchedPercent: number;
+  }[];
+}
+
 declare global {
   interface Window {
     Telegram?: {

@@ -31,26 +31,39 @@ const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onPreviewMode }) => {
           </svg>
         </a>
 
-        <div className="flex gap-2">
-          {onPreviewMode && (
-            <button
-              type="button"
-              onClick={onPreviewMode}
-              className="flex-1 py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl font-bold text-xs transition-colors border border-gray-200"
-            >
-              Mijoz ilovasi (Demo)
-            </button>
-          )}
+        <div className="space-y-2 pt-1">
           <button
             type="button"
             onClick={() => {
-              window.location.hash = '#admin';
+              window.location.hash = '#academy';
               window.location.reload();
             }}
-            className="flex-1 py-2.5 px-3 bg-blue-50 hover:bg-blue-100 text-primary rounded-xl font-bold text-xs transition-colors border border-blue-200"
+            className="w-full py-2.5 px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl font-bold text-xs transition-colors border border-amber-200 flex items-center justify-center gap-1.5"
           >
-            Admin panel &rarr;
+            <span>🎓 Video Darslar (Akademiya Demo)</span>
           </button>
+
+          <div className="flex gap-2">
+            {onPreviewMode && (
+              <button
+                type="button"
+                onClick={onPreviewMode}
+                className="flex-1 py-2.5 px-3 bg-gray-50 hover:bg-gray-100 text-gray-700 rounded-xl font-bold text-xs transition-colors border border-gray-200"
+              >
+                Mijoz ilovasi (Demo)
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                window.location.hash = '#admin';
+                window.location.reload();
+              }}
+              className="flex-1 py-2.5 px-3 bg-blue-50 hover:bg-blue-100 text-primary rounded-xl font-bold text-xs transition-colors border border-blue-200"
+            >
+              Admin panel &rarr;
+            </button>
+          </div>
         </div>
       </div>
     </div>

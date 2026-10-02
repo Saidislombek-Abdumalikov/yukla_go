@@ -5,7 +5,7 @@ interface AdminDashboardProps {
   onBack: () => void;
 }
 
-type AdminTab = 'PARCELS' | 'WAREHOUSE' | 'SETTINGS' | 'USERS' | 'REQUESTS' | 'STATS';
+type AdminTab = 'PARCELS' | 'WAREHOUSE' | 'COURSES' | 'SETTINGS' | 'USERS' | 'REQUESTS' | 'STATS';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('PARCELS');
@@ -13,6 +13,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [parcels, setParcels] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [requests, setRequests] = useState<any[]>([]);
+
+  // Academy & Course LMS state
+  const [courses, setCourses] = useState<any[]>([]);
+  const [selectedCourseId, setSelectedCourseId] = useState<string>('course_cargo_101');
+  const [courseLessons, setCourseLessons] = useState<any[]>([]);
+  const [studentsProgress, setStudentsProgress] = useState<any[]>([]);
+  const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
+
+  // New Lesson Modal state
+  const [showAddLessonModal, setShowAddLessonModal] = useState(false);
+  const [newLessonTitle, setNewLessonTitle] = useState('');
+  const [newLessonYoutube, setNewLessonYoutube] = useState('');
+  const [newLessonDuration, setNewLessonDuration] = useState('360');
+  const [newLessonDesc, setNewLessonDesc] = useState('');
+  const [addLessonLoading, setAddLessonLoading] = useState(false);
 
   // Settings & Warehouse state
   const [settings, setSettings] = useState<any>({ pricePerKg: 9.5, exchangeRate: 12850, supportUsername: 'nothing_related' });
@@ -51,7 +66,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
   useEffect(() => {
     loadTabData();
-  }, [activeTab, unsubmittedOnly, parcelSearch, statusFilter]);
+  }, [activeTab, unsubmittedOnly, parcelSearch, statusFilter, selectedCourseId]);
 
   const loadTabData = async () => {
     setLoading(true);
@@ -69,6 +84,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         if (Array.isArray(res) && res.length > 0) {
           setWarehouse(res[0]);
         }
+      } else if (activeTab === 'COURSES') {
+        const [cRes, lRes, sRes] = await Promise.all([
+          fetch('/api/admin/academy').then(r => r.json()).catch(() => ({ courses: [] })),
+          fetch(`/api/admin/academy?action=lessons&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
+          fetch(`/api/admin/academy?action=students&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
+        ]);
+        if (cRes?.courses) setCourses(cRes.courses);
+        setCourseLessons(Array.isArray(lRes) ? lRes : []);
+        setStudentsProgress(Array.isArray(sRes) ? sRes : []);
       } else if (activeTab === 'SETTINGS') {
         const res = await fetch('/api/admin/settings').then(r => r.json()).catch(() => null);
         if (res) setSettings(res);
@@ -260,6 +284,78 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     }
   };
 
+  // Academy Actions
+  const handleResetStudentProgress = async (studentId: string, studentName: string) => {
+    if (!window.confirm(`${studentName} talabasining barcha dars progressini qayta boshlamoqchimisiz (Reset)?`)) {
+      return;
+    }
+    setLoading(true);
+    try {
+      await fetch('/api/admin/academy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'reset_progress',
+          userId: studentId,
+          courseId: selectedCourseId,
+        }),
+      });
+      setSaveFeedback(`${studentName} talabasining dars progressi 0% ga qaytarildi.`);
+      setTimeout(() => setSaveFeedback(null), 3000);
+      loadTabData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddLesson = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLessonTitle.trim() || !newLessonYoutube.trim()) return;
+
+    setAddLessonLoading(true);
+    try {
+      await fetch('/api/admin/academy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'add_lesson',
+          courseId: selectedCourseId,
+          title: newLessonTitle.trim(),
+          youtubeUrlOrId: newLessonYoutube.trim(),
+          durationSeconds: parseInt(newLessonDuration, 10) || 360,
+          description: newLessonDesc.trim(),
+          order: courseLessons.length + 1,
+        }),
+      });
+
+      setNewLessonTitle('');
+      setNewLessonYoutube('');
+      setNewLessonDuration('360');
+      setNewLessonDesc('');
+      setShowAddLessonModal(false);
+      setSaveFeedback("Yangi dars muvaffaqiyatli qo'shildi!");
+      setTimeout(() => setSaveFeedback(null), 3000);
+      loadTabData();
+    } finally {
+      setAddLessonLoading(false);
+    }
+  };
+
+  const handleDeleteLesson = async (lessonId: string, title: string) => {
+    if (!window.confirm(`"${title}" darsini o'chirishga ishonchingiz komilmi?`)) return;
+    setLoading(true);
+    try {
+      await fetch(`/api/admin/academy?lessonId=${lessonId}`, {
+        method: 'DELETE',
+      });
+      setSaveFeedback(`Dars o'chirildi.`);
+      setTimeout(() => setSaveFeedback(null), 3000);
+      loadTabData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const toggleSelect = (id: string) => {
     const next = new Set(selectedParcelIds);
     if (next.has(id)) next.delete(id);
@@ -313,6 +409,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
           {[
             { id: 'PARCELS', label: 'Yuklar & Treklar', icon: '📦' },
             { id: 'WAREHOUSE', label: 'Xitoy Ombori', icon: '🇨🇳' },
+            { id: 'COURSES', label: 'Kurslar & Video', icon: '🎓' },
             { id: 'SETTINGS', label: 'Tariflar & Kurs', icon: '⚙️' },
             { id: 'USERS', label: 'Mijozlar', icon: '👤' },
             { id: 'REQUESTS', label: 'Manzil so\'rovlari', icon: '📍' },
@@ -795,7 +892,276 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 3: RATES & SYSTEM SETTINGS */}
+        {/* TAB 3: ACADEMY COURSES & VIDEO LESSONS */}
+        {/* ========================================================================= */}
+        {activeTab === 'COURSES' && (
+          <div className="space-y-4 animate-fade-in">
+            {/* Top Bar: Course Selector & Quick Action */}
+            <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-black text-base text-gray-900 flex items-center gap-2">
+                    <span>🎓 Video Darslar & Akademiya</span>
+                  </h3>
+                  <p className="text-xs text-gray-500">
+                    O'quv kurslarini boshqarish, video darslar tartibi va talabalar ko'rish progressi
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <a
+                    href="/?app=academy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="px-3.5 py-2 bg-amber-50 hover:bg-amber-100 text-amber-800 rounded-xl text-xs font-bold flex items-center gap-1.5 border border-amber-200 transition-colors"
+                  >
+                    <span>Talaba rejimida ko'rish ↗</span>
+                  </a>
+                  <button
+                    onClick={() => setShowAddLessonModal(true)}
+                    className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-primary/20 active:scale-95 transition-all"
+                  >
+                    <span>+ Dars qo'shish</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Course Selector Tabs */}
+              <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
+                {(courses.length > 0 ? courses : [
+                  { id: 'course_cargo_101', title: 'Xitoydan buyurtma berish kursi', icon: '📦' },
+                  { id: 'course_english_logistics', title: 'Logistika & Biznes ingliz tili', icon: '🇬🇧' },
+                ]).map(c => (
+                  <button
+                    key={c.id}
+                    onClick={() => setSelectedCourseId(c.id)}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                      selectedCourseId === c.id
+                        ? 'bg-gray-900 text-white shadow-sm'
+                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                    }`}
+                  >
+                    <span>{c.icon || '📚'}</span>
+                    <span>{c.title}</span>
+                  </button>
+                ))}
+              </div>
+
+              {/* Course Overview Stats */}
+              <div className="grid grid-cols-3 gap-2.5 pt-1">
+                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-center">
+                  <span className="text-[10px] font-bold uppercase text-gray-400 block">Jami darslar</span>
+                  <span className="text-xl font-black text-gray-900">{courseLessons.length} ta</span>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-center">
+                  <span className="text-[10px] font-bold uppercase text-gray-400 block">Talabalar</span>
+                  <span className="text-xl font-black text-primary">{studentsProgress.length} nafar</span>
+                </div>
+                <div className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-center">
+                  <span className="text-[10px] font-bold uppercase text-gray-400 block">Tugatganlar</span>
+                  <span className="text-xl font-black text-green-600">
+                    {studentsProgress.filter(s => s.completedLessonsCount === s.totalLessons && s.totalLessons > 0).length} nafar
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Section 1: Lessons List */}
+            <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-3">
+              <div className="flex justify-between items-center">
+                <h4 className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                  <span>Darslar ro'yxati ({courseLessons.length} ta)</span>
+                  <span className="text-[10px] bg-blue-50 text-primary px-2 py-0.5 rounded font-mono font-bold">
+                    Ketma-ket tartibda
+                  </span>
+                </h4>
+                <button
+                  onClick={() => setShowAddLessonModal(true)}
+                  className="text-xs font-bold text-primary hover:underline"
+                >
+                  + Dars qo'shish
+                </button>
+              </div>
+
+              {courseLessons.length === 0 ? (
+                <p className="text-xs text-gray-400 py-6 text-center">Ushbu kursda hozircha darslar mavjud emas.</p>
+              ) : (
+                <div className="space-y-2.5">
+                  {courseLessons.map((lesson) => {
+                    const minutes = Math.floor(lesson.durationSeconds / 60);
+                    const seconds = lesson.durationSeconds % 60;
+                    const durationText = `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+
+                    return (
+                      <div
+                        key={lesson.id}
+                        className="p-3.5 bg-gray-50 hover:bg-gray-100/80 rounded-2xl border border-gray-200/70 transition-all flex items-start justify-between gap-3 text-xs"
+                      >
+                        <div className="flex items-start gap-3">
+                          <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary font-mono font-bold text-xs flex items-center justify-center shrink-0">
+                            #{lesson.order}
+                          </span>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <h5 className="font-bold text-gray-900 text-sm">{lesson.title}</h5>
+                              <span className="text-[10px] bg-gray-200 text-gray-700 px-1.5 py-0.5 rounded font-mono font-medium">
+                                ⏱ {durationText}
+                              </span>
+                            </div>
+                            {lesson.description && (
+                              <p className="text-gray-500 text-[11px] leading-relaxed">{lesson.description}</p>
+                            )}
+                            <div className="flex items-center gap-3 pt-0.5 text-[11px]">
+                              <span className="font-mono text-gray-400">ID: {lesson.youtubeVideoId}</span>
+                              <a
+                                href={`https://www.youtube.com/watch?v=${lesson.youtubeVideoId}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-red-600 hover:underline font-bold flex items-center gap-1"
+                              >
+                                <span>▶️ YouTube'da ko'rish</span>
+                              </a>
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          onClick={() => handleDeleteLesson(lesson.id, lesson.title)}
+                          className="w-8 h-8 rounded-xl bg-red-50 hover:bg-red-100 text-red-600 flex items-center justify-center shrink-0 transition-colors"
+                          title="Darsni o'chirish"
+                        >
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Section 2: Students Progress Tracker */}
+            <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-3">
+              <div>
+                <h4 className="font-bold text-sm text-gray-900">Talabalar progressi & monitoring</h4>
+                <p className="text-xs text-gray-500">
+                  Talabaning har bir darsni qanchalik tomosha qilganligi va keyingi darslarni ochish holati
+                </p>
+              </div>
+
+              {studentsProgress.length === 0 ? (
+                <p className="text-xs text-gray-400 py-6 text-center">Talabalar ma'lumotlari topilmadi.</p>
+              ) : (
+                <div className="space-y-3">
+                  {studentsProgress.map((student) => {
+                    const isExpanded = expandedStudentId === student.userId;
+                    const isCompleted = student.completedLessonsCount === student.totalLessons && student.totalLessons > 0;
+
+                    return (
+                      <div
+                        key={student.userId}
+                        className="p-4 bg-gray-50 rounded-2xl border border-gray-200/80 space-y-3 text-xs"
+                      >
+                        {/* Student Summary Row */}
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <span className="font-mono font-bold text-primary bg-primary/10 px-2.5 py-1 rounded-xl text-xs">
+                              {student.customerCode}
+                            </span>
+                            <div>
+                              <h5 className="font-bold text-gray-900 text-sm">{student.name}</h5>
+                              <p className="text-gray-500 text-[11px]">
+                                {student.completedLessonsCount} / {student.totalLessons} dars tugatildi ({student.completionPercentage}%)
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() => handleResetStudentProgress(student.userId, student.name)}
+                              className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 rounded-xl text-[11px] font-bold border border-red-200/60 transition-colors"
+                              title="Dars progressini 0% ga qaytarish"
+                            >
+                              🔄 Reset
+                            </button>
+                            <button
+                              onClick={() => setExpandedStudentId(isExpanded ? null : student.userId)}
+                              className="px-2.5 py-1.5 bg-white hover:bg-gray-100 text-gray-700 rounded-xl text-[11px] font-bold border border-gray-200 transition-colors flex items-center gap-1"
+                            >
+                              <span>{isExpanded ? 'Yashirish' : 'Batafsil'}</span>
+                              <span className="text-[9px]">{isExpanded ? '▲' : '▼'}</span>
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Progress Bar */}
+                        <div className="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full transition-all duration-500 ${
+                              isCompleted ? 'bg-green-500' : 'bg-primary'
+                            }`}
+                            style={{ width: `${student.completionPercentage}%` }}
+                          />
+                        </div>
+
+                        {/* Expanded Lessons Detail Breakdown */}
+                        {isExpanded && (
+                          <div className="pt-2 border-t border-gray-200/70 space-y-2 animate-fade-in">
+                            <span className="text-[10px] font-bold uppercase text-gray-400 block">
+                              Darslar bo'yicha ko'rish holati:
+                            </span>
+                            <div className="space-y-1.5">
+                              {student.lessons?.map((l: any) => {
+                                const statusBadge = l.isCompleted ? (
+                                  <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                    <span>✅</span>
+                                    <span>Tugatilgan</span>
+                                  </span>
+                                ) : l.isLocked ? (
+                                  <span className="text-[10px] font-bold text-gray-500 bg-gray-200 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                    <span>🔒</span>
+                                    <span>Qulflangan</span>
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-lg flex items-center gap-1">
+                                    <span>▶️</span>
+                                    <span>{l.percentage}% ko'rilgan</span>
+                                  </span>
+                                );
+
+                                return (
+                                  <div
+                                    key={l.lessonId}
+                                    className="p-2.5 bg-white rounded-xl border border-gray-200 flex items-center justify-between text-xs"
+                                  >
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-gray-400 text-[11px]">#{l.order}</span>
+                                      <span className="font-bold text-gray-800">{l.title}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-[11px] text-gray-400">
+                                        {l.maxWatchedSeconds}s / {l.durationSeconds}s
+                                      </span>
+                                      {statusBadge}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* TAB 4: RATES & SYSTEM SETTINGS */}
         {/* ========================================================================= */}
         {activeTab === 'SETTINGS' && (
           <div className="bg-white rounded-3xl p-6 shadow-soft border border-gray-100 space-y-4 animate-fade-in">
@@ -1099,6 +1465,117 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                   className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs shadow-md shadow-primary/20 active:scale-95 transition-all"
                 >
                   {addLoading ? 'Kiritilmoqda...' : 'Trek(lar)ni tizimga saqlash'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: ADD LESSON */}
+      {/* ========================================================================= */}
+      {showAddLessonModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 animate-slide-up shadow-2xl">
+            <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">🎬</span>
+                <h3 className="font-black text-base text-gray-900">Yangi dars qo'shish</h3>
+              </div>
+              <button
+                onClick={() => setShowAddLessonModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center text-sm font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleAddLesson} className="space-y-3 text-xs">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Kurs
+                </label>
+                <div className="px-3 py-2 bg-gray-100 rounded-xl font-bold text-gray-700">
+                  {courses.find(c => c.id === selectedCourseId)?.title || selectedCourseId}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Dars sarlavhasi *
+                </label>
+                <input
+                  type="text"
+                  value={newLessonTitle}
+                  onChange={(e) => setNewLessonTitle(e.target.value)}
+                  placeholder="Masalan: 3. Ombor manzilini to'ldirish"
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:border-primary"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  YouTube havolasi yoki Video ID *
+                </label>
+                <input
+                  type="text"
+                  value={newLessonYoutube}
+                  onChange={(e) => setNewLessonYoutube(e.target.value)}
+                  placeholder="https://youtu.be/M7lc1UVf-VE yoki M7lc1UVf-VE"
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold font-mono text-gray-900 outline-none focus:border-primary"
+                  required
+                />
+                <span className="text-[10px] text-gray-400 mt-1 block">
+                  YouTube Unlisted yoki Public video havolasini qo'yishingiz mumkin.
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Taxminiy davomiyligi (sekundda) *
+                </label>
+                <input
+                  type="number"
+                  value={newLessonDuration}
+                  onChange={(e) => setNewLessonDuration(e.target.value)}
+                  placeholder="360"
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold font-mono text-gray-900 outline-none focus:border-primary"
+                  required
+                />
+                <span className="text-[10px] text-gray-400 mt-0.5 block">
+                  Masalan 6 daqiqa = 360 sekund, 10 daqiqa = 600 sekund.
+                </span>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Dars tavsifi (ixtiyoriy)
+                </label>
+                <textarea
+                  rows={2}
+                  value={newLessonDesc}
+                  onChange={(e) => setNewLessonDesc(e.target.value)}
+                  placeholder="Dars haqida qisqacha ma'lumot..."
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl text-gray-900 outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowAddLessonModal(false)}
+                  className="flex-1 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition-colors"
+                >
+                  Bekor qilish
+                </button>
+                <button
+                  type="submit"
+                  disabled={addLessonLoading || !newLessonTitle.trim() || !newLessonYoutube.trim()}
+                  className="flex-1 py-3 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold shadow-md shadow-primary/20 active:scale-95 transition-all"
+                >
+                  {addLessonLoading ? 'Saqlanmoqda...' : 'Darsni saqlash'}
                 </button>
               </div>
             </form>
