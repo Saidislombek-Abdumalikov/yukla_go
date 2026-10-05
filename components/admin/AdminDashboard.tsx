@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { ALL_BRANCHES, REGIONS_LIST, getBranches } from '../../api/_lib/branchesData';
+import type { CourseAccessItem } from '../../types';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -20,6 +21,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [courseLessons, setCourseLessons] = useState<any[]>([]);
   const [studentsProgress, setStudentsProgress] = useState<any[]>([]);
   const [expandedStudentId, setExpandedStudentId] = useState<string | null>(null);
+  const [courseAccessList, setCourseAccessList] = useState<CourseAccessItem[]>([]);
+  const [grantUserInput, setGrantUserInput] = useState('');
+  const [grantLoading, setGrantLoading] = useState(false);
 
   // New Lesson Modal state
   const [showAddLessonModal, setShowAddLessonModal] = useState(false);
@@ -85,14 +89,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
           setWarehouse(res[0]);
         }
       } else if (activeTab === 'COURSES') {
-        const [cRes, lRes, sRes] = await Promise.all([
+        const [cRes, lRes, sRes, aRes] = await Promise.all([
           fetch('/api/admin/academy').then(r => r.json()).catch(() => ({ courses: [] })),
           fetch(`/api/admin/academy?action=lessons&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
           fetch(`/api/admin/academy?action=students&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
+          fetch(`/api/admin/academy?action=access&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
         ]);
         if (cRes?.courses) setCourses(cRes.courses);
         setCourseLessons(Array.isArray(lRes) ? lRes : []);
         setStudentsProgress(Array.isArray(sRes) ? sRes : []);
+        setCourseAccessList(Array.isArray(aRes) ? aRes : []);
       } else if (activeTab === 'SETTINGS') {
         const res = await fetch('/api/admin/settings').then(r => r.json()).catch(() => null);
         if (res) setSettings(res);
@@ -349,6 +355,58 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         method: 'DELETE',
       });
       setSaveFeedback(`Dars o'chirildi.`);
+      setTimeout(() => setSaveFeedback(null), 3000);
+      loadTabData();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleGrantAccess = async (targetIdentifier?: string) => {
+    const target = (targetIdentifier || grantUserInput).trim();
+    if (!target) return;
+    setGrantLoading(true);
+    try {
+      const res = await fetch('/api/admin/academy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'grant_access',
+          identifier: target,
+          courseId: selectedCourseId,
+        }),
+      }).then(r => r.json());
+
+      if (res.success) {
+        setSaveFeedback(res.message || `${target} ga darslarni ko'rish uchun ruxsat berildi!`);
+        setTimeout(() => setSaveFeedback(null), 3500);
+        setGrantUserInput('');
+        loadTabData();
+      } else {
+        alert(res.error || 'Xatolik yuz berdi');
+      }
+    } finally {
+      setGrantLoading(false);
+    }
+  };
+
+  const handleRevokeAccess = async (target: string, name: string) => {
+    if (!window.confirm(`${name} (${target}) ning darslarga kirish ruxsatini bekor qilishni xohlaysizmi?`)) {
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/academy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'revoke_access',
+          identifier: target,
+          courseId: selectedCourseId,
+        }),
+      }).then(r => r.json());
+
+      setSaveFeedback(res.message || 'Ruxsat bekor qilindi');
       setTimeout(() => setSaveFeedback(null), 3000);
       loadTabData();
     } finally {
@@ -963,6 +1021,132 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     {studentsProgress.filter(s => s.completedLessonsCount === s.totalLessons && s.totalLessons > 0).length} nafar
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Access Control & Permissions Section */}
+            <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-4">
+              <div className="flex flex-wrap justify-between items-center gap-2">
+                <div>
+                  <h4 className="font-bold text-sm text-gray-900 flex items-center gap-2">
+                    <span>🔐 Foydalanuvchi Ruxsatlari (Access Control)</span>
+                    <span className="text-[10px] bg-green-50 text-green-700 px-2 py-0.5 rounded font-mono font-bold">
+                      {courseAccessList.filter(a => a.status === 'granted').length} ta ruxsat berilgan
+                    </span>
+                  </h4>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Faqat ruxsat berilgan talabalar darslarni tomosha qila oladi. Ruxsat berilganda talabaga Telegram orqali xabar boradi.
+                  </p>
+                </div>
+
+                {courseAccessList.filter(a => a.status === 'pending').length > 0 && (
+                  <span className="px-2.5 py-1 bg-amber-100 text-amber-800 rounded-xl text-xs font-bold animate-pulse">
+                    ⏳ {courseAccessList.filter(a => a.status === 'pending').length} ta yangi so'rov bor
+                  </span>
+                )}
+              </div>
+
+              {/* Quick Grant Input */}
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleGrantAccess();
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  placeholder="Mijoz kodi (masalan: YK-103) yoki Telegram ID..."
+                  value={grantUserInput}
+                  onChange={(e) => setGrantUserInput(e.target.value)}
+                  className="flex-1 px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl text-xs font-bold outline-none focus:border-primary focus:bg-white transition-colors"
+                />
+                <button
+                  type="submit"
+                  disabled={grantLoading || !grantUserInput.trim()}
+                  className="px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-bold shadow-md shadow-emerald-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  {grantLoading ? 'Saqlanmoqda...' : '✅ Ruxsat berish'}
+                </button>
+              </form>
+
+              {/* Access List Table */}
+              <div className="space-y-2 pt-1">
+                {courseAccessList.length === 0 ? (
+                  <p className="text-xs text-gray-400 py-4 text-center">Foydalanuvchilar ro'yxati bo'sh.</p>
+                ) : (
+                  <div className="divide-y divide-gray-100 border border-gray-100 rounded-2xl overflow-hidden">
+                    {courseAccessList.map((item) => {
+                      const isGranted = item.status === 'granted';
+                      const isPending = item.status === 'pending';
+
+                      return (
+                        <div
+                          key={item.userId}
+                          className={`p-3 flex items-center justify-between gap-3 text-xs transition-colors ${
+                            isPending ? 'bg-amber-50/50' : 'bg-white hover:bg-gray-50/50'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <span className="font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded-lg text-xs">
+                              {item.customerCode}
+                            </span>
+                            <div className="min-w-0">
+                              <p className="font-bold text-gray-900 truncate">
+                                {item.name || 'Foydalanuvchi'}
+                                {item.username ? (
+                                  <span className="text-gray-400 font-normal ml-1">(@{item.username})</span>
+                                ) : null}
+                              </p>
+                              <p className="text-[10px] text-gray-400 flex items-center gap-1">
+                                <span>ID: {item.telegramUserId || item.userId}</span>
+                                {item.grantedAt && (
+                                  <span>• {new Date(item.grantedAt).toLocaleDateString()}</span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isGranted ? (
+                              <>
+                                <span className="text-[10px] font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded-md">
+                                  ✓ Ruxsat berilgan
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRevokeAccess(item.customerCode || item.userId, item.name)}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-red-600 bg-red-50 hover:bg-red-100 border border-red-200 rounded-xl transition-colors"
+                                >
+                                  Bekor qilish
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                {isPending ? (
+                                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md animate-pulse">
+                                    ⏳ So'rov yuborgan
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold text-gray-500 bg-gray-100 px-2 py-0.5 rounded-md">
+                                    🚫 Ruxsat yo'q
+                                  </span>
+                                )}
+                                <button
+                                  type="button"
+                                  onClick={() => handleGrantAccess(item.customerCode || item.userId)}
+                                  className="px-2.5 py-1 text-[11px] font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition-colors"
+                                >
+                                  Ruxsat berish
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 

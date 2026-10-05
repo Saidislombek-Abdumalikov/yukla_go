@@ -116,6 +116,26 @@ export interface StudentProgressSummary {
   }[];
 }
 
+export type CourseAccessStatus = 'granted' | 'pending' | 'none';
+
+export interface CourseAccessItem {
+  userId: string;
+  customerCode: string;
+  name: string;
+  telegramUserId?: number;
+  courseId: string;
+  status: CourseAccessStatus;
+  grantedAt?: string;
+  requestedAt?: string;
+}
+
+export interface CourseLessonsResponse {
+  hasAccess: boolean;
+  accessStatus: CourseAccessStatus;
+  lessons: Lesson[];
+  message?: string;
+}
+
 declare global {
   interface Window {
     Telegram?: {

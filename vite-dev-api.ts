@@ -12,6 +12,12 @@ import {
   deleteLesson,
   INITIAL_COURSES,
   STORED_LESSONS,
+  getCourseAccessList,
+  grantCourseAccess,
+  revokeCourseAccess,
+  hasUserCourseAccess,
+  getUserCourseAccessStatus,
+  requestCourseAccess,
 } from './api/_lib/academyData';
 
 interface DevParcel {
@@ -589,6 +595,10 @@ export function devApiPlugin(): Plugin {
             const action = params.get('action');
 
             if (req.method === 'GET') {
+              if (action === 'access') {
+                return sendJson(res, 200, getCourseAccessList(courseId));
+              }
+
               if (action === 'students' || path === '/api/admin/academy/students') {
                 const students = [
                   devUser,
@@ -609,6 +619,27 @@ export function devApiPlugin(): Plugin {
 
             if (req.method === 'POST') {
               const body = await readBody(req);
+
+              if (body.action === 'grant_access') {
+                const target = body.identifier || body.userId || body.customerCode;
+                const result = grantCourseAccess(target, body.courseId || courseId);
+                return sendJson(res, 200, {
+                  success: true,
+                  message: `${result.item?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
+                  item: result.item,
+                });
+              }
+
+              if (body.action === 'revoke_access') {
+                const target = body.identifier || body.userId || body.customerCode;
+                const result = revokeCourseAccess(target, body.courseId || courseId);
+                return sendJson(res, 200, {
+                  success: true,
+                  message: 'Ruxsat bekor qilindi',
+                  item: result.item,
+                });
+              }
+
               if (body.action === 'reset_progress') {
                 resetStudentProgress(body.userId, body.courseId);
                 return sendJson(res, 200, { success: true, message: 'Talaba progressi qayta boshlandi' });
@@ -640,9 +671,37 @@ export function devApiPlugin(): Plugin {
         if (path === '/api/academy/courses') {
           const courseId = params.get('courseId');
           if (courseId) {
-            return sendJson(res, 200, getCourseLessonsForUser(devUser.id, courseId));
+            const hasAccess = hasUserCourseAccess(devUser.id, courseId);
+            const accessStatus = getUserCourseAccessStatus(devUser.id, courseId);
+            if (!hasAccess) {
+              return sendJson(res, 200, {
+                hasAccess: false,
+                accessStatus,
+                lessons: [],
+                message: 'Ushbu kursni ko\'rish uchun administrator ruxsati talab qilinadi.',
+              });
+            }
+            return sendJson(res, 200, {
+              hasAccess: true,
+              accessStatus: 'granted',
+              lessons: getCourseLessonsForUser(devUser.id, courseId),
+            });
           }
           return sendJson(res, 200, getCoursesWithUserProgress(devUser.id));
+        }
+
+        if (path === '/api/academy/request-access' && req.method === 'POST') {
+          const body = await readBody(req);
+          const item = requestCourseAccess(devUser.id, body.courseId || 'course_cargo_101', {
+            name: devUser.name,
+            customerCode: devUser.customerCode,
+            telegramUserId: devUser.telegramUserId,
+          });
+          return sendJson(res, 200, {
+            success: true,
+            message: 'So\'rovingiz adminga yuborildi',
+            item,
+          });
         }
 
         if (path === '/api/academy/progress' && req.method === 'POST') {

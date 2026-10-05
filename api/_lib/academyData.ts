@@ -6,7 +6,7 @@
  * enforcement, server-side progress jump protection, and student tracking.
  */
 
-import type { Course, Lesson, UserLessonProgress, StudentProgressSummary } from '../../types';
+import type { Course, Lesson, UserLessonProgress, StudentProgressSummary, CourseAccessItem, CourseAccessStatus } from '../../types';
 
 export interface StoredLesson {
   id: string;
@@ -380,4 +380,206 @@ export function deleteLesson(lessonId: string): boolean {
     return true;
   }
   return false;
+}
+
+// -----------------------------------------------------------------------------
+// Course Access & Permissions Management
+// -----------------------------------------------------------------------------
+export const DEMO_ACADEMY_USERS = [
+  { id: 'usr_dev_100', name: 'Saidislom', customerCode: 'YK-100', telegramUserId: 99887766 },
+  { id: 'usr_dev_101', name: 'Bobur Mirzo', customerCode: 'YK-101', telegramUserId: 99887767 },
+  { id: 'usr_dev_102', name: 'Madina Alimova', customerCode: 'YK-102', telegramUserId: 99887768 },
+  { id: 'usr_dev_103', name: 'Jasur Bek', customerCode: 'YK-103', telegramUserId: 99887769 },
+];
+
+const courseAccessStore = new Map<string, CourseAccessItem>();
+
+// Seed default permissions
+courseAccessStore.set('usr_dev_100:course_cargo_101', {
+  userId: 'usr_dev_100',
+  customerCode: 'YK-100',
+  name: 'Saidislom',
+  telegramUserId: 99887766,
+  courseId: 'course_cargo_101',
+  status: 'granted',
+  grantedAt: new Date(Date.now() - 86400000).toISOString(),
+});
+
+courseAccessStore.set('usr_dev_101:course_cargo_101', {
+  userId: 'usr_dev_101',
+  customerCode: 'YK-101',
+  name: 'Bobur Mirzo',
+  telegramUserId: 99887767,
+  courseId: 'course_cargo_101',
+  status: 'pending',
+  requestedAt: new Date(Date.now() - 3600000).toISOString(),
+});
+
+courseAccessStore.set('usr_dev_102:course_cargo_101', {
+  userId: 'usr_dev_102',
+  customerCode: 'YK-102',
+  name: 'Madina Alimova',
+  telegramUserId: 99887768,
+  courseId: 'course_cargo_101',
+  status: 'granted',
+  grantedAt: new Date(Date.now() - 43200000).toISOString(),
+});
+
+export function hasUserCourseAccess(userId: string, courseId: string): boolean {
+  const record = courseAccessStore.get(`${userId}:${courseId}`);
+  return record?.status === 'granted';
+}
+
+export function getUserCourseAccessStatus(userId: string, courseId: string): CourseAccessStatus {
+  const record = courseAccessStore.get(`${userId}:${courseId}`);
+  return record?.status || 'none';
+}
+
+export function requestCourseAccess(
+  userId: string,
+  courseId: string,
+  userMeta?: { name?: string; customerCode?: string; telegramUserId?: number }
+): CourseAccessItem {
+  const existingUser = DEMO_ACADEMY_USERS.find(u => u.id === userId);
+  const key = `${userId}:${courseId}`;
+  const record: CourseAccessItem = {
+    userId,
+    courseId,
+    name: userMeta?.name || existingUser?.name || 'Mijoz',
+    customerCode: userMeta?.customerCode || existingUser?.customerCode || 'YK-???',
+    telegramUserId: userMeta?.telegramUserId || existingUser?.telegramUserId,
+    status: 'pending',
+    requestedAt: new Date().toISOString(),
+  };
+  courseAccessStore.set(key, record);
+
+  if (!existingUser) {
+    DEMO_ACADEMY_USERS.push({
+      id: userId,
+      name: record.name,
+      customerCode: record.customerCode,
+      telegramUserId: record.telegramUserId || 0,
+    });
+  }
+
+  return record;
+}
+
+export function grantCourseAccess(
+  identifier: string,
+  courseId: string
+): { success: boolean; item?: CourseAccessItem; user?: any } {
+  const clean = identifier.trim().toUpperCase();
+  // Find in demo users or matching ID
+  let targetUser = DEMO_ACADEMY_USERS.find(
+    u => u.id === identifier ||
+         u.customerCode.toUpperCase() === clean ||
+         String(u.telegramUserId) === clean ||
+         u.name.toUpperCase().includes(clean)
+  );
+
+  // Also check existing requests in courseAccessStore
+  let existingItem: CourseAccessItem | undefined;
+  if (!targetUser) {
+    for (const item of courseAccessStore.values()) {
+      if (
+        item.customerCode.toUpperCase() === clean ||
+        String(item.telegramUserId) === clean ||
+        item.userId === identifier ||
+        item.name.toUpperCase().includes(clean)
+      ) {
+        existingItem = item;
+        break;
+      }
+    }
+  }
+
+  const userId = targetUser ? targetUser.id : (existingItem ? existingItem.userId : identifier);
+  const key = `${userId}:${courseId}`;
+  const existing = existingItem || courseAccessStore.get(key);
+
+  const updated: CourseAccessItem = {
+    userId,
+    courseId,
+    name: targetUser?.name || existing?.name || `Foydalanuvchi (${identifier})`,
+    customerCode: targetUser?.customerCode || existing?.customerCode || identifier,
+    telegramUserId: targetUser?.telegramUserId || existing?.telegramUserId,
+    status: 'granted',
+    grantedAt: new Date().toISOString(),
+  };
+
+  courseAccessStore.set(key, updated);
+
+  // If user is not yet in DEMO_ACADEMY_USERS, add them
+  if (!DEMO_ACADEMY_USERS.some(u => u.id === userId)) {
+    DEMO_ACADEMY_USERS.push({
+      id: userId,
+      name: updated.name,
+      customerCode: updated.customerCode,
+      telegramUserId: updated.telegramUserId || 0,
+    });
+  }
+
+  return { success: true, item: updated, user: targetUser };
+}
+
+export function revokeCourseAccess(
+  identifier: string,
+  courseId: string
+): { success: boolean; item?: CourseAccessItem } {
+  const clean = identifier.trim().toUpperCase();
+  let targetUser = DEMO_ACADEMY_USERS.find(
+    u => u.id === identifier || u.customerCode.toUpperCase() === clean || String(u.telegramUserId) === clean
+  );
+
+  let existingItem: CourseAccessItem | undefined;
+  if (!targetUser) {
+    for (const item of courseAccessStore.values()) {
+      if (
+        item.customerCode.toUpperCase() === clean ||
+        String(item.telegramUserId) === clean ||
+        item.userId === identifier
+      ) {
+        existingItem = item;
+        break;
+      }
+    }
+  }
+
+  const userId = targetUser ? targetUser.id : (existingItem ? existingItem.userId : identifier);
+  const key = `${userId}:${courseId}`;
+  const existing = existingItem || courseAccessStore.get(key);
+
+  if (existing) {
+    existing.status = 'none';
+    existing.grantedAt = undefined;
+    return { success: true, item: existing };
+  }
+
+  const updated: CourseAccessItem = {
+    userId,
+    courseId,
+    name: targetUser?.name || identifier,
+    customerCode: targetUser?.customerCode || identifier,
+    status: 'none',
+  };
+  courseAccessStore.set(key, updated);
+  return { success: true, item: updated };
+}
+
+export function getCourseAccessList(courseId: string): CourseAccessItem[] {
+  return DEMO_ACADEMY_USERS.map(u => {
+    const key = `${u.id}:${courseId}`;
+    const rec = courseAccessStore.get(key);
+    return {
+      userId: u.id,
+      customerCode: u.customerCode,
+      name: u.name,
+      telegramUserId: u.telegramUserId,
+      courseId,
+      status: rec?.status || 'none',
+      grantedAt: rec?.grantedAt,
+      requestedAt: rec?.requestedAt,
+    };
+  });
 }

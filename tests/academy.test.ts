@@ -8,6 +8,12 @@ import {
   addLessonToCourse,
   deleteLesson,
   STORED_LESSONS,
+  hasUserCourseAccess,
+  getUserCourseAccessStatus,
+  requestCourseAccess,
+  grantCourseAccess,
+  revokeCourseAccess,
+  getCourseAccessList,
 } from '../api/_lib/academyData.ts';
 
 async function runAcademyTests() {
@@ -108,6 +114,42 @@ async function runAcademyTests() {
     'Lesson count must revert after deletion'
   );
   console.log('  ✓ Admin add & delete lesson operations validated');
+
+  // TEST 7: Admin Course Access Control & Permission Management
+  console.log('[TEST 7] Admin Course Access Control & Permission Engine');
+  const studentYK100 = 'usr_dev_100'; // Pre-seeded as granted for YK-100
+  const studentYK101 = 'usr_dev_101'; // Pre-seeded as pending for YK-101
+  const newStudentId = 'usr_new_test_guest';
+
+  // 1. Check pre-seeded statuses
+  assert.strictEqual(hasUserCourseAccess(studentYK100, courseId), true, 'YK-100 must have granted access');
+  assert.strictEqual(getUserCourseAccessStatus(studentYK100, courseId), 'granted');
+  assert.strictEqual(hasUserCourseAccess(studentYK101, courseId), false, 'YK-101 pending user must not have direct access');
+  assert.strictEqual(getUserCourseAccessStatus(studentYK101, courseId), 'pending');
+
+  // 2. Unregistered user requests access
+  assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), false);
+  const reqRes = requestCourseAccess(newStudentId, courseId, {
+    customerCode: 'YK-777',
+    name: 'New Guest Student',
+  });
+  assert.strictEqual(reqRes.status, 'pending');
+  assert.strictEqual(getUserCourseAccessStatus(newStudentId, courseId), 'pending');
+
+  // 3. Admin grants access to user by customer code YK-777
+  const grantRes = grantCourseAccess('YK-777', courseId);
+  assert.strictEqual(grantRes.success, true);
+  assert.strictEqual(grantRes.item?.status, 'granted');
+  assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), true, 'User should now have granted access');
+  assert.strictEqual(getUserCourseAccessStatus(newStudentId, courseId), 'granted');
+
+  // 4. Admin revokes access
+  const revokeRes = revokeCourseAccess('YK-777', courseId);
+  assert.strictEqual(revokeRes.success, true);
+  assert.strictEqual(revokeRes.item?.status, 'none');
+  assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), false, 'Revoked user must have access removed');
+
+  console.log('  ✓ Access control engine fully validated: grant, request, and revoke workflows work correctly');
 
   console.log('--- ALL ACADEMY LMS ENGINE TESTS PASSED! ---');
 }

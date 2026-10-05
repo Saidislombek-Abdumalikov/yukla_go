@@ -7,7 +7,11 @@ import {
   deleteLesson,
   INITIAL_COURSES,
   STORED_LESSONS,
+  getCourseAccessList,
+  grantCourseAccess,
+  revokeCourseAccess,
 } from '../_lib/academyData';
+import { sendTelegramMessage } from '../_lib/botNotifications';
 
 const DEMO_STUDENTS = [
   { id: 'usr_dev_100', name: 'Saidislom', customerCode: 'YK-100' },
@@ -24,8 +28,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const { action, courseId = 'course_cargo_101' } = req.query;
 
-  // 1. GET: Students progress list or courses/lessons
+  // 1. GET: Students progress list, access permissions, or courses/lessons
   if (req.method === 'GET') {
+    if (action === 'access') {
+      const accessList = getCourseAccessList(String(courseId));
+      return res.status(200).json(accessList);
+    }
+
     if (action === 'students') {
       const summary = getStudentsProgressSummary(DEMO_STUDENTS, String(courseId));
       return res.status(200).json(summary);
@@ -42,9 +51,56 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     });
   }
 
-  // 2. POST: Add lesson or reset student progress
+  // 2. POST: Add lesson, reset progress, grant or revoke access
   if (req.method === 'POST') {
     const body = req.body || {};
+
+    if (body.action === 'grant_access') {
+      const { identifier, userId, customerCode, courseId: targetCourseId = 'course_cargo_101' } = body;
+      const target = identifier || userId || customerCode;
+      if (!target) return res.status(400).json({ error: 'Foydalanuvchi identifikatori (ID yoki mijoz kodi) talab qilinadi' });
+
+      const result = grantCourseAccess(target, String(targetCourseId));
+
+      // Send bot notification if user has telegramUserId
+      if (result.user?.telegramUserId) {
+        try {
+          const course = INITIAL_COURSES.find(c => c.id === String(targetCourseId));
+          const appUrl = process.env.MINI_APP_URL || 'https://carie-piddling-nonpurposively.ngrok-free.dev?ngrok-skip-browser-warning=true';
+          const academyUrl = appUrl.includes('?') ? `${appUrl}&app=academy` : `${appUrl}?app=academy`;
+          await sendTelegramMessage(
+            result.user.telegramUserId,
+            `🎉 <b>Tabriklaymiz, ${result.user.name}!</b>\n\n` +
+            `Sizga <b>${course?.title || 'Video darslar'}</b> kursini tomosha qilish uchun ruxsat berildi!\n\n` +
+            `Quyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin:`,
+            {
+              inline_keyboard: [
+                [{ text: '▶️ Darslarni ochish (Mini App)', web_app: { url: academyUrl } }],
+              ],
+            }
+          );
+        } catch {}
+      }
+
+      return res.status(200).json({
+        success: true,
+        message: `${result.item?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
+        item: result.item,
+      });
+    }
+
+    if (body.action === 'revoke_access') {
+      const { identifier, userId, customerCode, courseId: targetCourseId = 'course_cargo_101' } = body;
+      const target = identifier || userId || customerCode;
+      if (!target) return res.status(400).json({ error: 'Foydalanuvchi identifikatori talab qilinadi' });
+
+      const result = revokeCourseAccess(target, String(targetCourseId));
+      return res.status(200).json({
+        success: true,
+        message: 'Ruxsat bekor qilindi',
+        item: result.item,
+      });
+    }
 
     if (body.action === 'reset_progress') {
       const { userId, courseId: targetCourseId } = body;
