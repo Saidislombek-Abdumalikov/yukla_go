@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ALL_BRANCHES, REGIONS_LIST, getBranches } from '../../api/_lib/branchesData';
 import type { CourseAccessItem } from '../../types';
+import { api, adminFetch, getSessionToken, setSessionToken } from '../../services/api';
 
 interface AdminDashboardProps {
   onBack: () => void;
@@ -9,6 +10,28 @@ interface AdminDashboardProps {
 type AdminTab = 'PARCELS' | 'COURSES' | 'WAREHOUSE' | 'SETTINGS' | 'USERS' | 'STATS';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
+  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
+    return Boolean(getSessionToken());
+  });
+  const [adminKeyInput, setAdminKeyInput] = useState('');
+  const [adminAuthLoading, setAdminAuthLoading] = useState(false);
+  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
+
+  const handleAdminLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminKeyInput.trim()) return;
+    setAdminAuthLoading(true);
+    setAdminAuthError(null);
+    try {
+      await api.adminLogin(adminKeyInput.trim());
+      setIsAdminAuthenticated(true);
+    } catch (err: any) {
+      setAdminAuthError(err.message || 'Noto\'g\'ri admin kaliti');
+    } finally {
+      setAdminAuthLoading(false);
+    }
+  };
+
   const [activeTab, setActiveTab] = useState<AdminTab>('PARCELS');
   const [stats, setStats] = useState<any>(null);
   const [parcels, setParcels] = useState<any[]>([]);
@@ -83,7 +106,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const handleWipeUser = async (target: any) => {
     setWipeLoading(true);
     try {
-      const res = await fetch(`/api/admin/users?id=${encodeURIComponent(target.id || '')}&customerCode=${encodeURIComponent(target.customerCode || '')}&telegramUserId=${encodeURIComponent(target.telegramUserId || '')}`, {
+      const res = await adminFetch(`/api/admin/users?id=${encodeURIComponent(target.id || '')}&customerCode=${encodeURIComponent(target.customerCode || '')}&telegramUserId=${encodeURIComponent(target.telegramUserId || '')}`, {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
       }).then(r => r.json());
@@ -128,7 +151,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const handleToggleUserStatus = async (user: any) => {
     const nextStatus = user.status === 'active' ? 'blocked' : 'active';
     try {
-      const res = await fetch('/api/admin/users', {
+      const res = await adminFetch('/api/admin/users', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: user.id, status: nextStatus }),
@@ -143,44 +166,46 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   };
 
   useEffect(() => {
-    loadTabData();
-  }, [activeTab, unsubmittedOnly, parcelSearch, statusFilter, selectedCourseId]);
+    if (isAdminAuthenticated) {
+      loadTabData();
+    }
+  }, [isAdminAuthenticated, activeTab, unsubmittedOnly, parcelSearch, statusFilter, selectedCourseId]);
 
   const loadTabData = async () => {
     setLoading(true);
     try {
       if (activeTab === 'PARCELS') {
         const url = `/api/admin/parcels?unsubmitted=${unsubmittedOnly}&search=${encodeURIComponent(parcelSearch)}`;
-        const res = await fetch(url).then(r => r.json()).catch(() => []);
+        const res = await adminFetch(url).then(r => r.json()).catch(() => []);
         let list = Array.isArray(res) ? res : [];
         if (statusFilter !== 'ALL') {
           list = list.filter((p: any) => p.status === statusFilter);
         }
         setParcels(list);
       } else if (activeTab === 'WAREHOUSE') {
-        const res = await fetch('/api/admin/cargo-providers').then(r => r.json()).catch(() => []);
+        const res = await adminFetch('/api/admin/cargo-providers').then(r => r.json()).catch(() => []);
         if (Array.isArray(res) && res.length > 0) {
           setWarehouse(res[0]);
         }
       } else if (activeTab === 'COURSES') {
         const [cRes, lRes, sRes, aRes] = await Promise.all([
-          fetch('/api/admin/academy').then(r => r.json()).catch(() => ({ courses: [] })),
-          fetch(`/api/admin/academy?action=lessons&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
-          fetch(`/api/admin/academy?action=students&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
-          fetch(`/api/admin/academy?action=access&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
+          adminFetch('/api/admin/academy').then(r => r.json()).catch(() => ({ courses: [] })),
+          adminFetch(`/api/admin/academy?action=lessons&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
+          adminFetch(`/api/admin/academy?action=students&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
+          adminFetch(`/api/admin/academy?action=access&courseId=${selectedCourseId}`).then(r => r.json()).catch(() => []),
         ]);
         if (cRes?.courses) setCourses(cRes.courses);
         setCourseLessons(Array.isArray(lRes) ? lRes : []);
         setStudentsProgress(Array.isArray(sRes) ? sRes : []);
         setCourseAccessList(Array.isArray(aRes) ? aRes : []);
       } else if (activeTab === 'SETTINGS') {
-        const res = await fetch('/api/admin/settings').then(r => r.json()).catch(() => null);
+        const res = await adminFetch('/api/admin/settings').then(r => r.json()).catch(() => null);
         if (res) setSettings(res);
       } else if (activeTab === 'USERS') {
-        const res = await fetch('/api/admin/users').then(r => r.json()).catch(() => []);
+        const res = await adminFetch('/api/admin/users').then(r => r.json()).catch(() => []);
         setUsers(Array.isArray(res) ? res : []);
       } else if (activeTab === 'STATS') {
-        const res = await fetch('/api/admin/stats').then(r => r.json()).catch(() => null);
+        const res = await adminFetch('/api/admin/stats').then(r => r.json()).catch(() => null);
         setStats(res || { totalUsers: 0, activeParcels: 0, unsubmittedTracks: 0, pendingLocationRequests: 0, deliveredParcels: 0 });
       }
     } finally {
@@ -243,7 +268,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       : parcels.map(p => p.id);
 
     if (ids.length === 0) return;
-    await fetch('/api/admin/parcels', {
+    await adminFetch('/api/admin/parcels', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'mark_submitted', parcelIds: ids }),
@@ -256,7 +281,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   // Bulk status update
   const handleBulkStatus = async (status: string) => {
     if (selectedParcelIds.size === 0) return;
-    await fetch('/api/admin/parcels', {
+    await adminFetch('/api/admin/parcels', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'status', parcelIds: Array.from(selectedParcelIds), value: status }),
@@ -268,7 +293,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   // Bulk payment update
   const handleBulkPayment = async (paymentStatus: string) => {
     if (selectedParcelIds.size === 0) return;
-    await fetch('/api/admin/parcels', {
+    await adminFetch('/api/admin/parcels', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ action: 'payment', parcelIds: Array.from(selectedParcelIds), value: paymentStatus }),
@@ -279,7 +304,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
   // Update single parcel weight & recalculate amount
   const handleUpdateWeight = async (parcelId: string, weightKg: number) => {
-    await fetch('/api/admin/parcels', {
+    await adminFetch('/api/admin/parcels', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ parcelIds: [parcelId], weightKg }),
@@ -300,7 +325,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       .filter(t => t.length > 0);
 
     try {
-      await fetch('/api/admin/parcels', {
+      await adminFetch('/api/admin/parcels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -324,7 +349,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const handleSaveWarehouse = async () => {
     setLoading(true);
     try {
-      await fetch('/api/admin/cargo-providers', {
+      await adminFetch('/api/admin/cargo-providers', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(warehouse),
@@ -340,7 +365,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const handleSaveSettings = async () => {
     setLoading(true);
     try {
-      await fetch('/api/admin/settings', {
+      await adminFetch('/api/admin/settings', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(settings),
@@ -359,7 +384,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     }
     setLoading(true);
     try {
-      await fetch('/api/admin/academy', {
+      await adminFetch('/api/admin/academy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -381,7 +406,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     if (!newCourseTitle.trim()) return;
     setAddCourseLoading(true);
     try {
-      const res = await fetch('/api/admin/academy', {
+      const res = await adminFetch('/api/admin/academy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -412,7 +437,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const handleAdminDeleteCourse = async (courseId: string) => {
     if (!window.confirm("Haqiqatan ham ushbu bo'limni va uning barcha darslarini o'chirmoqchimisiz?")) return;
     try {
-      await fetch(`/api/admin/academy?courseId=${courseId}`, {
+      await adminFetch(`/api/admin/academy?courseId=${courseId}`, {
         method: 'DELETE',
       });
       setSaveFeedback("Bo'lim o'chirildi");
@@ -431,7 +456,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
     setAddLessonLoading(true);
     try {
-      await fetch('/api/admin/academy', {
+      await adminFetch('/api/admin/academy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -462,7 +487,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     if (!window.confirm(`"${title}" darsini o'chirishga ishonchingiz komilmi?`)) return;
     setLoading(true);
     try {
-      await fetch(`/api/admin/academy?lessonId=${lessonId}`, {
+      await adminFetch(`/api/admin/academy?lessonId=${lessonId}`, {
         method: 'DELETE',
       });
       setSaveFeedback(`Dars o'chirildi.`);
@@ -478,7 +503,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     if (!target) return;
     setGrantLoading(true);
     try {
-      const res = await fetch('/api/admin/academy', {
+      const res = await adminFetch('/api/admin/academy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -507,7 +532,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     }
     setLoading(true);
     try {
-      const res = await fetch('/api/admin/academy', {
+      const res = await adminFetch('/api/admin/academy', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -540,6 +565,49 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     }
   };
 
+    if (!isAdminAuthenticated) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6 text-center animate-fade-in select-none">
+        <div className="w-full max-w-sm bg-white p-8 rounded-[36px] shadow-soft border border-gray-100 space-y-6">
+          <div className="w-16 h-16 bg-gray-900 text-white rounded-3xl mx-auto flex items-center justify-center text-3xl shadow-soft">
+            👑
+          </div>
+          <div className="space-y-1">
+            <h2 className="text-xl font-black text-gray-900">Yukla Go Admin</h2>
+            <p className="text-xs text-gray-500">Boshqaruv paneliga kirish uchun parolni kiriting</p>
+          </div>
+          <form onSubmit={handleAdminLogin} className="space-y-4">
+            <input
+              type="password"
+              placeholder="Admin kaliti yoki paroli"
+              value={adminKeyInput}
+              onChange={(e) => setAdminKeyInput(e.target.value)}
+              className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-semibold text-gray-900 focus:outline-none focus:border-primary focus:bg-white transition-all text-center tracking-wider"
+              autoFocus
+            />
+            {adminAuthError && (
+              <p className="text-xs text-red-500 font-medium">{adminAuthError}</p>
+            )}
+            <button
+              type="submit"
+              disabled={adminAuthLoading || !adminKeyInput.trim()}
+              className="w-full py-3.5 px-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold text-xs uppercase tracking-wider shadow-lg transition-all disabled:opacity-50 active:scale-95 flex items-center justify-center gap-2"
+            >
+              {adminAuthLoading ? 'Tekshirilmoqda...' : 'Kirish'}
+            </button>
+            <button
+              type="button"
+              onClick={onBack}
+              className="w-full py-2.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              Ortga qaytish
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F7FA] flex flex-col animate-fade-in text-gray-900 pb-20">
       
@@ -565,12 +633,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             </div>
           </div>
 
-          <button
-            onClick={onBack}
-            className="text-xs font-bold text-primary hover:underline bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100"
-          >
-            Ilovani ochish &rarr;
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setSessionToken(null);
+                setIsAdminAuthenticated(false);
+              }}
+              className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl border border-red-200 transition-colors"
+              title="Admin sessiyasini tugatish"
+            >
+              Chiqish
+            </button>
+            <button
+              onClick={onBack}
+              className="text-xs font-bold text-primary hover:underline bg-blue-50 px-3 py-1.5 rounded-xl border border-blue-100"
+            >
+              Ilova &rarr;
+            </button>
+          </div>
         </div>
 
         {/* Navigation Tabs */}

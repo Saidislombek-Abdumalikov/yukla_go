@@ -87,14 +87,8 @@ function App() {
       const search = window.location.search;
       const hash = window.location.hash;
 
-      if (hash === '#admin') {
-        if (isAdminUser) {
-          setIsAdminPreview(true);
-        } else {
-          // Strictly lock out regular users from #admin!
-          window.location.hash = '';
-          setIsAdminPreview(false);
-        }
+      if (hash === '#admin' || search.includes('admin=true')) {
+        setIsAdminPreview(true);
       } else {
         setIsAdminPreview(false);
       }
@@ -116,8 +110,8 @@ function App() {
     setActiveTab(Tab.MY_PARCELS);
   };
 
-  // 1. Admin Mode (Strictly restricted to authorized Admin IDs)
-  if (isAdminPreview && isAdminUser) {
+  // 1. Admin Mode (Protected by secure passkey & server-side role validation)
+  if (isAdminPreview) {
     return (
       <AdminDashboard 
         onBack={() => {
@@ -128,13 +122,13 @@ function App() {
     );
   }
 
-  // 3. If opened directly outside Telegram in a non-dev browser
+  // 2. If opened directly outside Telegram in a browser
   if (!isTelegramEnv) {
     return (
       <OutsideTelegram 
-        onPreviewMode={() => {
-          setIsTelegramEnv(true);
-          setAuthLoading(false);
+        onAdminClick={() => {
+          setIsAdminPreview(true);
+          window.location.hash = '#admin';
         }} 
       />
     );

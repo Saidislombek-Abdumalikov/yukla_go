@@ -9,13 +9,33 @@
 
 import { Parcel, UserProfile, ShippingRates, ChinaWarehouseAddress, DeliveryBranchSnapshot } from '../types';
 
-let sessionToken: string | null = null;
+let sessionToken: string | null = (typeof window !== 'undefined') ? localStorage.getItem('yukla_session_token') : null;
 
 export const setSessionToken = (token: string | null) => {
   sessionToken = token;
+  if (typeof window !== 'undefined') {
+    if (token) {
+      try { localStorage.setItem('yukla_session_token', token); } catch {}
+    } else {
+      try { localStorage.removeItem('yukla_session_token'); } catch {}
+    }
+  }
 };
 
 export const getSessionToken = () => sessionToken;
+
+export async function adminFetch(endpoint: string, options: RequestInit = {}): Promise<Response> {
+  const token = getSessionToken();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+    ...(options.headers as Record<string, string> || {}),
+  };
+  return fetch(endpoint, {
+    ...options,
+    headers,
+  });
+}
 
 // -----------------------------------------------------------------------------
 // Fallback & Mock Data Store (used in dev/preview/offline)
@@ -112,7 +132,6 @@ const INITIAL_FALLBACK_PARCELS: Parcel[] = [
 const FALLBACK_BRANCHES: DeliveryBranchSnapshot[] = [
   { provider: 'BTS', branchName: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12-uy' },
   { provider: 'BTS', branchName: 'BTS Chilonzor', region: 'Toshkent', address: 'Chilonzor 9-mavze, Qatortol 1' },
-  { provider: 'BTS', branchName: 'BTS Samarqand Markaz', region: 'Samarqand', address: 'Mirzo Ulug\'bek ko\'chasi 45' },
   { provider: 'EMU', branchName: 'EMU Yunusobod', region: 'Toshkent', address: 'Yunusobod 4-mavze, 15-uy' },
   { provider: 'EMU', branchName: 'EMU Chortoq', region: 'Namangan', address: 'Mustaqillik ko\'chasi 10' },
   { provider: 'UZPOST', branchName: 'Bosh Pochtampt', region: 'Toshkent', address: 'Shahrisabz ko\'chasi 7' },
@@ -210,11 +229,25 @@ export const api = {
       }
       return res;
     } catch (err: any) {
-      // In dev or offline preview, return fallback session
-      const fallbackToken = 'dev-token-auto';
-      setSessionToken(fallbackToken);
-      return { token: fallbackToken, user: getStoredProfile() };
+      if (import.meta.env.DEV) {
+        const fallbackToken = 'dev-token-auto';
+        setSessionToken(fallbackToken);
+        return { token: fallbackToken, user: getStoredProfile() };
+      }
+      throw err;
     }
+  },
+
+  // 1.1 Direct Admin Key Authentication
+  adminLogin: async (adminKey: string): Promise<{ token: string; user: any }> => {
+    const res = await request<{ token: string; user: any }>('/api/auth/session', {
+      method: 'POST',
+      body: JSON.stringify({ adminKey }),
+    });
+    if (res.token) {
+      setSessionToken(res.token);
+    }
+    return res;
   },
 
   // 2. User profile

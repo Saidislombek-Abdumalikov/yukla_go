@@ -1,10 +1,4 @@
-/**
- * ==============================================================================
- * YUKLA GO - COMPREHENSIVE DELIVERY BRANCHES DIRECTORY
- * ==============================================================================
- * Complete directory of branches for BTS Express, EMU Express, and UzPost
- * covering all 14 regions and major cities of Uzbekistan.
- */
+
 
 export interface BranchItem {
   id: string;

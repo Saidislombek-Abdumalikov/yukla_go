@@ -357,6 +357,19 @@ export function devApiPlugin(): Plugin {
 
         // 1. Auth session
         if (path === '/api/auth/session') {
+          const body = (req as any).body || {};
+          if (body.adminKey) {
+            return sendJson(res, 200, {
+              token: 'dev-admin-session-token',
+              user: {
+                id: 'usr_admin_master',
+                telegramUserId: 7232597769,
+                customerCode: 'ADMIN',
+                name: 'Administrator',
+                role: 'super_admin',
+              },
+            });
+          }
           return sendJson(res, 200, {
             token: 'dev-session-token-yk100',
             user: devUser,
