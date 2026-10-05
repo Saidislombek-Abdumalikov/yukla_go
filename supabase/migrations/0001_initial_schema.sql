@@ -252,28 +252,39 @@ INSERT INTO cargo_providers (
     TRUE
 ) ON CONFLICT DO NOTHING;
 
--- 7.3 Delivery Branches (Verified common hub branches for EMU, BTS, UzPost)
+-- 7.3 Delivery Branches (Active Toshkent & Fergana Valley hub branches for EMU, BTS, UzPost)
 INSERT INTO delivery_branches (provider, provider_branch_code, region, district, city, branch_name, address, phone, active)
 VALUES
     -- BTS Branches
     ('BTS', 'BTS-TAS-01', 'Toshkent', 'Chilonzor', 'Toshkent sh.', 'BTS Chilonzor', 'Chilonzor 9-mavze, Qatortol ko''chasi 1', '+998712000000', true),
     ('BTS', 'BTS-NAM-01', 'Namangan', 'Namangan sh.', 'Namangan sh.', 'BTS Chorsu', 'Chorsu dahasi, Bobur shoh ko''chasi 15', '+998692000000', true),
-    ('BTS', 'BTS-SAM-01', 'Samarqand', 'Samarqand sh.', 'Samarqand sh.', 'BTS Registon', 'Dagbitskaya ko''chasi 45', '+998662000000', true),
     ('BTS', 'BTS-AND-01', 'Andijon', 'Andijon sh.', 'Andijon sh.', 'BTS Markaz', 'Amir Temur shoh ko''chasi 88', '+998742000000', true),
     ('BTS', 'BTS-FER-01', 'Farg''ona', 'Farg''ona sh.', 'Farg''ona sh.', 'BTS Farg''ona Markaz', 'Al-Farg''oniy ko''chasi 22', '+998732000000', true),
 
     -- EMU Branches
     ('EMU', 'EMU-TAS-01', 'Toshkent', 'Yunusobod', 'Toshkent sh.', 'EMU Yunusobod', 'Yunusobod 4-mavze, Amir Temur ko''chasi', '+998712000001', true),
     ('EMU', 'EMU-NAM-01', 'Namangan', 'Chortoq', 'Chortoq sh.', 'EMU Chortoq', 'Mustaqillik ko''chasi 10', '+998692000001', true),
-    ('EMU', 'EMU-SAM-01', 'Samarqand', 'Samarqand sh.', 'Samarqand sh.', 'EMU Samarqand', 'Mirzo Ulug''bek ko''chasi 12', '+998662000001', true),
     ('EMU', 'EMU-AND-01', 'Andijon', 'Asaka', 'Asaka sh.', 'EMU Asaka', 'O''zbekiston ko''chasi 5', '+998742000001', true),
     ('EMU', 'EMU-FER-01', 'Farg''ona', 'Qo''qon', 'Qo''qon sh.', 'EMU Qo''qon', 'Turkiston ko''chasi 33', '+998732000001', true),
 
     -- UzPost Branches
     ('UZPOST', 'UZP-TAS-01', 'Toshkent', 'Mirobod', 'Toshkent sh.', 'Bosh Pochtampt', 'Shahrisabz ko''chasi 7', '+998712330000', true),
-    ('UZPOST', 'UZP-NAM-01', 'Namangan', 'Namangan sh.', 'Namangan sh.', 'Namangan 1-Aloqa bo''limi', 'Navoiy ko''chasi 3', '+998692260000', true),
-    ('UZPOST', 'UZP-SAM-01', 'Samarqand', 'Samarqand sh.', 'Samarqand sh.', 'Samarqand Bosh Aloqa', 'Pochtovaya ko''chasi 1', '+998662330000', true)
+    ('UZPOST', 'UZP-NAM-01', 'Namangan', 'Namangan sh.', 'Namangan sh.', 'Namangan 1-Aloqa bo''limi', 'Navoiy ko''chasi 3', '+998692260000', true)
 ON CONFLICT DO NOTHING;
+
+-- Deactivate retired regions if they exist from prior migrations
+UPDATE delivery_branches 
+SET active = false 
+WHERE region ILIKE '%Samarqand%' 
+   OR region ILIKE '%Buxoro%' 
+   OR region ILIKE '%Navoiy%' 
+   OR region ILIKE '%Qashqadaryo%' 
+   OR region ILIKE '%Surxondaryo%' 
+   OR region ILIKE '%Jizzax%' 
+   OR region ILIKE '%Sirdaryo%' 
+   OR region ILIKE '%Xorazm%' 
+   OR region ILIKE '%Qoraqalpog%' 
+   OR region ILIKE '%Nukus%';
 
 -- 7.4 App Settings
 INSERT INTO app_settings (key, value)
