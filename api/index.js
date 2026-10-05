@@ -2472,12 +2472,26 @@ async function handler13(req, res) {
       query = query.eq("region", String(region));
     }
     const { data: branches, error } = await query;
-    if (error) {
-      return res.status(500).json({ error: "Filiallarni yuklashda xatolik" });
+    if (error || !branches || branches.length === 0) {
+      const list = getBranches(
+        provider ? String(provider) : void 0,
+        region ? String(region) : void 0
+      ).map((b) => ({
+        ...b,
+        branch_name: b.branchName
+      }));
+      return res.status(200).json(list);
     }
-    return res.status(200).json(branches || []);
+    return res.status(200).json(branches);
   } catch (err) {
-    return res.status(500).json({ error: "Xatolik yuz berdi" });
+    const list = getBranches(
+      provider ? String(provider) : void 0,
+      region ? String(region) : void 0
+    ).map((b) => ({
+      ...b,
+      branch_name: b.branchName
+    }));
+    return res.status(200).json(list);
   }
 }
 

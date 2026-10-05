@@ -37,12 +37,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     const { data: branches, error } = await query;
-    if (error) {
-      return res.status(500).json({ error: 'Filiallarni yuklashda xatolik' });
+    if (error || !branches || branches.length === 0) {
+      const list = getBranches(
+        provider ? String(provider) : undefined,
+        region ? String(region) : undefined
+      ).map(b => ({
+        ...b,
+        branch_name: b.branchName,
+      }));
+      return res.status(200).json(list);
     }
 
-    return res.status(200).json(branches || []);
+    return res.status(200).json(branches);
   } catch (err) {
-    return res.status(500).json({ error: 'Xatolik yuz berdi' });
+    const list = getBranches(
+      provider ? String(provider) : undefined,
+      region ? String(region) : undefined
+    ).map(b => ({
+      ...b,
+      branch_name: b.branchName,
+    }));
+    return res.status(200).json(list);
   }
 }
