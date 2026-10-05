@@ -54,10 +54,8 @@ async function configureBot() {
   try {
     const commands = [
       { command: 'start', description: 'Botni ishga tushirish / Asosiy menyu' },
-      { command: 'track', description: 'Yuk holatini trek kod orqali tekshirish' },
-      { command: 'address', description: 'Xitoy ombor manzili (nusxalash)' },
+      { command: 'academy', description: '🎓 Video darslar (Akademiya)' },
       { command: 'myid', description: 'Mening profilim va mijoz kodim (YK-###)' },
-      { command: 'calculator', description: 'Yetkazib berish narxini hisoblash' },
       { command: 'help', description: 'Qo\'llanma va ma\'muriyat bilan bog\'lanish' },
     ];
 
@@ -86,7 +84,7 @@ async function configureBot() {
       body: JSON.stringify({
         menu_button: {
           type: 'web_app',
-          text: '📦 Yukla Go',
+          text: '🎓 Video darslar',
           web_app: { url: cleanAppUrl },
         },
       }),
