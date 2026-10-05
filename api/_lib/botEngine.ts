@@ -63,6 +63,24 @@ export function getInMemoryBotUsers(): BotUser[] {
   return Array.from(inMemoryUsers.values());
 }
 
+export const ADMIN_TELEGRAM_IDS: number[] = [7232597769, 5059829001];
+
+export const getAdminKeyboard = () => {
+  return {
+    keyboard: [
+      [{ text: '🎓 Video darslar (Foydalanuvchi)', web_app: { url: MINI_APP_URL } }],
+      [{ text: '⚙️ Admin Dashboard', web_app: { url: `${MINI_APP_URL}#admin` } }],
+      [
+        { text: '🇨🇳 Xitoy manzili' },
+        { text: '👤 Mening profilim' },
+      ],
+      [{ text: '☎️ Yordam' }],
+    ],
+    resize_keyboard: true,
+    is_persistent: true,
+  };
+};
+
 export const getMainKeyboard = () => {
   return {
     keyboard: [
@@ -135,6 +153,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
   const customerCode = dbUser ? dbUser.customer_code : localUser.customerCode;
   const userName = dbUser ? dbUser.name : localUser.name;
   const userBranch = dbUser ? (dbUser as any).default_branch : localUser.defaultBranch;
+  const isAdmin = ADMIN_TELEGRAM_IDS.includes(Number(telegramUserId));
 
   // ---------------------------------------------------------------------------
   // 1. Handle Callback Queries (Buttons)
@@ -419,12 +438,27 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
           onboarding_step: 'completed',
         }).eq('id', dbUser.id);
       }
+
+      if (isAdmin) {
+        await sendTelegramMessage(
+          chatId,
+          `👑 <b>Assalomu alaykum, Administrator!</b>\n\n` +
+          `Siz tizimga administrator sifatida kirdingiz.\n` +
+          `👤 ID: <code>${telegramUserId}</code> | Mijoz kodi: <code>${customerCode}</code>\n\n` +
+          `Quyidagi menyu orqali kerakli bo'limni ochishingiz mumkin:\n` +
+          `1️⃣ <b>🎓 Video darslar</b> — Foydalanuvchi interfeysi\n` +
+          `2️⃣ <b>⚙️ Admin Dashboard</b> — Tizim va foydalanuvchilar boshqaruvi`,
+          getAdminKeyboard()
+        );
+        return true;
+      }
+
       await sendTelegramMessage(
         chatId,
         `Assalomu alaykum, <b>${userName}</b>!\n\n` +
         `Yukla Go xizmatiga xush kelibsiz.\n` +
         `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Quyidagi tugmalar orqali Video darslarni yoki Yukla Go ilovasini ochishingiz mumkin:`,
+        `Quyidagi tugmalar orqali Video darslarni ochishingiz mumkin:`,
         getMainKeyboard()
       );
       return true;
@@ -459,12 +493,44 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
   if (isCompleted) {
     // /start
     if (rawText === '/start') {
+      if (isAdmin) {
+        await sendTelegramMessage(
+          chatId,
+          `👑 <b>Assalomu alaykum, Administrator!</b>\n\n` +
+          `Siz tizimga administrator sifatida kirdingiz.\n` +
+          `👤 ID: <code>${telegramUserId}</code> | Mijoz kodi: <code>${customerCode}</code>\n\n` +
+          `Quyidagi menyu orqali kerakli bo'limni ochishingiz mumkin:\n` +
+          `1️⃣ <b>🎓 Video darslar</b> — Foydalanuvchi interfeysi\n` +
+          `2️⃣ <b>⚙️ Admin Dashboard</b> — Tizim va darsliklar boshqaruvi`,
+          getAdminKeyboard()
+        );
+        return true;
+      }
+
       await sendTelegramMessage(
         chatId,
         `Assalomu alaykum, <b>${userName}</b>!\n\n` +
         `👤 Mijoz kodingiz: <code>${customerCode}</code>\n\n` +
         `Quyidagi menyu orqali Video darslarni ochishingiz yoki Xitoy ombor manzilini olishingiz mumkin:`,
         getMainKeyboard()
+      );
+      return true;
+    }
+
+    // /admin (Exclusive for Admin Telegram IDs)
+    if (textLower === '/admin') {
+      if (!isAdmin) {
+        await sendTelegramMessage(chatId, `⛔ <b>Ruxsat berilmagan:</b> Ushbu buyruq faqat administratorlar uchun mo'ljallangan.`);
+        return true;
+      }
+      await sendTelegramMessage(
+        chatId,
+        `👑 <b>Admin Dashboard:</b>\n\nQuyidagi tugma orqali boshqaruv panelini ochishingiz mumkin:`,
+        {
+          inline_keyboard: [
+            [{ text: '⚙️ Admin Dashboardni ochish', web_app: { url: `${MINI_APP_URL}#admin` } }],
+          ],
+        }
       );
       return true;
     }

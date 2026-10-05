@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { validateTelegramInitData, createSessionToken } from '../_lib/auth';
+import { validateTelegramInitData, createSessionToken, isTelegramAdmin } from '../_lib/auth';
 import { getSupabase } from '../_lib/supabase';
 import { checkRateLimit, getClientIp } from '../_lib/rateLimiter';
 
@@ -76,14 +76,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     // 3. Determine role
     let role: 'customer' | 'admin' | 'super_admin' = 'customer';
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('telegram_user_id', tgUser.id)
-      .single();
+    if (isTelegramAdmin(tgUser.id)) {
+      role = 'super_admin';
+    } else {
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('telegram_user_id', tgUser.id)
+        .single();
 
-    if (roleData?.role) {
-      role = roleData.role as 'admin' | 'super_admin';
+      if (roleData?.role) {
+        role = roleData.role as 'admin' | 'super_admin';
+      }
     }
 
     // 4. Issue short-lived session token

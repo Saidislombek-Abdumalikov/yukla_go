@@ -68,6 +68,17 @@ async function runBotTests() {
   assert.strictEqual(botUsersAfter.some(u => u.telegramUserId === testTgId), false, 'User must be deleted from memory after full wipe');
   console.log('  ✓ Bot session and state fully wiped: user returns to brand new state');
 
+  // TEST 6: Admin Telegram ID Recognition & Role Authorization
+  console.log('[TEST 6] Admin Telegram ID Authorization');
+  const { ADMIN_TELEGRAM_IDS } = await import('../api/_lib/botEngine.ts');
+  const { isTelegramAdmin } = await import('../api/_lib/auth.ts');
+  assert.ok(ADMIN_TELEGRAM_IDS.includes(7232597769), 'Admin ID 7232597769 must be registered');
+  assert.ok(ADMIN_TELEGRAM_IDS.includes(5059829001), 'Admin ID 5059829001 must be registered');
+  assert.strictEqual(isTelegramAdmin(7232597769), true, '7232597769 must be detected as admin');
+  assert.strictEqual(isTelegramAdmin(5059829001), true, '5059829001 must be detected as admin');
+  assert.strictEqual(isTelegramAdmin(1122334455), false, 'Arbitrary ID must not be admin');
+  console.log('  ✓ Admin Telegram IDs 7232597769 and 5059829001 verified with full access');
+
   console.log('--- ALL TELEGRAM BOT TESTS PASSED SUCCESSFULLY! ---');
 }
 

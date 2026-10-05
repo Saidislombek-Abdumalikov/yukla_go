@@ -17,6 +17,20 @@ export interface SessionPayload {
 }
 
 /**
+ * Verified Admin Telegram User IDs
+ */
+export const ADMIN_TELEGRAM_IDS: number[] = [7232597769, 5059829001];
+
+/**
+ * Check if a telegram user ID has admin rights
+ */
+export function isTelegramAdmin(telegramUserId: number | string | undefined | null): boolean {
+  if (!telegramUserId) return false;
+  const numId = Number(telegramUserId);
+  return ADMIN_TELEGRAM_IDS.includes(numId);
+}
+
+/**
  * Validates Telegram Mini App initData using HMAC-SHA256 according to Telegram specifications.
  * @param initData Raw query string received from Telegram WebApp
  * @param maxAgeSeconds Maximum allowable age for auth_date (defaults to 10 minutes)

@@ -25,8 +25,9 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
 }) => {
   const containerId = `yt_player_${lesson.id}`;
   const playerRef = useRef<any>(null);
+  const playerBoxRef = useRef<HTMLDivElement>(null);
 
-  // States
+  // Playback States
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [currentTime, setCurrentTime] = useState(lesson.lastPositionSeconds || 0);
   const [maxWatched, setMaxWatched] = useState(lesson.maxWatchedSeconds || 0);
@@ -36,7 +37,14 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playerError, setPlayerError] = useState<string | null>(null);
 
-  // Refs to avoid interval restart thrashing
+  // Security & Custom Controls States
+  const [showControls, setShowControls] = useState(true);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [isScreenShieldActive, setIsScreenShieldActive] = useState(false);
+  const hideControlsTimerRef = useRef<any>(null);
+
+  // Refs for high-performance monitor loop
   const maxWatchedRef = useRef(lesson.maxWatchedSeconds || 0);
   const isCompletedRef = useRef(lesson.isCompleted);
   const durationRef = useRef(lesson.durationSeconds || 360);
@@ -56,7 +64,152 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     setPlayerError(null);
   }, [lesson.id]);
 
-  // Load YouTube IFrame API and Initialize Player
+  // Anti-Screen Recording & Visibility Protection Listener
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        // App backgrounded or screen capture started
+        if (playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
+          try {
+            playerRef.current.pauseVideo();
+          } catch {}
+        }
+        setIsPlaying(false);
+        setIsScreenShieldActive(true);
+      }
+    };
+
+    const handleWindowBlur = () => {
+      // User switched window or pulled down notification/screen recording shade
+      if (playerRef.current && typeof playerRef.current.pauseVideo === 'function') {
+        try {
+          playerRef.current.pauseVideo();
+        } catch {}
+      }
+      setIsPlaying(false);
+      setIsScreenShieldActive(true);
+    };
+
+    // Block inspect and shortcut keys
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (
+        e.key === 'PrintScreen' ||
+        e.key === 'F12' ||
+        (e.ctrlKey && (e.key === 's' || e.key === 'u' || e.key === 'p' || e.key === 'c'))
+      ) {
+        e.preventDefault();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('blur', handleWindowBlur);
+    window.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('blur', handleWindowBlur);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
+
+  // Controls Auto-Hide timer
+  const scheduleControlsHide = () => {
+    if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
+    setShowControls(true);
+    hideControlsTimerRef.current = setTimeout(() => {
+      if (isPlayingRef.current) {
+        setShowControls(false);
+      }
+    }, 3200);
+  };
+
+  const handlePlayerContainerClick = () => {
+    if (!showControls) {
+      scheduleControlsHide();
+    } else {
+      togglePlayPause();
+    }
+  };
+
+  const togglePlayPause = () => {
+    if (!playerRef.current) return;
+    try {
+      if (isPlayingRef.current) {
+        playerRef.current.pauseVideo();
+        setIsPlaying(false);
+        isPlayingRef.current = false;
+        setShowControls(true);
+      } else {
+        playerRef.current.playVideo();
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        scheduleControlsHide();
+      }
+    } catch {}
+  };
+
+  const handleRewind10 = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!playerRef.current) return;
+    const target = Math.max(0, currentTime - 10);
+    playerRef.current.seekTo(target, true);
+    setCurrentTime(target);
+    scheduleControlsHide();
+  };
+
+  const handleForward10 = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!playerRef.current) return;
+    const target = Math.min(maxWatchedRef.current, currentTime + 10);
+    if (currentTime + 10 > maxWatchedRef.current && !isCompletedRef.current) {
+      setSeekWarning("⚠️ Darsni oldinga o'tkazish cheklangan. Darsni to'liq ko'rishingiz lozim.");
+      setTimeout(() => setSeekWarning(null), 2500);
+      return;
+    }
+    playerRef.current.seekTo(target, true);
+    setCurrentTime(target);
+    scheduleControlsHide();
+  };
+
+  const toggleMute = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!playerRef.current) return;
+    try {
+      if (isMuted) {
+        playerRef.current.unMute();
+        setIsMuted(false);
+      } else {
+        playerRef.current.mute();
+        setIsMuted(true);
+      }
+    } catch {}
+    scheduleControlsHide();
+  };
+
+  const toggleFullscreen = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setIsFullscreen(prev => !prev);
+    scheduleControlsHide();
+  };
+
+  const handleScrubberChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = parseFloat(e.target.value);
+    if (!playerRef.current) return;
+
+    if (val > maxWatchedRef.current + 2 && !isCompletedRef.current) {
+      setSeekWarning("⚠️ Darsni oldinga o'tkazish cheklangan.");
+      setTimeout(() => setSeekWarning(null), 2500);
+      playerRef.current.seekTo(maxWatchedRef.current, true);
+      setCurrentTime(maxWatchedRef.current);
+      return;
+    }
+
+    playerRef.current.seekTo(val, true);
+    setCurrentTime(val);
+    scheduleControlsHide();
+  };
+
+  // Load YouTube IFrame API and Initialize Protected Player
   useEffect(() => {
     let isMounted = true;
     let pollInterval: any = null;
@@ -69,7 +222,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
         maxWatchedRef.current || 0
       );
 
-      // If player already exists and is healthy, just load the new video for instant playback without lag!
+      // If player already exists, cue new video
       if (playerRef.current && typeof playerRef.current.cueVideoById === 'function') {
         try {
           playerRef.current.cueVideoById({
@@ -80,11 +233,10 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
           setPlayerError(null);
           return;
         } catch {
-          // Fall through to rebuild if cue failed
+          // Rebuild on error
         }
       }
 
-      // Destroy old instance if needed
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
@@ -97,12 +249,13 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
           videoId: lesson.youtubeVideoId,
           playerVars: {
             autoplay: 0,
-            controls: 1,
-            rel: 0,
-            modestbranding: 1,
-            playsinline: 1,
-            iv_load_policy: 3,
-            fs: 1,
+            controls: 0, // HIDE ALL YOUTUBE CONTROLS, SHARE BUTTONS & LOGOS
+            rel: 0, // No external recommendations
+            modestbranding: 1, // Remove branding
+            playsinline: 1, // Mobile inline playback
+            iv_load_policy: 3, // Disable annotations
+            fs: 0, // Disable native YouTube fullscreen (no link leak)
+            disablekb: 1, // Disable keyboard hotkeys
             start: initialStart,
             origin: window.location.origin,
           },
@@ -111,7 +264,6 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
               if (!isMounted) return;
               setIsPlayerReady(true);
               setPlayerError(null);
-              // Read real video duration if available
               const d = event.target?.getDuration?.();
               if (d && d > 0) {
                 const roundedD = Math.round(d);
@@ -125,7 +277,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
               if (event.data === 1) {
                 setIsPlaying(true);
                 isPlayingRef.current = true;
-                // Update duration once playing
+                scheduleControlsHide();
                 const d = playerRef.current?.getDuration?.();
                 if (d && d > 0) {
                   const roundedD = Math.round(d);
@@ -135,9 +287,9 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
               } else {
                 setIsPlaying(false);
                 isPlayingRef.current = false;
+                setShowControls(true);
               }
 
-              // Finished video
               if (event.data === 0) {
                 triggerComplete();
               }
@@ -146,13 +298,11 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
               if (!isMounted) return;
               const code = event.data;
               if (code === 101 || code === 150) {
-                setPlayerError("Ushbu video egasi uni boshqa saytlarda (embed) ko'rishga ruxsat bermagan. YouTube Studio'da 'Allow embedding' sozlamasini yoqing.");
+                setPlayerError("Ushbu video egasi uni boshqa saytlarda ko'rishga ruxsat bermagan. YouTube Studio'da 'Allow embedding' sozlamasini yoqing.");
               } else if (code === 100 || code === 105) {
-                setPlayerError("Video topilmadi yoki YouTube'da 'Private' qilib qo'yilgan. Uni 'Unlisted' ga o'zgartiring.");
-              } else if (code === 2) {
-                setPlayerError("Noto'g'ri YouTube video ID yoki havola.");
+                setPlayerError("Video topilmadi yoki 'Private' holatida. Uni 'Unlisted' ga o'zgartiring.");
               } else {
-                setPlayerError("Video yuklashda xatolik yuz berdi.");
+                setPlayerError("Video yuklashda xatolik yuz berdi. Internet aloqasini tekshiring.");
               }
             },
           },
@@ -198,7 +348,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     };
   }, [lesson.id, lesson.youtubeVideoId]);
 
-  // High-performance Monitor Loop (Single interval, Zero thrashing)
+  // High-performance Monitor Loop (Anti-cheat & Progress)
   useEffect(() => {
     const monitorInterval = setInterval(() => {
       if (!playerRef.current || typeof playerRef.current.getCurrentTime !== 'function') return;
@@ -214,7 +364,6 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
         }
 
         // FORWARD-SEEK CLAMPING (ANTI-CHEAT):
-        // If user scrubs forward beyond maxWatched + 2.5s and not completed
         if (curr > maxWatchedRef.current + 2.5 && !isCompletedRef.current) {
           if (!isSeekingLockRef.current) {
             isSeekingLockRef.current = true;
@@ -230,13 +379,13 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
           return;
         }
 
-        // Natural progress advance
+        // Advance natural watched progress
         if (curr > maxWatchedRef.current) {
           maxWatchedRef.current = curr;
           setMaxWatched(curr);
         }
 
-        // Completion threshold: 95% of duration
+        // 95% threshold triggers completion
         const targetDuration = durationRef.current || lesson.durationSeconds || 360;
         if (curr >= targetDuration * 0.95 && !isCompletedRef.current) {
           triggerComplete();
@@ -247,7 +396,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     return () => clearInterval(monitorInterval);
   }, [lesson.id]);
 
-  // Periodic Server Progress Heartbeat (Every 5 seconds while playing)
+  // Periodic Server Heartbeat (Every 5 seconds while playing)
   useEffect(() => {
     if (!isPlaying) return;
 
@@ -293,48 +442,162 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     Math.round((maxWatched / (effectiveDuration || 1)) * 100)
   );
 
-  const watermarkText = `${user?.customerCode || 'YK-100'} • ${user?.name || 'Mijoz'}`;
+  // Dynamic high-contrast watermark text containing unique user identifiers
+  const tgId = user?.telegramUserId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'Telegram';
+  const watermarkText = `👤 ${user?.name || 'Talaba'} • ID: ${tgId} • Kod: ${user?.customerCode || 'YK-100'}`;
 
   return (
-    <div className="space-y-3 animate-fade-in">
-      {/* Player Container with 16:9 Aspect Ratio */}
-      <div className="relative w-full aspect-video bg-black rounded-3xl overflow-hidden shadow-2xl border border-gray-800 group">
-        
-        {/* YouTube IFrame target element */}
-        <div id={containerId} className="w-full h-full pointer-events-auto" />
+    <div className="space-y-3 animate-fade-in select-none" onContextMenu={e => e.preventDefault()}>
+      
+      {/* Player Box Container */}
+      <div 
+        ref={playerBoxRef}
+        onClick={handlePlayerContainerClick}
+        className={`relative w-full bg-black overflow-hidden shadow-2xl border border-gray-800 transition-all ${
+          isFullscreen 
+            ? 'fixed inset-0 z-50 rounded-0 flex items-center justify-center' 
+            : 'aspect-video rounded-3xl'
+        }`}
+      >
+        {/* Protected YouTube IFrame Target (POINTER-EVENTS DISABLED TO PREVENT LINK LEAKS) */}
+        <div id={containerId} className="w-full h-full pointer-events-none select-none scale-[1.01]" />
 
-        {/* Floating Moving Watermark (GPU-Accelerated 60fps) */}
+        {/* Dynamic GPU-Accelerated Drifting Watermark */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
-          <div className="watermark-drift absolute top-0 left-0 text-white/35 text-[10px] sm:text-xs font-mono font-black tracking-widest uppercase select-none px-2.5 py-1 rounded bg-black/25 backdrop-blur-[2px] border border-white/10 shadow-sm will-change-transform">
+          <div className="watermark-drift absolute top-0 left-0 text-white/40 text-[10px] sm:text-xs font-mono font-black tracking-wider uppercase select-none px-3 py-1.5 rounded-xl bg-black/40 backdrop-blur-[4px] border border-white/15 shadow-md will-change-transform">
             {watermarkText}
           </div>
         </div>
 
-        {/* Error Fallback Card if video fails to embed */}
+        {/* Interactive Custom Controls Overlay */}
+        <div 
+          className={`absolute inset-0 z-20 flex flex-col justify-between p-4 bg-gradient-to-t from-black/85 via-transparent to-black/50 transition-opacity duration-300 ${
+            showControls ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
+          }`}
+        >
+          {/* Top Bar: Title & In-App Fullscreen Toggle */}
+          <div className="flex items-center justify-between text-white" onClick={e => e.stopPropagation()}>
+            <span className="text-xs font-bold truncate max-w-[80%] drop-shadow">
+              {lesson.title}
+            </span>
+            <button
+              onClick={toggleFullscreen}
+              className="w-8 h-8 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md flex items-center justify-center text-xs font-bold transition-all active:scale-95"
+              title={isFullscreen ? "Kichik ekran" : "To'liq ekran"}
+            >
+              {isFullscreen ? '✕' : '⛶'}
+            </button>
+          </div>
+
+          {/* Center Controls: Rewind 10s, Play/Pause, Forward 10s */}
+          <div className="flex items-center justify-center gap-6 text-white my-auto" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={handleRewind10}
+              className="w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md flex items-center justify-center text-sm font-bold transition-all active:scale-90"
+              title="10 soniya orqaga"
+            >
+              ↺ 10
+            </button>
+
+            <button
+              onClick={togglePlayPause}
+              className="w-16 h-16 rounded-full bg-primary hover:bg-primary-dark text-white flex items-center justify-center text-2xl font-bold shadow-xl shadow-primary/30 transition-all active:scale-90"
+              title={isPlaying ? "Pauza" : "Ijro etish"}
+            >
+              {isPlaying ? '⏸' : '▶️'}
+            </button>
+
+            <button
+              onClick={handleForward10}
+              className="w-11 h-11 rounded-full bg-white/15 hover:bg-white/25 backdrop-blur-md flex items-center justify-center text-sm font-bold transition-all active:scale-90"
+              title="10 soniya oldinga"
+            >
+              ↻ 10
+            </button>
+          </div>
+
+          {/* Bottom Bar: Scrubber, Timers & Audio Mute */}
+          <div className="space-y-2" onClick={e => e.stopPropagation()}>
+            {/* Custom Range Scrubber */}
+            <div className="relative w-full flex items-center">
+              <input
+                type="range"
+                min={0}
+                max={effectiveDuration}
+                step={1}
+                value={currentTime}
+                onChange={handleScrubberChange}
+                className="w-full h-1.5 bg-white/30 rounded-lg appearance-none cursor-pointer accent-primary focus:outline-none"
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-white/90 font-mono">
+              <div className="flex items-center gap-2">
+                <span>{formatSeconds(currentTime)} / {formatSeconds(effectiveDuration)}</span>
+                <button
+                  onClick={toggleMute}
+                  className="px-2 py-0.5 rounded bg-white/15 hover:bg-white/25 text-[10px] font-sans font-bold"
+                >
+                  {isMuted ? '🔇 Ovoz o\'chiq' : '🔊 Ovoz yoqiq'}
+                </button>
+              </div>
+
+              {isCompleted && (
+                <span className="text-green-400 font-sans font-bold text-[10px] bg-green-950/60 px-2 py-0.5 rounded-full border border-green-500/30">
+                  ✓ Yakunlandi
+                </span>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Anti-Screen Recording & Blackout Shield */}
+        {isScreenShieldActive && (
+          <div className="absolute inset-0 z-40 bg-black flex flex-col items-center justify-center p-6 text-center text-white space-y-3">
+            <div className="w-16 h-16 rounded-3xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-3xl shadow-lg border border-amber-500/30">
+              🔒
+            </div>
+            <div className="space-y-1 max-w-xs">
+              <h4 className="font-black text-sm tracking-wide">Xavfsizlik Himoyasi Faol</h4>
+              <p className="text-xs text-gray-400 leading-relaxed">
+                Video faqat Telegram ilovasi ichida ko'rish uchun mo'ljallangan. Ekran yozish yoki ilovadan chiqish vaqtida video to'xtatiladi.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                setIsScreenShieldActive(false);
+                if (playerRef.current && typeof playerRef.current.playVideo === 'function') {
+                  try {
+                    playerRef.current.playVideo();
+                    setIsPlaying(true);
+                    isPlayingRef.current = true;
+                  } catch {}
+                }
+              }}
+              className="px-5 py-2.5 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold shadow-md shadow-primary/30 transition-all active:scale-95"
+            >
+              ▶️ Darsni davom ettirish
+            </button>
+          </div>
+        )}
+
+        {/* Error Fallback Card (WITHOUT any external YouTube links) */}
         {playerError && (
-          <div className="absolute inset-0 z-30 bg-gray-900/95 flex flex-col items-center justify-center p-6 text-center text-white space-y-3">
-            <div className="w-12 h-12 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center text-2xl">
+          <div className="absolute inset-0 z-40 bg-gray-950 flex flex-col items-center justify-center p-6 text-center text-white space-y-3">
+            <div className="w-14 h-14 rounded-2xl bg-red-500/20 text-red-400 flex items-center justify-center text-2xl border border-red-500/30">
               ⚠️
             </div>
             <div className="space-y-1 max-w-sm">
               <h4 className="font-bold text-sm">Videoni yuklab bo'lmadi</h4>
-              <p className="text-xs text-gray-300 leading-relaxed">{playerError}</p>
+              <p className="text-xs text-gray-400 leading-relaxed">{playerError}</p>
             </div>
             <div className="flex items-center gap-2 pt-1">
-              <a
-                href={`https://www.youtube.com/watch?v=${lesson.youtubeVideoId}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition-all shadow-md flex items-center gap-1.5"
-              >
-                <span>▶️ YouTube'da ko'rish</span>
-              </a>
               <button
                 onClick={() => {
                   setPlayerError(null);
                   window.location.reload();
                 }}
-                className="px-3.5 py-2 bg-white/10 hover:bg-white/20 text-white rounded-xl text-xs font-bold transition-all"
+                className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold transition-all shadow-md"
               >
                 Qayta yuklash
               </button>
@@ -342,37 +605,28 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
           </div>
         )}
 
-        {/* Seek Warning Overlay */}
+        {/* Forward Seek Warning Overlay */}
         {seekWarning && (
           <div className="absolute top-3 left-3 right-3 z-30 animate-slide-up pointer-events-none">
-            <div className="bg-red-600/90 backdrop-blur-md text-white text-xs font-bold py-2.5 px-3.5 rounded-xl shadow-lg text-center border border-red-500/30">
+            <div className="bg-red-600/95 backdrop-blur-md text-white text-xs font-bold py-2.5 px-3.5 rounded-xl shadow-lg text-center border border-red-500/30">
               {seekWarning}
             </div>
           </div>
         )}
-
-        {/* Completion Banner */}
-        {isCompleted && (
-          <div className="absolute bottom-2 right-2 z-20 pointer-events-none">
-            <span className="bg-green-600/90 text-white text-[10px] font-black uppercase px-2.5 py-1 rounded-full shadow-md backdrop-blur-sm flex items-center gap-1">
-              ✓ Dars yakunlandi
-            </span>
-          </div>
-        )}
       </div>
 
-      {/* Progress & Controls Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-soft space-y-2">
+      {/* Progress Card below video */}
+      <div className="bg-white p-4 rounded-3xl border border-gray-100 shadow-soft space-y-2">
         <div className="flex justify-between items-center text-xs font-bold">
           <span className="text-gray-900 truncate max-w-[70%]">{lesson.title}</span>
-          <span className={`px-2 py-0.5 rounded-full text-[10px] shrink-0 ${
-            isCompleted ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-primary'
+          <span className={`px-2.5 py-0.5 rounded-full text-[10px] shrink-0 font-bold ${
+            isCompleted ? 'bg-green-100 text-green-700' : 'bg-primary/10 text-primary'
           }`}>
             {isCompleted ? '✅ Yakunlangan' : `${progressPercent}% ko'rildi`}
           </span>
         </div>
 
-        {/* Custom Progress Bar */}
+        {/* Horizontal Progress Bar */}
         <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
           <div 
             className={`h-full transition-all duration-300 rounded-full ${
@@ -384,8 +638,8 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
 
         <div className="flex justify-between items-center text-[11px] text-gray-400 font-mono">
           <span>{formatSeconds(currentTime)} / {formatSeconds(effectiveDuration)}</span>
-          <span className="text-gray-500 font-sans font-medium text-right">
-            {isCompleted ? 'Keyingi dars ochildi!' : 'Keyingi dars ochilishi uchun darsni to\'liq ko\'ring'}
+          <span className="text-gray-500 font-sans font-medium text-right text-[10px]">
+            {isCompleted ? 'Keyingi dars ochiq!' : 'Keyingi dars ochilishi uchun darsni oxirigacha ko\'ring'}
           </span>
         </div>
 
@@ -394,7 +648,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
           <div className="pt-2">
             <button
               onClick={onNextLesson}
-              className="w-full py-3 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-primary/20 active:scale-95 transition-all"
+              className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-md shadow-primary/20 active:scale-95 transition-all"
             >
               <span>Keyingi darsga o'tish</span>
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,17 +659,17 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
         )}
       </div>
 
-      {/* GPU-Accelerated Hardware Animation (Zero CPU Lag) */}
+      {/* GPU-Accelerated Hardware Animation (Zero Lag, Infinite Drift) */}
       <style>{`
         @keyframes watermarkDriftGPU {
-          0% { transform: translate3d(20px, 15px, 0); }
-          25% { transform: translate3d(calc(100% - 180px), 110px, 0); }
-          50% { transform: translate3d(calc(100% - 150px), 30px, 0); }
-          75% { transform: translate3d(30px, 120px, 0); }
-          100% { transform: translate3d(20px, 15px, 0); }
+          0% { transform: translate3d(15px, 15px, 0); }
+          25% { transform: translate3d(calc(100% - 220px), 85px, 0); }
+          50% { transform: translate3d(calc(100% - 200px), 20px, 0); }
+          75% { transform: translate3d(25px, 95px, 0); }
+          100% { transform: translate3d(15px, 15px, 0); }
         }
         .watermark-drift {
-          animation: watermarkDriftGPU 32s ease-in-out infinite;
+          animation: watermarkDriftGPU 36s ease-in-out infinite;
         }
       `}</style>
     </div>

@@ -11,12 +11,22 @@ import AcademyApp from './components/academy/AcademyApp';
 import { Tab } from './types';
 import { api } from './services/api';
 
+const ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
+
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
   const [isCargoMode, setIsCargoMode] = useState(false);
   const [isAdminPreview, setIsAdminPreview] = useState(false);
+
+  // Check if current user is an authorized admin
+  const currentTgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
+  const isDev = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname.includes('ngrok');
+  const isAdminUser = Boolean(
+    (currentTgId && ADMIN_TELEGRAM_IDS.includes(Number(currentTgId))) ||
+    (isDev && (window.location.search.includes('admin=true') || window.location.hash === '#admin'))
+  );
 
   // Authentication & environment states
   const [isTelegramEnv, setIsTelegramEnv] = useState<boolean>(true);
@@ -78,7 +88,13 @@ function App() {
       const hash = window.location.hash;
 
       if (hash === '#admin') {
-        setIsAdminPreview(true);
+        if (isAdminUser) {
+          setIsAdminPreview(true);
+        } else {
+          // Strictly lock out regular users from #admin!
+          window.location.hash = '';
+          setIsAdminPreview(false);
+        }
       } else {
         setIsAdminPreview(false);
       }
@@ -93,15 +109,15 @@ function App() {
     checkModes();
     window.addEventListener('hashchange', checkModes);
     return () => window.removeEventListener('hashchange', checkModes);
-  }, []);
+  }, [isAdminUser]);
 
   const handleTrackAdded = () => {
     setRefreshKey(prev => prev + 1);
     setActiveTab(Tab.MY_PARCELS);
   };
 
-  // 1. Admin Mode (Always accessible directly via #admin)
-  if (isAdminPreview) {
+  // 1. Admin Mode (Strictly restricted to authorized Admin IDs)
+  if (isAdminPreview && isAdminUser) {
     return (
       <AdminDashboard 
         onBack={() => {
@@ -244,9 +260,25 @@ function App() {
   // 5. PRIMARY DEFAULT MODE: Video Lessons & Academy (100% focused for release!)
   return (
     <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
-      <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-16 safe-area-top">
+      <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-20 safe-area-top">
         <AcademyApp />
       </main>
+
+      {/* Floating Admin Switcher: ONLY visible to authorized admin IDs, NEVER shown to regular users */}
+      {isAdminUser && (
+        <div className="fixed bottom-4 right-4 z-50">
+          <button
+            onClick={() => {
+              setIsAdminPreview(true);
+              window.location.hash = '#admin';
+            }}
+            className="px-4 py-2.5 bg-gradient-to-r from-gray-950 to-gray-800 hover:from-black hover:to-gray-900 text-white rounded-2xl text-xs font-black shadow-2xl border border-gray-700/80 flex items-center gap-1.5 active:scale-95 transition-all"
+            title="Admin Dashboardga o'tish"
+          >
+            <span>👑 Admin Panel</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
