@@ -75,7 +75,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (result.user?.telegramUserId) {
         try {
           const course = STORED_COURSES.find(c => c.id === String(targetCourseId));
-          const appUrl = process.env.MINI_APP_URL || 'https://carie-piddling-nonpurposively.ngrok-free.dev?ngrok-skip-browser-warning=true';
+          const appUrl = process.env.MINI_APP_URL || 'https://yuklago.vercel.app';
           const academyUrl = appUrl.includes('?') ? `${appUrl}&app=academy` : `${appUrl}?app=academy`;
           await sendTelegramMessage(
             result.user.telegramUserId,
