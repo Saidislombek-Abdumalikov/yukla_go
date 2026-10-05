@@ -37,7 +37,8 @@ function App() {
 
     const initData = tg?.initData;
     const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isDevEnv = import.meta.env.DEV || isLocalhost || window.location.search.includes('preview=true') || window.location.search.includes('dev=true');
+    const isTunnel = window.location.hostname.includes('ngrok') || window.location.hostname.includes('loca.lt');
+    const isDevEnv = import.meta.env.DEV || isLocalhost || isTunnel || window.location.search.includes('preview=true') || window.location.search.includes('dev=true');
 
     if (!initData && !isDevEnv) {
       setIsTelegramEnv(false);
@@ -88,19 +89,7 @@ function App() {
     setActiveTab(Tab.MY_PARCELS);
   };
 
-  // If opened directly outside Telegram in a normal browser
-  if (!isTelegramEnv) {
-    return (
-      <OutsideTelegram 
-        onPreviewMode={() => {
-          setIsTelegramEnv(true);
-          setAuthLoading(false);
-        }} 
-      />
-    );
-  }
-
-  // Admin Preview Mode
+  // 1. Admin Mode (Always accessible directly via #admin)
   if (isAdminPreview) {
     return (
       <AdminDashboard 
@@ -112,7 +101,7 @@ function App() {
     );
   }
 
-  // Academy / Video Lessons Mode
+  // 2. Academy / Video Lessons Mode (Accessible directly via ?app=academy or #academy)
   if (isAcademyMode) {
     return (
       <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
@@ -127,6 +116,18 @@ function App() {
           />
         </main>
       </div>
+    );
+  }
+
+  // 3. If opened directly outside Telegram in a non-dev browser
+  if (!isTelegramEnv) {
+    return (
+      <OutsideTelegram 
+        onPreviewMode={() => {
+          setIsTelegramEnv(true);
+          setAuthLoading(false);
+        }} 
+      />
     );
   }
 
