@@ -93,3 +93,6 @@ dist
 
 # TernJS port file
 .tern-port
+
+# Vercel
+.vercel

@@ -72,10 +72,9 @@ export const getAdminKeyboard = () => {
       [{ text: '🎓 Video darslar (Foydalanuvchi)', web_app: { url: MINI_APP_URL } }],
       [{ text: '⚙️ Admin Dashboard', web_app: { url: `${MINI_APP_URL}#admin` } }],
       [
-        { text: '🇨🇳 Xitoy manzili' },
         { text: '👤 Mening profilim' },
+        { text: '☎️ Yordam' },
       ],
-      [{ text: '☎️ Yordam' }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -87,10 +86,9 @@ export const getMainKeyboard = () => {
     keyboard: [
       [{ text: '🎓 Video darslar', web_app: { url: MINI_APP_URL } }],
       [
-        { text: '🇨🇳 Xitoy manzili' },
         { text: '👤 Mening profilim' },
+        { text: '☎️ Yordam' },
       ],
-      [{ text: '☎️ Yordam' }],
     ],
     resize_keyboard: true,
     is_persistent: true,
@@ -552,7 +550,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         chatId,
         `Assalomu alaykum, <b>${userName}</b>!\n\n` +
         `👤 Mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Quyidagi menyu orqali Video darslarni ochishingiz yoki Xitoy ombor manzilini olishingiz mumkin:`,
+        `Quyidagi menyu orqali Video darslarni ochishingiz mumkin:`,
         getMainKeyboard()
       );
       return true;
