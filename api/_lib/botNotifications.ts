@@ -9,7 +9,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yukla-go.vercel.app';
+const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yuklago.vercel.app';
 
 export function getBotToken(): string {
   if (process.env.BOT_TOKEN) return process.env.BOT_TOKEN;

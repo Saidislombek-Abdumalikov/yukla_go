@@ -3,7 +3,7 @@ import { STATUS_MESSAGES, sendTelegramMessage } from './botNotifications.ts';
 import { ALL_BRANCHES, REGIONS_LIST, getBranches, getRegionsForProvider, findBranchById } from './branchesData.ts';
 import { getOfertaText } from './ofertaData.ts';
 
-const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yukla-go.vercel.app';
+const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yuklago.vercel.app';
 
 export interface BotUser {
   id: string;
