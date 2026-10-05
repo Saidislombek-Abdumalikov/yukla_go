@@ -140,7 +140,7 @@ const TabProfile: React.FC<TabProfileProps> = ({ onOpenAcademy }) => {
 
       {/* Oferta Modal */}
       {showOfertaModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in modal-backdrop">
           <div className="bg-white rounded-3xl p-6 max-w-sm w-full space-y-4 animate-slide-up max-h-[80vh] flex flex-col">
             <div className="flex justify-between items-center pb-2 border-b border-gray-100">
               <h3 className="font-black text-base text-gray-900">Ommaviy Oferta</h3>

@@ -51,7 +51,10 @@ const Navbar: React.FC<NavbarProps> = ({ activeTab, setActiveTab, onAddClick }) 
   ];
 
   return (
-    <div className="fixed bottom-6 left-4 right-4 z-50 animate-slide-up">
+    <div 
+      className="fixed left-4 right-4 z-50 animate-slide-up"
+      style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' }}
+    >
       <div className="bg-white rounded-3xl shadow-xl border border-gray-100 p-1.5 flex justify-between items-center max-w-md mx-auto relative">
         
         {/* Left Side */}

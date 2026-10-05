@@ -98,10 +98,10 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0, onAddCl
   }, [selectedIds, safeParcels]);
 
   return (
-    <div className="flex flex-col h-[calc(100vh-140px)] animate-fade-in">
+    <div className="space-y-3 pb-36 animate-fade-in">
       
       {/* Header & Search */}
-      <div className="shrink-0 space-y-3 mb-3 z-10">
+      <div className="space-y-3 mb-2">
         <div className="flex items-center justify-between px-1">
           <h2 className="text-2xl font-black text-gray-900 tracking-tight">Yuklarim</h2>
           <span className="text-xs font-bold text-gray-500 bg-white px-2.5 py-1 rounded-full border border-gray-100 shadow-sm font-mono">
@@ -154,7 +154,7 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0, onAddCl
 
       {/* Select All Action */}
       {filteredParcels.length > 0 && (
-        <div className="flex justify-end px-1 mb-2 shrink-0">
+        <div className="flex justify-end px-1 mb-1">
           <button 
             onClick={toggleSelectAll}
             className="text-[11px] font-bold text-primary hover:underline"
@@ -164,8 +164,8 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0, onAddCl
         </div>
       )}
 
-      {/* Scrollable Parcel List */}
-      <div className="flex-1 overflow-y-auto no-scrollbar pb-32 space-y-2.5">
+      {/* Parcel List */}
+      <div className="space-y-2.5">
         {loading ? (
           <div className="text-center py-16">
             <div className="animate-spin h-6 w-6 border-2 border-primary border-t-transparent rounded-full mx-auto"></div>
@@ -281,7 +281,10 @@ const TabMyParcels: React.FC<TabMyParcelsProps> = ({ refreshTrigger = 0, onAddCl
 
       {/* Floating Summary Bar (When items selected) */}
       {selectedIds.size > 0 && (
-        <div className="fixed bottom-24 left-4 right-4 z-40 animate-slide-up">
+        <div 
+          className="fixed left-4 right-4 z-40 max-w-md mx-auto animate-slide-up"
+          style={{ bottom: 'calc(5.75rem + env(safe-area-inset-bottom, 0px))' }}
+        >
           <div className="bg-[#185A96] text-white rounded-2xl p-4 shadow-xl shadow-blue-900/30 flex items-center justify-between">
             <div>
               <p className="text-[10px] uppercase font-bold text-blue-200">

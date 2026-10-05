@@ -460,7 +460,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         </div>
 
         {/* Navigation Tabs */}
-        <div className="flex gap-1 overflow-x-auto no-scrollbar pt-1 text-xs font-bold">
+        <div className="flex gap-1 overflow-x-auto no-scrollbar pt-1 text-xs font-bold scroll-x-smooth">
           {[
             { id: 'PARCELS', label: 'Yuklar & Treklar', icon: '📦' },
             { id: 'COURSES', label: 'Kurslar & Video', icon: '🎓' },

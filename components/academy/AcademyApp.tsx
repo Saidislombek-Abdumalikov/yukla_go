@@ -173,7 +173,7 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
       </div>
 
       {/* Course Switcher (Horizontal Tabs) */}
-      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1">
+      <div className="flex gap-2 overflow-x-auto no-scrollbar pb-1 scroll-x-smooth">
         {courses.map(c => {
           const isSelected = selectedCourse?.id === c.id;
           const completed = c.completedLessonsCount || 0;

@@ -33,6 +33,14 @@ function App() {
       } catch (e) {
         // Ignored
       }
+      try {
+        // Telegram Bot API 7.7+: Disables pull-down-to-close gesture during scrolling
+        if (typeof (tg as any).disableVerticalSwipes === 'function') {
+          (tg as any).disableVerticalSwipes();
+        }
+      } catch (e) {
+        // Ignored
+      }
     }
 
     const initData = tg?.initData;
