@@ -6,7 +6,7 @@ interface AdminDashboardProps {
   onBack: () => void;
 }
 
-type AdminTab = 'PARCELS' | 'WAREHOUSE' | 'COURSES' | 'SETTINGS' | 'USERS' | 'REQUESTS' | 'STATS';
+type AdminTab = 'PARCELS' | 'COURSES' | 'WAREHOUSE' | 'SETTINGS' | 'USERS' | 'STATS';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [activeTab, setActiveTab] = useState<AdminTab>('PARCELS');
@@ -105,9 +105,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
       } else if (activeTab === 'USERS') {
         const res = await fetch('/api/admin/users').then(r => r.json()).catch(() => []);
         setUsers(Array.isArray(res) ? res : []);
-      } else if (activeTab === 'REQUESTS') {
-        const res = await fetch('/api/admin/location-requests').then(r => r.json()).catch(() => []);
-        setRequests(Array.isArray(res) ? res : []);
       } else if (activeTab === 'STATS') {
         const res = await fetch('/api/admin/stats').then(r => r.json()).catch(() => null);
         setStats(res || { totalUsers: 145, activeParcels: 38, unsubmittedTracks: 12, pendingLocationRequests: 3 });
@@ -466,11 +463,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         <div className="flex gap-1 overflow-x-auto no-scrollbar pt-1 text-xs font-bold">
           {[
             { id: 'PARCELS', label: 'Yuklar & Treklar', icon: '📦' },
-            { id: 'WAREHOUSE', label: 'Xitoy Ombori', icon: '🇨🇳' },
             { id: 'COURSES', label: 'Kurslar & Video', icon: '🎓' },
+            { id: 'WAREHOUSE', label: 'Xitoy Ombori', icon: '🇨🇳' },
             { id: 'SETTINGS', label: 'Tariflar & Kurs', icon: '⚙️' },
             { id: 'USERS', label: 'Mijozlar', icon: '👤' },
-            { id: 'REQUESTS', label: 'Manzil so\'rovlari', icon: '📍' },
             { id: 'STATS', label: 'Statistika', icon: '📊' },
           ].map(tab => (
             <button
@@ -542,97 +538,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 )}
               </div>
 
-              {/* Quick Region Pills (Horizontal Scroll) */}
-              <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1 pb-1 text-[11px] font-bold">
-                <button
-                  type="button"
-                  onClick={() => setRegionFilter('ALL')}
-                  className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all ${
-                    regionFilter === 'ALL'
-                      ? 'bg-gray-900 text-white shadow-sm'
-                      : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
-                  }`}
-                >
-                  Barcha hududlar ({parcels.length})
-                </button>
-                {Object.entries(regionCounts).map(([reg, count]) => (
-                  <button
-                    key={reg}
-                    type="button"
-                    onClick={() => setRegionFilter(regionFilter === reg ? 'ALL' : reg)}
-                    className={`px-3 py-1.5 rounded-xl whitespace-nowrap transition-all flex items-center gap-1.5 ${
-                      regionFilter === reg
-                        ? 'bg-primary text-white shadow-sm'
-                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    <span>📍</span>
-                    <span>{reg}</span>
-                    <span className={`px-1.5 py-0.2 rounded-full text-[9px] font-mono ${
-                      regionFilter === reg ? 'bg-white/20 text-white' : 'bg-gray-200 text-gray-700'
-                    }`}>
-                      {count}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Location & Courier Filter Dropdowns */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2 border-t border-gray-100">
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Xizmat (Kuryer)</label>
-                  <select
-                    value={providerFilter}
-                    onChange={(e) => {
-                      setProviderFilter(e.target.value);
-                      setBranchFilter('ALL');
-                    }}
-                    className="w-full px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 outline-none focus:border-primary"
-                  >
-                    <option value="ALL">Barcha xizmatlar (BTS / EMU / UzPost)</option>
-                    <option value="BTS">BTS Pochta</option>
-                    <option value="EMU">EMU Express</option>
-                    <option value="UZPOST">UzPost (O'zbekiston Pochtasi)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Viloyat / Hudud</label>
-                  <select
-                    value={regionFilter}
-                    onChange={(e) => {
-                      setRegionFilter(e.target.value);
-                      setBranchFilter('ALL');
-                    }}
-                    className="w-full px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 outline-none focus:border-primary"
-                  >
-                    <option value="ALL">Barcha viloyatlar</option>
-                    {REGIONS_LIST.map(r => (
-                      <option key={r} value={r}>{r}</option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="text-[10px] font-bold uppercase text-gray-400 block mb-0.5">Filial bo'yicha</label>
-                  <select
-                    value={branchFilter}
-                    onChange={(e) => setBranchFilter(e.target.value)}
-                    className="w-full px-2.5 py-2 bg-gray-50 border border-gray-200 rounded-xl text-xs font-bold text-gray-700 outline-none focus:border-primary"
-                  >
-                    <option value="ALL">Barcha filiallar</option>
-                    {getBranches(
-                      providerFilter !== 'ALL' ? providerFilter : undefined,
-                      regionFilter !== 'ALL' ? regionFilter : undefined
-                    ).map(b => (
-                      <option key={b.id} value={b.branchName}>{b.branchName} ({b.region})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
               {/* Search & Status Filters */}
-              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-gray-100">
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-100">
                 <input
                   type="text"
                   value={parcelSearch}
@@ -1433,33 +1340,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
           </div>
         )}
 
-        {/* ========================================================================= */}
-        {/* TAB 5: LOCATION REQUESTS */}
-        {/* ========================================================================= */}
-        {activeTab === 'REQUESTS' && (
-          <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-3 animate-fade-in">
-            <h3 className="font-bold text-sm text-gray-800">Filial o'zgartirish so'rovlari ({requests.length} ta)</h3>
-            {requests.length === 0 ? (
-              <p className="text-xs text-gray-400 py-4 text-center">Hozircha yangi so'rovlar yo'q</p>
-            ) : (
-              <div className="space-y-2">
-                {requests.map(r => (
-                  <div key={r.id} className="p-3 bg-gray-50 rounded-2xl border border-gray-100 text-xs flex justify-between items-center">
-                    <div>
-                      <p className="font-bold text-gray-900">{r.user?.name} ({r.user?.customer_code})</p>
-                      <p className="text-[11px] text-gray-500">
-                        {r.old_branch?.branch_name} &rarr; <b>{r.requested_branch?.branch_name}</b>
-                      </p>
-                    </div>
-                    <span className="text-[10px] font-bold bg-amber-100 text-amber-800 px-2 py-0.5 rounded">
-                      {r.status}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
+
 
         {/* ========================================================================= */}
         {/* TAB 6: STATS */}
@@ -1517,84 +1398,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 />
               </div>
 
-              {/* Location assignment for new tracks */}
-              <div className="p-3 bg-gray-50 rounded-2xl border border-gray-200 space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-[10px] uppercase font-bold text-gray-500">
-                    📍 Yetkazib berish filiali
-                  </span>
-                  <label className="flex items-center gap-1.5 text-[11px] font-bold text-primary cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={useCustomBranch}
-                      onChange={(e) => setUseCustomBranch(e.target.checked)}
-                      className="w-3.5 h-3.5 rounded text-primary"
-                    />
-                    <span>Filialni belgilash</span>
-                  </label>
-                </div>
 
-                {useCustomBranch ? (
-                  <div className="space-y-2 pt-1">
-                    <div className="grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Xizmat</label>
-                        <select
-                          value={newTrackProvider}
-                          onChange={(e) => {
-                            const p = e.target.value as any;
-                            setNewTrackProvider(p);
-                            const branches = getBranches(p, newTrackRegion);
-                            if (branches[0]) setNewTrackBranchId(branches[0].id);
-                          }}
-                          className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none"
-                        >
-                          <option value="BTS">BTS Pochta</option>
-                          <option value="EMU">EMU Express</option>
-                          <option value="UZPOST">UzPost</option>
-                        </select>
-                      </div>
-
-                      <div>
-                        <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Viloyat</label>
-                        <select
-                          value={newTrackRegion}
-                          onChange={(e) => {
-                            const reg = e.target.value;
-                            setNewTrackRegion(reg);
-                            const branches = getBranches(newTrackProvider, reg);
-                            if (branches[0]) setNewTrackBranchId(branches[0].id);
-                          }}
-                          className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none"
-                        >
-                          {REGIONS_LIST.map(r => (
-                            <option key={r} value={r}>{r}</option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
-
-                    <div>
-                      <label className="text-[9px] uppercase font-bold text-gray-400 block mb-0.5">Filial</label>
-                      <select
-                        value={newTrackBranchId}
-                        onChange={(e) => setNewTrackBranchId(e.target.value)}
-                        className="w-full px-2.5 py-1.5 bg-white border border-gray-200 rounded-xl text-xs font-bold text-gray-800 outline-none"
-                      >
-                        {getBranches(newTrackProvider, newTrackRegion).map(b => (
-                          <option key={b.id} value={b.id}>
-                            {b.branchName} — {b.address}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  </div>
-                ) : (
-                  <p className="text-[11px] text-gray-500">
-                    Mijoz kodi (<b>{newTrackCustomerId || 'YK-100'}</b>) orqali uning profilidagi tasdiqlangan filiali avtomatik biriktiriladi.
-                  </p>
-                )}
-              </div>
 
               <div>
                 <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">

@@ -105,8 +105,10 @@ export interface StudentProgressSummary {
   name: string;
   customerCode: string;
   completedCount: number;
+  completedLessonsCount?: number;
   totalLessons: number;
   progressPercent: number;
+  completionPercentage?: number;
   lessons?: {
     lessonId: string;
     title: string;
@@ -122,6 +124,7 @@ export interface CourseAccessItem {
   userId: string;
   customerCode: string;
   name: string;
+  username?: string;
   telegramUserId?: number;
   courseId: string;
   status: CourseAccessStatus;

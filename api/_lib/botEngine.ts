@@ -343,7 +343,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     return true;
   }
 
-  // Name Input Step
+  // Name Input Step -> Immediately Complete without location hurdles!
   const currentStep = dbUser ? dbUser.onboarding_step : localUser.onboardingStep;
   if (currentStep === 'name' && rawText && !rawText.startsWith('/')) {
     if (rawText.length < 3 || rawText.length > 60) {
@@ -352,43 +352,46 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     }
 
     localUser.name = rawText;
-    localUser.onboardingStep = 'provider';
+    localUser.onboardingCompleted = true;
+    localUser.onboardingStep = 'completed';
 
     if (supabase && dbUser) {
       await supabase.from('users').update({
         name: rawText,
-        onboarding_step: 'provider',
+        onboarding_completed: true,
+        onboarding_step: 'completed',
       }).eq('id', dbUser.id);
     }
 
-    await sendTelegramMessage(chatId, `Rahmat, <b>${rawText}</b>!\nYetkazib berish xizmatini tanlang:`, {
-      inline_keyboard: [
-        [{ text: 'BTS Pochta', callback_data: 'provider_BTS' }],
-        [{ text: 'EMU Express', callback_data: 'provider_EMU' }],
-        [{ text: 'UzPost (O\'zbekiston Pochtasi)', callback_data: 'provider_UZPOST' }],
-      ],
-    });
+    await sendTelegramMessage(
+      chatId,
+      `🎉 <b>Tabriklaymiz, ${rawText}!</b>\n\n` +
+      `Siz muvaffaqiyatli ro'yxatdan o'tdingiz!\n` +
+      `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
+      `Quyidagi menyu orqali ilovani yoki Video Darslarni ochishingiz mumkin:`,
+      getMainKeyboard()
+    );
     return true;
   }
 
-  // New User /start flow
+  // New User /start flow -> Instant access
   if (!isCompleted) {
     if (rawText === '/start') {
+      localUser.onboardingCompleted = true;
+      localUser.onboardingStep = 'completed';
+      if (supabase && dbUser) {
+        await supabase.from('users').update({
+          onboarding_completed: true,
+          onboarding_step: 'completed',
+        }).eq('id', dbUser.id);
+      }
       await sendTelegramMessage(
         chatId,
-        `Assalomu alaykum! <b>Yukla Go</b> kargo xizmatiga xush kelibsiz.\n\n` +
-        `Ro'yxatdan o'tishdan oldin Ommaviy Oferta shartlari bilan tanishib chiqing:\n\n` +
-        `<i>1. Yukla Go xizmati Xitoydan O'zbekistonga yuklarni havo yo'li orqali yetkazib beradi.\n` +
-        `2. Akkumulyator, magnit, suyuqlik va yonuvchan moddalar jo'natish qat'iyan taqiqlanadi.\n` +
-        `3. Yuk yetib kelgach, uning haqiqiy og'irligiga ko'ra to'lov qilinadi.</i>`,
-        {
-          inline_keyboard: [
-            [
-              { text: '✅ Roziman', callback_data: 'oferta_accept' },
-              { text: '❌ Rozimasman', callback_data: 'oferta_decline' },
-            ],
-          ],
-        }
+        `Assalomu alaykum, <b>${userName}</b>!\n\n` +
+        `Yukla Go xizmatiga xush kelibsiz.\n` +
+        `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
+        `Quyidagi tugmalar orqali Video darslarni yoki Yukla Go ilovasini ochishingiz mumkin:`,
+        getMainKeyboard()
       );
       return true;
     }
