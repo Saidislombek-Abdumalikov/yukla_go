@@ -5,8 +5,10 @@ import {
   resetStudentProgress,
   addLessonToCourse,
   deleteLesson,
-  INITIAL_COURSES,
+  STORED_COURSES,
   STORED_LESSONS,
+  addCourse,
+  deleteCourse,
   getCourseAccessList,
   grantCourseAccess,
   revokeCourseAccess,
@@ -46,7 +48,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     return res.status(200).json({
-      courses: INITIAL_COURSES,
+      courses: STORED_COURSES,
       lessons: STORED_LESSONS,
     });
   }
@@ -65,7 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Send bot notification if user has telegramUserId
       if (result.user?.telegramUserId) {
         try {
-          const course = INITIAL_COURSES.find(c => c.id === String(targetCourseId));
+          const course = STORED_COURSES.find(c => c.id === String(targetCourseId));
           const appUrl = process.env.MINI_APP_URL || 'https://carie-piddling-nonpurposively.ngrok-free.dev?ngrok-skip-browser-warning=true';
           const academyUrl = appUrl.includes('?') ? `${appUrl}&app=academy` : `${appUrl}?app=academy`;
           await sendTelegramMessage(
@@ -132,13 +134,42 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       });
     }
 
+    if (body.action === 'create_course') {
+      const { title, description, icon, category } = body;
+      if (!title || !title.trim()) {
+        return res.status(400).json({ error: 'Bo\'lim / kurs nomi talab qilinadi' });
+      }
+
+      const created = addCourse({
+        title,
+        description,
+        icon,
+        category,
+      });
+
+      return res.status(201).json({
+        success: true,
+        message: 'Yangi bo\'lim muvaffaqiyatli qo\'shildi',
+        course: created,
+      });
+    }
+
     return res.status(400).json({ error: 'Noma\'lum amal' });
   }
 
-  // 3. DELETE: Remove lesson
+  // 3. DELETE: Remove lesson or course
   if (req.method === 'DELETE') {
-    const { lessonId } = req.query;
-    if (!lessonId) return res.status(400).json({ error: 'lessonId talab qilinadi' });
+    const { lessonId, courseId } = req.query;
+
+    if (courseId) {
+      const deleted = deleteCourse(String(courseId));
+      return res.status(200).json({
+        success: deleted,
+        message: deleted ? 'Bo\'lim muvaffaqiyatli o\'chirildi' : 'Bo\'lim topilmadi',
+      });
+    }
+
+    if (!lessonId) return res.status(400).json({ error: 'lessonId yoki courseId talab qilinadi' });
 
     const deleted = deleteLesson(String(lessonId));
     return res.status(200).json({

@@ -33,6 +33,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [newLessonDesc, setNewLessonDesc] = useState('');
   const [addLessonLoading, setAddLessonLoading] = useState(false);
 
+  // New Course / Bo'lim Modal state
+  const [showAddCourseModal, setShowAddCourseModal] = useState(false);
+  const [newCourseTitle, setNewCourseTitle] = useState('');
+  const [newCourseDesc, setNewCourseDesc] = useState('');
+  const [newCourseIcon, setNewCourseIcon] = useState('📚');
+  const [addCourseLoading, setAddCourseLoading] = useState(false);
+
   // Settings & Warehouse state
   const [settings, setSettings] = useState<any>({ pricePerKg: 9.5, exchangeRate: 12850, supportUsername: 'nothing_related' });
   const [warehouse, setWarehouse] = useState<any>({
@@ -361,6 +368,55 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAdminAddCourse = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCourseTitle.trim()) return;
+    setAddCourseLoading(true);
+    try {
+      const res = await fetch('/api/admin/academy', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'create_course',
+          title: newCourseTitle.trim(),
+          description: newCourseDesc.trim(),
+          icon: newCourseIcon || '📚',
+        }),
+      }).then(r => r.json());
+
+      if (res.course) {
+        setNewCourseTitle('');
+        setNewCourseDesc('');
+        setNewCourseIcon('📚');
+        setShowAddCourseModal(false);
+        setSelectedCourseId(res.course.id);
+        setSaveFeedback("Yangi bo'lim muvaffaqiyatli yaratildi!");
+        setTimeout(() => setSaveFeedback(null), 3000);
+        loadTabData();
+      } else {
+        alert(res.error || "Bo'lim yaratishda xatolik yuz berdi");
+      }
+    } finally {
+      setAddCourseLoading(false);
+    }
+  };
+
+  const handleAdminDeleteCourse = async (courseId: string) => {
+    if (!window.confirm("Haqiqatan ham ushbu bo'limni va uning barcha darslarini o'chirmoqchimisiz?")) return;
+    try {
+      await fetch(`/api/admin/academy?courseId=${courseId}`, {
+        method: 'DELETE',
+      });
+      setSaveFeedback("Bo'lim o'chirildi");
+      setTimeout(() => setSaveFeedback(null), 2500);
+      const remaining = courses.filter(c => c.id !== courseId);
+      if (remaining.length > 0) {
+        setSelectedCourseId(remaining[0].id);
+      }
+      loadTabData();
+    } catch {}
   };
 
   const handleAddLesson = async (e: React.FormEvent) => {
@@ -926,6 +982,12 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     <span>Talaba rejimida ko'rish ↗</span>
                   </a>
                   <button
+                    onClick={() => setShowAddCourseModal(true)}
+                    className="px-3.5 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 border border-gray-200"
+                  >
+                    <span>+ Bo'lim qo'shish</span>
+                  </button>
+                  <button
                     onClick={() => setShowAddLessonModal(true)}
                     className="px-4 py-2 bg-primary hover:bg-primary-dark text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md shadow-primary/20 active:scale-95 transition-all"
                   >
@@ -935,23 +997,32 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
               </div>
 
               {/* Course Selector Tabs */}
-              <div className="flex flex-wrap gap-2 pt-1 border-t border-gray-100">
+              <div className="flex flex-wrap items-center gap-2 pt-1 border-t border-gray-100">
                 {(courses.length > 0 ? courses : [
                   { id: 'course_cargo_101', title: 'Xitoydan buyurtma berish kursi', icon: '📦' },
-                  { id: 'course_english_logistics', title: 'Logistika & Biznes ingliz tili', icon: '🇬🇧' },
                 ]).map(c => (
-                  <button
-                    key={c.id}
-                    onClick={() => setSelectedCourseId(c.id)}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                      selectedCourseId === c.id
-                        ? 'bg-gray-900 text-white shadow-sm'
-                        : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
-                    }`}
-                  >
-                    <span>{c.icon || '📚'}</span>
-                    <span>{c.title}</span>
-                  </button>
+                  <div key={c.id} className="flex items-center gap-1">
+                    <button
+                      onClick={() => setSelectedCourseId(c.id)}
+                      className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                        selectedCourseId === c.id
+                          ? 'bg-gray-900 text-white shadow-sm'
+                          : 'bg-gray-100 hover:bg-gray-200 text-gray-700'
+                      }`}
+                    >
+                      <span>{c.icon || '📚'}</span>
+                      <span>{c.title}</span>
+                    </button>
+                    {courses.length > 1 && (
+                      <button
+                        onClick={() => handleAdminDeleteCourse(c.id)}
+                        className="w-6 h-6 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-700 text-gray-400 flex items-center justify-center text-[10px] font-bold transition-all"
+                        title="Bo'limni o'chirish"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 ))}
               </div>
 
@@ -1632,6 +1703,96 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                   className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs shadow-md shadow-primary/20 active:scale-95 transition-all"
                 >
                   {addLoading ? 'Kiritilmoqda...' : 'Trek(lar)ni tizimga saqlash'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: ADD COURSE / SECTION */}
+      {/* ========================================================================= */}
+      {showAddCourseModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fade-in">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 animate-slide-up shadow-2xl">
+            <div className="flex justify-between items-center pb-2 border-b border-gray-100">
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📚</span>
+                <h3 className="font-black text-base text-gray-900">Yangi bo'lim qo'shish</h3>
+              </div>
+              <button
+                onClick={() => setShowAddCourseModal(false)}
+                className="w-8 h-8 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 flex items-center justify-center text-sm font-bold"
+              >
+                &times;
+              </button>
+            </div>
+
+            <form onSubmit={handleAdminAddCourse} className="space-y-3 text-xs">
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Bo'lim / Kurs nomi *
+                </label>
+                <input
+                  type="text"
+                  value={newCourseTitle}
+                  onChange={(e) => setNewCourseTitle(e.target.value)}
+                  placeholder="Masalan: Logistika & Biznes ingliz tili yoki Turkiyadan xarid"
+                  className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-900 outline-none focus:border-primary"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Belgi / Emotsiya (Icon)
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={newCourseIcon}
+                    onChange={(e) => setNewCourseIcon(e.target.value)}
+                    className="w-16 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-center text-base text-gray-900 outline-none focus:border-primary"
+                    maxLength={4}
+                  />
+                  <div className="flex flex-wrap gap-1">
+                    {['📚', '📦', '🇨🇳', '🇬🇧', '🇹🇷', '💼', '🎬', '🚀'].map(emoji => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setNewCourseIcon(emoji)}
+                        className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm transition-all ${
+                          newCourseIcon === emoji ? 'bg-primary text-white' : 'bg-gray-100 hover:bg-gray-200'
+                        }`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                  Qisqacha tavsif (ixtiyoriy)
+                </label>
+                <textarea
+                  rows={3}
+                  value={newCourseDesc}
+                  onChange={(e) => setNewCourseDesc(e.target.value)}
+                  placeholder="Ushbu bo'lim kimlar uchun va nimalar o'rgatilishi haqida..."
+                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-medium text-gray-900 outline-none focus:border-primary"
+                />
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={addCourseLoading || !newCourseTitle.trim()}
+                  className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs shadow-md shadow-primary/20 active:scale-95 transition-all disabled:opacity-50"
+                >
+                  {addCourseLoading ? 'Saqlanmoqda...' : 'Bo\'limni saqlash'}
                 </button>
               </div>
             </form>

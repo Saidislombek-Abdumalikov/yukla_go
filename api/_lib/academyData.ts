@@ -27,19 +27,45 @@ export const INITIAL_COURSES: Course[] = [
     icon: '📦',
     order: 1,
   },
-  {
-    id: 'course_english_logistics',
-    title: 'Logistika & Biznes ingliz tili',
-    description: 'Xalqaro yuk tashish, yetkazib beruvchilar bilan muzokara va buyurtmalar holatini aniqlash uchun amaliy ingliz tili darslari.',
-    category: 'student',
-    icon: '🇬🇧',
-    order: 2,
-  },
 ];
+
+export let STORED_COURSES: Course[] = [...INITIAL_COURSES];
+
+/**
+ * Admin action: Add new course / section (Bo'lim)
+ */
+export function addCourse(data: {
+  title: string;
+  description?: string;
+  icon?: string;
+  category?: string;
+}): Course {
+  const newCourse: Course = {
+    id: `course_${Date.now()}`,
+    title: data.title.trim(),
+    description: data.description?.trim() || '',
+    icon: data.icon?.trim() || '📚',
+    category: data.category || 'general',
+    order: STORED_COURSES.length + 1,
+  };
+  STORED_COURSES.push(newCourse);
+  return newCourse;
+}
+
+/**
+ * Admin action: Delete course and its associated lessons
+ */
+export function deleteCourse(courseId: string): boolean {
+  const idx = STORED_COURSES.findIndex(c => c.id === courseId);
+  if (idx === -1) return false;
+  STORED_COURSES.splice(idx, 1);
+  STORED_LESSONS = STORED_LESSONS.filter(l => l.courseId !== courseId);
+  return true;
+}
 
 export let STORED_LESSONS: StoredLesson[] = [
   // ---------------------------------------------------------------------------
-  // Course 1: Cargo Academy Lessons
+  // Primary Course: Cargo Academy Lessons
   // ---------------------------------------------------------------------------
   {
     id: 'les_c1_1',
@@ -47,8 +73,8 @@ export let STORED_LESSONS: StoredLesson[] = [
     order: 1,
     title: '1. Kirish: Xitoy karqo qanday ishlaydi?',
     description: 'Aviakargo va avtokargo farqlari, bojxona qoidalari va mijoz kodi (YK-###) mohiyati.',
-    youtubeVideoId: 'M7lc1UVf-VE', // Sample YouTube ID (easily editable via Admin)
-    durationSeconds: 360, // 6 minutes
+    youtubeVideoId: 'M7lc1UVf-VE',
+    durationSeconds: 360,
   },
   {
     id: 'les_c1_2',
@@ -57,7 +83,7 @@ export let STORED_LESSONS: StoredLesson[] = [
     title: '2. Taobao va 1688 ilovalarida ro\'yxatdan o\'tish',
     description: 'Alipay hamyonini ulash, akkaunt xavfsizligi va blokdan saqlanish usullari.',
     youtubeVideoId: 'jNQXAC9IVRw',
-    durationSeconds: 480, // 8 minutes
+    durationSeconds: 480,
   },
   {
     id: 'les_c1_3',
@@ -66,7 +92,7 @@ export let STORED_LESSONS: StoredLesson[] = [
     title: '3. Xitoy ombor manzilini to\'g\'ri kiritish (YK-###)',
     description: 'Yukla Go ombor manzilini Taobao ilovasiga bir martalik nusxa orqali avtomatik joylash.',
     youtubeVideoId: '21X5lGlDOfg',
-    durationSeconds: 420, // 7 minutes
+    durationSeconds: 420,
   },
   {
     id: 'les_c1_4',
@@ -75,7 +101,7 @@ export let STORED_LESSONS: StoredLesson[] = [
     title: '4. To\'lov qilish va mahsulot sifatini tekshirish',
     description: 'Sotuvchi reytingi, mijozlar sharhlari va xavfsiz to\'lov tizimi.',
     youtubeVideoId: 'L_LUpnjgPso',
-    durationSeconds: 540, // 9 minutes
+    durationSeconds: 540,
   },
   {
     id: 'les_c1_5',
@@ -84,38 +110,7 @@ export let STORED_LESSONS: StoredLesson[] = [
     title: '5. Trek kodini kiritish va O\'zbekistonda qabul qilish',
     description: 'Yukni O\'zbekistonga yetib kelguncha kuzatish va belgilangan filialdan qabul qilib olish.',
     youtubeVideoId: 'fJ9rUzIMcZQ',
-    durationSeconds: 390, // 6.5 minutes
-  },
-
-  // ---------------------------------------------------------------------------
-  // Course 2: Student English Lessons
-  // ---------------------------------------------------------------------------
-  {
-    id: 'les_c2_1',
-    courseId: 'course_english_logistics',
-    order: 1,
-    title: 'Unit 1 — Essential Greetings & Communication with Suppliers',
-    description: 'Supplier communication, polite requests, and price inquiries.',
-    youtubeVideoId: 'dQw4w9WgXcQ',
-    durationSeconds: 300,
-  },
-  {
-    id: 'les_c2_2',
-    courseId: 'course_english_logistics',
-    order: 2,
-    title: 'Unit 2 — Tracking, Weights & Measurements Vocabulary',
-    description: 'Gross weight, dimensional weight, tracking numbers, and airway bills.',
-    youtubeVideoId: 'jNQXAC9IVRw',
-    durationSeconds: 420,
-  },
-  {
-    id: 'les_c2_3',
-    courseId: 'course_english_logistics',
-    order: 3,
-    title: 'Unit 3 — Resolving Delays & Damaged Packages',
-    description: 'Dispute handling, refunds, and replacement order requests.',
-    youtubeVideoId: '21X5lGlDOfg',
-    durationSeconds: 480,
+    durationSeconds: 390,
   },
 ];
 
@@ -188,7 +183,7 @@ export function extractYouTubeId(input: string): string {
  * Get all courses with progress count for a given user
  */
 export function getCoursesWithUserProgress(userId: string): Course[] {
-  return INITIAL_COURSES.map(course => {
+  return STORED_COURSES.map(course => {
     const courseLessons = STORED_LESSONS.filter(l => l.courseId === course.id);
     const completedCount = courseLessons.filter(l => {
       const rec = progressStore.get(`${userId}:${l.id}`);

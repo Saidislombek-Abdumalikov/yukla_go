@@ -168,6 +168,25 @@ async function runAcademyTests() {
   assert.strictEqual(hasUserCourseAccess(wipeStudentId, courseId), false);
   console.log('  ✓ Academy user full wipe completely cleaned progress and course permissions');
 
+  // TEST 9: Dynamic Course / Section (Bo'lim) CRUD Operations
+  console.log('[TEST 9] Admin Course / Section (Bo\'lim) CRUD Operations');
+  const { addCourse, deleteCourse, STORED_COURSES } = await import('../api/_lib/academyData.ts');
+  const initialCourseCount = STORED_COURSES.length;
+  const newCourse = addCourse({
+    title: 'Biznes ingliz tili',
+    icon: '🇬🇧',
+    description: 'Xitoy yetkazib beruvchilari bilan muloqot',
+  });
+  assert.strictEqual(newCourse.title, 'Biznes ingliz tili');
+  assert.strictEqual(newCourse.icon, '🇬🇧');
+  assert.strictEqual(STORED_COURSES.length, initialCourseCount + 1, 'Course count must increase by 1');
+
+  // Deletion
+  const delRes = deleteCourse(newCourse.id);
+  assert.strictEqual(delRes, true);
+  assert.strictEqual(STORED_COURSES.length, initialCourseCount, 'Course count must restore after deletion');
+  console.log('  ✓ Admin can dynamically add and delete courses/sections (bo\'limlar)');
+
   console.log('--- ALL ACADEMY LMS ENGINE TESTS PASSED! ---');
 }
 

@@ -10,8 +10,10 @@ import {
   resetStudentProgress,
   addLessonToCourse,
   deleteLesson,
-  INITIAL_COURSES,
+  STORED_COURSES,
   STORED_LESSONS,
+  addCourse,
+  deleteCourse,
   getCourseAccessList,
   grantCourseAccess,
   revokeCourseAccess,
@@ -757,11 +759,21 @@ export function devApiPlugin(): Plugin {
                 return sendJson(res, 200, list);
               }
 
-              return sendJson(res, 200, { courses: INITIAL_COURSES, lessons: STORED_LESSONS });
+              return sendJson(res, 200, { courses: STORED_COURSES, lessons: STORED_LESSONS });
             }
 
             if (req.method === 'POST') {
               const body = await readBody(req);
+
+              if (body.action === 'create_course') {
+                const created = addCourse({
+                  title: body.title,
+                  description: body.description,
+                  icon: body.icon,
+                  category: body.category,
+                });
+                return sendJson(res, 201, { success: true, course: created });
+              }
 
               if (body.action === 'grant_access') {
                 const target = body.identifier || body.userId || body.customerCode;
@@ -801,6 +813,12 @@ export function devApiPlugin(): Plugin {
             }
 
             if (req.method === 'DELETE') {
+              const courseIdParam = params.get('courseId');
+              if (courseIdParam) {
+                deleteCourse(courseIdParam);
+                return sendJson(res, 200, { success: true, message: 'Bo\'lim o\'chirildi' });
+              }
+
               const lessonId = params.get('lessonId');
               if (lessonId) {
                 deleteLesson(lessonId);
