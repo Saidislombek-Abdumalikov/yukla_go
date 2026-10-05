@@ -98,13 +98,24 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
   };
 
   const handleLessonCompleted = (lessonId: string) => {
-    // Refresh lessons lock/unlock state
+    // Optimistically mark current lesson as completed and unlock next lesson in local state
+    setLessons(prev => {
+      const idx = prev.findIndex(l => l.id === lessonId);
+      return prev.map((l, i) => {
+        if (l.id === lessonId) return { ...l, isCompleted: true };
+        if (idx !== -1 && i === idx + 1) return { ...l, isLocked: false };
+        return l;
+      });
+    });
+
+    // Refresh lessons lock/unlock state from server
     if (selectedCourse) {
       fetch(`/api/academy/courses?courseId=${selectedCourse.id}`)
         .then(r => r.json())
         .then(data => {
-          if (Array.isArray(data)) {
-            setLessons(data);
+          const list = Array.isArray(data) ? data : (data?.lessons || []);
+          if (list.length > 0) {
+            setLessons(list);
           }
         })
         .catch(() => {});
@@ -124,10 +135,8 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
     const currentIndex = lessons.findIndex(l => l.id === activeLesson.id);
     if (currentIndex !== -1 && currentIndex + 1 < lessons.length) {
       const next = lessons[currentIndex + 1];
-      if (!next.isLocked) {
-        setActiveLesson(next);
-        window.scrollTo({ top: 0, behavior: 'smooth' });
-      }
+      setActiveLesson({ ...next, isLocked: false });
+      window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
 

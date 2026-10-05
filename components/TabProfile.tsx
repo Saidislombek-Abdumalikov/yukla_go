@@ -2,7 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { UserProfile, DeliveryBranchSnapshot } from '../types';
 import { api } from '../services/api';
 
-const TabProfile: React.FC = () => {
+interface TabProfileProps {
+  onOpenAcademy?: () => void;
+}
+
+const TabProfile: React.FC<TabProfileProps> = ({ onOpenAcademy }) => {
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [showOfertaModal, setShowOfertaModal] = useState(false);
@@ -116,6 +120,30 @@ const TabProfile: React.FC = () => {
       {/* Settings / Links */}
       <div className="bg-white rounded-3xl shadow-soft border border-gray-100 overflow-hidden divide-y divide-gray-50">
         
+        {/* Video Darslar & Akademiya */}
+        {onOpenAcademy && (
+          <button
+            onClick={onOpenAcademy}
+            className="w-full p-4 flex items-center justify-between hover:bg-amber-50/50 transition-colors text-left group"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg shrink-0 group-hover:scale-105 transition-transform">
+                🎓
+              </div>
+              <div>
+                <div className="flex items-center gap-1.5">
+                  <p className="font-bold text-xs text-gray-900 group-hover:text-amber-800 transition-colors">Video Darslar & Akademiya</p>
+                  <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.2 rounded font-black">LMS</span>
+                </div>
+                <p className="text-[10px] text-gray-400">Xitoydan buyurtma berish amaliy kursi</p>
+              </div>
+            </div>
+            <svg className="w-4 h-4 text-gray-400 group-hover:translate-x-1 group-hover:text-amber-600 transition-all" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+            </svg>
+          </button>
+        )}
+
         {/* Oferta View */}
         <button
           onClick={() => setShowOfertaModal(true)}

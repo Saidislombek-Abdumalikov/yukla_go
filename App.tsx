@@ -191,7 +191,7 @@ function App() {
       case Tab.CALCULATOR:
         return <TabCalculator />;
       case Tab.PROFILE:
-        return <TabProfile />;
+        return <TabProfile onOpenAcademy={() => setIsAcademyMode(true)} />;
       default:
         return (
           <TabHome 
