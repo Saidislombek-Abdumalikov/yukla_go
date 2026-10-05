@@ -1,5 +1,5 @@
 import assert from 'assert';
-import handler from '../api/index.ts';
+import handler from '../api/_router.ts';
 
 // Mock VercelRequest and VercelResponse
 function createMockReqRes(url: string, method: string = 'GET', body: any = null, query: any = {}) {
