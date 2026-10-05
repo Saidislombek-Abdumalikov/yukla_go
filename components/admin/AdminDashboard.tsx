@@ -49,9 +49,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [parcelSearch, setParcelSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
   const [unsubmittedOnly, setUnsubmittedOnly] = useState(false);
-  const [providerFilter, setProviderFilter] = useState<string>('ALL');
-  const [regionFilter, setRegionFilter] = useState<string>('ALL');
-  const [branchFilter, setBranchFilter] = useState<string>('ALL');
   const [copyFeedback, setCopyFeedback] = useState<string | null>(null);
   const [saveFeedback, setSaveFeedback] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,10 +59,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [newTrackCustomerId, setNewTrackCustomerId] = useState('YK-100');
   const [newTrackStatus, setNewTrackStatus] = useState('china_warehouse');
   const [newTrackWeight, setNewTrackWeight] = useState<string>('');
-  const [newTrackProvider, setNewTrackProvider] = useState<'BTS' | 'EMU' | 'UZPOST'>('EMU');
-  const [newTrackRegion, setNewTrackRegion] = useState<string>('Namangan viloyati');
-  const [newTrackBranchId, setNewTrackBranchId] = useState<string>('emu_nam_chortoq');
-  const [useCustomBranch, setUseCustomBranch] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
 
   // User Management & Full Wipe State
@@ -182,26 +175,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     }
   };
 
-  // Derived filtered parcels according to location and search
+  // Derived filtered parcels according to search, status and unsubmitted filters
   const filteredParcels = parcels.filter(p => {
-    const snap = p.deliveryBranchSnapshot || {};
-    if (providerFilter !== 'ALL' && snap.provider?.toUpperCase() !== providerFilter.toUpperCase()) {
+    if (parcelSearch.trim()) {
+      const q = parcelSearch.toLowerCase().trim();
+      const matchTrack = p.trackingNumber.toLowerCase().includes(q);
+      const matchCode = p.customerCode.toLowerCase().includes(q);
+      if (!matchTrack && !matchCode) return false;
+    }
+    if (statusFilter !== 'ALL' && p.status !== statusFilter) {
       return false;
     }
-    if (regionFilter !== 'ALL' && (!snap.region || !snap.region.toLowerCase().includes(regionFilter.toLowerCase()))) {
-      return false;
-    }
-    if (branchFilter !== 'ALL' && snap.branchName !== branchFilter) {
+    if (unsubmittedOnly && p.cargoSubmittedAt) {
       return false;
     }
     return true;
-  });
-
-  // Calculate parcel counts per region
-  const regionCounts: Record<string, number> = {};
-  parcels.forEach(p => {
-    const reg = p.deliveryBranchSnapshot?.region || 'Boshqa';
-    regionCounts[reg] = (regionCounts[reg] || 0) + 1;
   });
 
   // 1. Copy Pure Tracking Numbers (for upstream China cargo website)
@@ -213,27 +201,24 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     if (listToCopy.length === 0) return;
     const text = listToCopy.map(p => p.trackingNumber).join('\n');
     navigator.clipboard.writeText(text).then(() => {
-      const locLabel = regionFilter !== 'ALL' ? ` [${regionFilter}]` : (providerFilter !== 'ALL' ? ` [${providerFilter}]` : '');
-      setCopyFeedback(`Treklar nusxalandi${locLabel}: ${listToCopy.length} ta`);
+      setCopyFeedback(`Treklar nusxalandi: ${listToCopy.length} ta`);
       setTimeout(() => setCopyFeedback(null), 2500);
     });
   };
 
-  // 2. Copy Full Destination Addresses (for Uzbekistan delivery / BTS / EMU dispatch)
-  const handleCopyDispatchAddresses = () => {
+  // 2. Copy Customer Parcels List (for admin direct delivery/handover)
+  const handleCopyCustomerList = () => {
     const listToCopy = selectedParcelIds.size > 0
       ? filteredParcels.filter(p => selectedParcelIds.has(p.id))
       : filteredParcels;
 
     if (listToCopy.length === 0) return;
     const lines = listToCopy.map((p, idx) => {
-      const snap = p.deliveryBranchSnapshot || {};
-      return `${idx + 1}. [${p.customerCode}] Trek: ${p.trackingNumber} | Xizmat: ${snap.provider || 'BTS'} | Filial: ${snap.branchName || ''} (${snap.region || ''}) | Manzil: ${snap.address || '-'}`;
+      return `${idx + 1}. [${p.customerCode}] Trek: ${p.trackingNumber} | Holat: ${p.status} | Og'irlik: ${p.weightKg || 0} kg`;
     });
 
     navigator.clipboard.writeText(lines.join('\n')).then(() => {
-      const locLabel = regionFilter !== 'ALL' ? ` [${regionFilter}]` : (providerFilter !== 'ALL' ? ` [${providerFilter}]` : '');
-      setCopyFeedback(`Yetkazish manzillari nusxalandi${locLabel}: ${listToCopy.length} ta`);
+      setCopyFeedback(`Mijozlar ro'yxati nusxalandi: ${listToCopy.length} ta`);
       setTimeout(() => setCopyFeedback(null), 2500);
     });
   };
@@ -310,7 +295,6 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
           customerCode: newTrackCustomerId.trim().toUpperCase() || 'YK-100',
           status: newTrackStatus,
           weightKg: parseFloat(newTrackWeight) || 0,
-          branchId: useCustomBranch ? newTrackBranchId : undefined,
         }),
       });
 
@@ -587,15 +571,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                     className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1 active:scale-95 transition-all"
                     title="Xitoy karqo saytiga topshirish uchun trek kodlarni nusxalash"
                   >
-                    <span>📋 Treklar {regionFilter !== 'ALL' ? `(${regionFilter})` : (providerFilter !== 'ALL' ? `(${providerFilter})` : '')}</span>
+                    <span>📋 Treklar nusxalash</span>
                   </button>
 
                   <button
-                    onClick={handleCopyDispatchAddresses}
+                    onClick={handleCopyCustomerList}
                     className="px-3 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold flex items-center gap-1 active:scale-95 transition-all"
-                    title="O'zbekistonda BTS/EMU/UzPost orqali tarqatish uchun kuryer ro'yxatini nusxalash"
+                    title="Mijozlar va ularning trek kodlarini ro'yxatini nusxalash"
                   >
-                    <span>🚚 Manzillar {regionFilter !== 'ALL' ? `(${regionFilter})` : (providerFilter !== 'ALL' ? `(${providerFilter})` : '')}</span>
+                    <span>👥 Mijozlar ro'yxati</span>
                   </button>
                 </div>
 
@@ -748,19 +732,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                               )}
                             </div>
 
-                            {/* Location & Courier Destination Badge */}
+                            {/* Direct Admin Delivery Badge */}
                             <div className="flex items-center gap-1.5 mt-1 flex-wrap">
-                              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                                snap.provider === 'EMU'
-                                  ? 'bg-amber-100 text-amber-900 border border-amber-200'
-                                  : snap.provider === 'BTS'
-                                  ? 'bg-blue-100 text-blue-900 border border-blue-200'
-                                  : 'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                              }`}>
-                                📍 {snap.provider || 'BTS'} • {snap.region || 'O\'zbekiston'}
-                              </span>
-                              <span className="text-[11px] font-bold text-gray-700 truncate">
-                                {snap.branchName || 'Markaziy'}
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200">
+                                📍 Admin orqali bevosita topshirish
                               </span>
                             </div>
                           </div>

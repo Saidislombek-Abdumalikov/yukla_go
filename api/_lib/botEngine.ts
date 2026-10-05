@@ -64,15 +64,13 @@ export function getInMemoryBotUsers(): BotUser[] {
 }
 
 export const getMainKeyboard = () => {
-  const academyUrl = MINI_APP_URL.includes('?') ? `${MINI_APP_URL}&app=academy` : `${MINI_APP_URL}?app=academy`;
   return {
     keyboard: [
-      [{ text: '📦 Yukla Go ilovasi', web_app: { url: MINI_APP_URL } }],
+      [{ text: '🎓 Video darslar', web_app: { url: MINI_APP_URL } }],
       [
-        { text: '🎓 Video darslar', web_app: { url: academyUrl } },
         { text: '🇨🇳 Xitoy manzili' },
+        { text: '👤 Mening profilim' },
       ],
-      [{ text: '🔍 Trek tekshirish' }, { text: '👤 Mening profilim' }],
       [{ text: '☎️ Yordam' }],
     ],
     resize_keyboard: true,
@@ -312,8 +310,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
       await sendTelegramMessage(
         chatId,
         `🎉 <b>Tabriklaymiz, ro'yxatdan o'tish muvaffaqiyatli yakunlandi!</b>\n\n` +
-        `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n` +
-        `📍 Tanlangan filial: <b>${localUser.defaultBranch.provider} — ${localUser.defaultBranch.branchName} (${localUser.defaultBranch.region})</b>\n\n` +
+        `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
         `Xitoy saytlarida (Taobao, 1688, Pinduoduo) xarid qilish uchun ombor manzilingiz:`,
         getMainKeyboard()
       );
@@ -462,16 +459,11 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
   if (isCompleted) {
     // /start
     if (rawText === '/start') {
-      const branchDisplay = userBranch
-        ? `${userBranch.provider || 'BTS'} — ${userBranch.branch_name || userBranch.branchName || 'Markaziy'}`
-        : 'BTS — Chorsu';
-
       await sendTelegramMessage(
         chatId,
         `Assalomu alaykum, <b>${userName}</b>!\n\n` +
-        `👤 Mijoz kodingiz: <code>${customerCode}</code>\n` +
-        `📍 Filialingiz: <b>${branchDisplay}</b>\n\n` +
-        `Quyidagi menyu orqali amallarni bajarishingiz mumkin:`,
+        `👤 Mijoz kodingiz: <code>${customerCode}</code>\n\n` +
+        `Quyidagi menyu orqali Video darslarni ochishingiz yoki Xitoy ombor manzilini olishingiz mumkin:`,
         getMainKeyboard()
       );
       return true;
@@ -486,21 +478,17 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     // Profile & ID
     if (textLower === '/myid' || textLower === '/id' || textLower === '/kod' || textLower === '👤 mening profilim') {
       const phoneDisplay = dbUser?.phone || localUser.phone || '+998 90 123 45 67';
-      const branchDisplay = userBranch
-        ? `${userBranch.provider || 'BTS'} — ${userBranch.branch_name || userBranch.branchName || ''}`
-        : 'BTS — Chorsu';
 
       await sendTelegramMessage(
         chatId,
         `👤 <b>Mening Profilim:</b>\n\n` +
         `Mijoz kodi: <code>${customerCode}</code>\n` +
         `F.I.SH: <b>${userName}</b>\n` +
-        `Telefon: <code>${phoneDisplay}</code>\n` +
-        `Yetkazib berish filiali: <b>${branchDisplay}</b>\n\n` +
-        `Filialni o'zgartirish uchun ilovadagi "Profil" bo'limiga kiring:`,
+        `Telefon: <code>${phoneDisplay}</code>\n\n` +
+        `📦 <i>Tovarlaringiz O'zbekistonga yetib kelgach, administrator shaxsan sizga yetkazib beradi.</i>`,
         {
           inline_keyboard: [
-            [{ text: '📦 Yukla Go ilovasini ochish', web_app: { url: MINI_APP_URL } }],
+            [{ text: '🎓 Video darslarni ochish', web_app: { url: MINI_APP_URL } }],
           ],
         }
       );
@@ -582,7 +570,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
           `Vazni: <b>${weight}</b>\n` +
           `Narxi: <b>${amount}</b>\n` +
           `To'lov holati: <b>${foundParcel.payment_status === 'paid' ? '✅ To\'langan' : '⏳ To\'lov kutilmoqda'}</b>\n` +
-          (branchSnap ? `Filial: <b>${branchSnap.provider} — ${branchSnap.branchName}</b>\n` : '') +
+          `Yetkazish: <b>Admin orqali bevosita</b>\n` +
           `\n${statusInfo.desc}`,
           {
             inline_keyboard: [

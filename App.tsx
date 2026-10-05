@@ -15,8 +15,8 @@ function App() {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [isCargoMode, setIsCargoMode] = useState(false);
   const [isAdminPreview, setIsAdminPreview] = useState(false);
-  const [isAcademyMode, setIsAcademyMode] = useState(false);
 
   // Authentication & environment states
   const [isTelegramEnv, setIsTelegramEnv] = useState<boolean>(true);
@@ -76,14 +76,17 @@ function App() {
     const checkModes = () => {
       const search = window.location.search;
       const hash = window.location.hash;
-      const startParam = (tg as any)?.initDataUnsafe?.start_param;
-
-      if (search.includes('app=academy') || hash === '#academy' || startParam === 'academy') {
-        setIsAcademyMode(true);
-      }
 
       if (hash === '#admin') {
         setIsAdminPreview(true);
+      } else {
+        setIsAdminPreview(false);
+      }
+
+      if (search.includes('app=cargo') || hash === '#cargo') {
+        setIsCargoMode(true);
+      } else {
+        setIsCargoMode(false);
       }
     };
 
@@ -106,24 +109,6 @@ function App() {
           window.location.hash = '';
         }} 
       />
-    );
-  }
-
-  // 2. Academy / Video Lessons Mode (Accessible directly via ?app=academy or #academy)
-  if (isAcademyMode) {
-    return (
-      <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
-        <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-12 safe-area-top">
-          <AcademyApp 
-            onBackToCargo={() => {
-              setIsAcademyMode(false);
-              const url = new URL(window.location.href);
-              url.searchParams.delete('app');
-              window.history.replaceState({}, '', url.pathname + (window.location.hash === '#academy' ? '' : window.location.hash));
-            }}
-          />
-        </main>
-      </div>
     );
   }
 
@@ -186,7 +171,10 @@ function App() {
             refreshTrigger={refreshKey}
             onNavigate={setActiveTab} 
             onAddClick={() => setIsAddModalOpen(true)} 
-            onOpenAcademy={() => setIsAcademyMode(true)}
+            onOpenAcademy={() => {
+              setIsCargoMode(false);
+              window.location.hash = '';
+            }}
           />
         );
       case Tab.MY_PARCELS:
@@ -199,44 +187,66 @@ function App() {
       case Tab.CALCULATOR:
         return <TabCalculator />;
       case Tab.PROFILE:
-        return <TabProfile onOpenAcademy={() => setIsAcademyMode(true)} />;
+        return (
+          <TabProfile 
+            onOpenAcademy={() => {
+              setIsCargoMode(false);
+              window.location.hash = '';
+            }} 
+          />
+        );
       default:
         return (
           <TabHome 
             refreshTrigger={refreshKey}
             onNavigate={setActiveTab} 
             onAddClick={() => setIsAddModalOpen(true)} 
-            onOpenAcademy={() => setIsAcademyMode(true)}
+            onOpenAcademy={() => {
+              setIsCargoMode(false);
+              window.location.hash = '';
+            }}
           />
         );
     }
   };
 
+  // 4. Preserved Cargo Flow (Hidden by default for future release, accessible via #cargo)
+  if (isCargoMode) {
+    return (
+      <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
+        {/* Background Soft Accent Glows */}
+        <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-100/40 rounded-full blur-[100px] pointer-events-none z-0"></div>
+        <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-sky-100/30 rounded-full blur-[100px] pointer-events-none z-0"></div>
+
+        {/* Main Content Area */}
+        <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-36 safe-area-top">
+          {renderContent()}
+        </main>
+
+        {/* Add Track Modal */}
+        {isAddModalOpen && (
+          <AddTrackModal 
+            onClose={() => setIsAddModalOpen(false)} 
+            onAdded={handleTrackAdded}
+          />
+        )}
+
+        {/* Bottom Floating Navigation */}
+        <Navbar 
+          activeTab={activeTab} 
+          setActiveTab={setActiveTab} 
+          onAddClick={() => setIsAddModalOpen(true)} 
+        />
+      </div>
+    );
+  }
+
+  // 5. PRIMARY DEFAULT MODE: Video Lessons & Academy (100% focused for release!)
   return (
     <div className="min-h-screen bg-[#F5F7FA] text-[#1F2937]">
-      {/* Background Soft Accent Glows */}
-      <div className="fixed top-[-10%] left-[-10%] w-[50%] h-[50%] bg-blue-100/40 rounded-full blur-[100px] pointer-events-none z-0"></div>
-      <div className="fixed bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-sky-100/30 rounded-full blur-[100px] pointer-events-none z-0"></div>
-
-      {/* Main Content Area */}
-      <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-28 safe-area-top">
-        {renderContent()}
+      <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-16 safe-area-top">
+        <AcademyApp />
       </main>
-
-      {/* Add Track Modal */}
-      {isAddModalOpen && (
-        <AddTrackModal 
-          onClose={() => setIsAddModalOpen(false)} 
-          onAdded={handleTrackAdded}
-        />
-      )}
-
-      {/* Bottom Floating Navigation */}
-      <Navbar 
-        activeTab={activeTab} 
-        setActiveTab={setActiveTab} 
-        onAddClick={() => setIsAddModalOpen(true)} 
-      />
     </div>
   );
 }

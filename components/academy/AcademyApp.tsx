@@ -160,16 +160,23 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
           </p>
         </div>
 
-        {onBackToCargo && (
-          <button
-            onClick={onBackToCargo}
-            className="px-3 py-1.5 bg-white hover:bg-gray-50 border border-gray-200 text-primary rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1 active:scale-95"
-            title="Kargo buyurtmalariga qaytish"
-          >
-            <span>📦 Kargo</span>
-            <span className="text-[10px]">&rarr;</span>
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {user?.customerCode && (
+            <div className="bg-primary/10 text-primary px-3 py-1.5 rounded-xl text-xs font-mono font-black border border-primary/20 shadow-sm">
+              {user.customerCode}
+            </div>
+          )}
+          {onBackToCargo && (
+            <button
+              onClick={onBackToCargo}
+              className="px-3 py-1.5 bg-white hover:bg-gray-50 border border-gray-200 text-primary rounded-xl text-xs font-bold shadow-sm transition-all flex items-center gap-1 active:scale-95"
+              title="Kargo buyurtmalariga qaytish"
+            >
+              <span>📦 Kargo</span>
+              <span className="text-[10px]">&rarr;</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Course Switcher (Horizontal Tabs) */}
