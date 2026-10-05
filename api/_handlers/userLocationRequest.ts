@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth';
-import { getSupabase } from '../_lib/supabase';
-import { LocationRequestSchema } from '../_lib/validation';
-import { checkRateLimit } from '../_lib/rateLimiter';
+import { verifySessionToken } from '../_lib/auth.ts';
+import { getSupabase } from '../_lib/supabase.ts';
+import { LocationRequestSchema } from '../_lib/validation.ts';
+import { checkRateLimit } from '../_lib/rateLimiter.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

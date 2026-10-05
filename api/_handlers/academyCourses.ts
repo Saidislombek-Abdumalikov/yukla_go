@@ -1,11 +1,11 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth';
+import { verifySessionToken } from '../_lib/auth.ts';
 import {
   getCoursesWithUserProgress,
   getCourseLessonsForUser,
   hasUserCourseAccess,
   getUserCourseAccessStatus,
-} from '../_lib/academyData';
+} from '../_lib/academyData.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {

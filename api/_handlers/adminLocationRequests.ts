@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth';
-import { getSupabase } from '../_lib/supabase';
-import { sendTelegramMessage } from '../_lib/botNotifications';
+import { verifySessionToken } from '../_lib/auth.ts';
+import { getSupabase } from '../_lib/supabase.ts';
+import { sendTelegramMessage } from '../_lib/botNotifications.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);

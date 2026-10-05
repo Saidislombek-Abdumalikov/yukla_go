@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { validateTelegramInitData, createSessionToken, isTelegramAdmin } from '../_lib/auth';
-import { getSupabase } from '../_lib/supabase';
-import { checkRateLimit, getClientIp } from '../_lib/rateLimiter';
+import { validateTelegramInitData, createSessionToken, isTelegramAdmin } from '../_lib/auth.ts';
+import { getSupabase } from '../_lib/supabase.ts';
+import { checkRateLimit, getClientIp } from '../_lib/rateLimiter.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

@@ -1,6 +1,6 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { getSupabase } from '../_lib/supabase';
-import { getBranches } from '../_lib/branchesData';
+import { getSupabase } from '../_lib/supabase.ts';
+import { getBranches } from '../_lib/branchesData.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {

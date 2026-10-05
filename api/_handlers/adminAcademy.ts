@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth';
+import { verifySessionToken } from '../_lib/auth.ts';
 import {
   getStudentsProgressSummary,
   resetStudentProgress,
@@ -13,9 +13,9 @@ import {
   grantCourseAccess,
   revokeCourseAccess,
   DEMO_ACADEMY_USERS,
-} from '../_lib/academyData';
-import { sendTelegramMessage } from '../_lib/botNotifications';
-import { getInMemoryBotUsers } from '../_lib/botEngine';
+} from '../_lib/academyData.ts';
+import { sendTelegramMessage } from '../_lib/botNotifications.ts';
+import { getInMemoryBotUsers } from '../_lib/botEngine.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);

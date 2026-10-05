@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth';
-import { requestCourseAccess, INITIAL_COURSES } from '../_lib/academyData';
-import { sendTelegramMessage } from '../_lib/botNotifications';
+import { verifySessionToken } from '../_lib/auth.ts';
+import { requestCourseAccess, INITIAL_COURSES } from '../_lib/academyData.ts';
+import { sendTelegramMessage } from '../_lib/botNotifications.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'POST') {

@@ -1,7 +1,7 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth';
-import { getSupabase } from '../_lib/supabase';
-import { CargoProviderUpdateSchema } from '../_lib/validation';
+import { verifySessionToken } from '../_lib/auth.ts';
+import { getSupabase } from '../_lib/supabase.ts';
+import { CargoProviderUpdateSchema } from '../_lib/validation.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
