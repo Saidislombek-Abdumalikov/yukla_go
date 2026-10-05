@@ -602,3 +602,39 @@ export function getCourseAccessList(courseId: string): CourseAccessItem[] {
     };
   });
 }
+
+/**
+ * Fully wipe all progress, course access permissions, and student records for a user
+ */
+export function wipeAcademyUser(userIdOrCode: string): { wipedProgressCount: number; wipedAccessCount: number } {
+  const clean = userIdOrCode.trim().toUpperCase();
+  const matches = DEMO_ACADEMY_USERS.filter(
+    u => u.id === userIdOrCode || u.customerCode.toUpperCase() === clean || String(u.telegramUserId) === clean
+  );
+  const userIdsToWipe = new Set<string>([userIdOrCode, ...matches.map(u => u.id)]);
+
+  let wipedProgressCount = 0;
+  for (const [key, prog] of progressStore.entries()) {
+    if (userIdsToWipe.has(prog.userId)) {
+      progressStore.delete(key);
+      wipedProgressCount++;
+    }
+  }
+
+  let wipedAccessCount = 0;
+  for (const [key, access] of courseAccessStore.entries()) {
+    if (userIdsToWipe.has(access.userId) || access.customerCode.toUpperCase() === clean) {
+      courseAccessStore.delete(key);
+      wipedAccessCount++;
+    }
+  }
+
+  for (let i = DEMO_ACADEMY_USERS.length - 1; i >= 0; i--) {
+    const u = DEMO_ACADEMY_USERS[i];
+    if (u.id === userIdOrCode || u.customerCode.toUpperCase() === clean || String(u.telegramUserId) === clean) {
+      DEMO_ACADEMY_USERS.splice(i, 1);
+    }
+  }
+
+  return { wipedProgressCount, wipedAccessCount };
+}

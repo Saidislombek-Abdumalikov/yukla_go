@@ -68,6 +68,74 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [useCustomBranch, setUseCustomBranch] = useState(false);
   const [addLoading, setAddLoading] = useState(false);
 
+  // User Management & Full Wipe State
+  const [userSearch, setUserSearch] = useState('');
+  const [manualWipeInput, setManualWipeInput] = useState('');
+  const [wipeTargetUser, setWipeTargetUser] = useState<any | null>(null);
+  const [wipeLoading, setWipeLoading] = useState(false);
+
+  const handleWipeUser = async (target: any) => {
+    setWipeLoading(true);
+    try {
+      const res = await fetch(`/api/admin/users?id=${encodeURIComponent(target.id || '')}&customerCode=${encodeURIComponent(target.customerCode || '')}&telegramUserId=${encodeURIComponent(target.telegramUserId || '')}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      }).then(r => r.json());
+
+      if (res.success) {
+        setSaveFeedback(res.message || 'Mijoz ma\'lumotlari butunlay tozalandi');
+        setTimeout(() => setSaveFeedback(null), 3500);
+        setWipeTargetUser(null);
+        setManualWipeInput('');
+        loadTabData();
+      } else {
+        alert(res.error || 'Xatolik yuz berdi');
+      }
+    } catch (e: any) {
+      alert(e.message || 'Xatolik yuz berdi');
+    } finally {
+      setWipeLoading(false);
+    }
+  };
+
+  const handleManualWipe = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const clean = manualWipeInput.trim();
+    if (!clean) return;
+
+    const found = users.find(u =>
+      u.customerCode?.toUpperCase() === clean.toUpperCase() ||
+      String(u.telegramUserId) === clean ||
+      u.id === clean
+    );
+
+    const target = found || {
+      id: clean,
+      customerCode: clean.toUpperCase().startsWith('YK-') ? clean.toUpperCase() : clean,
+      telegramUserId: !isNaN(Number(clean)) ? Number(clean) : 0,
+      name: clean,
+    };
+
+    setWipeTargetUser(target);
+  };
+
+  const handleToggleUserStatus = async (user: any) => {
+    const nextStatus = user.status === 'active' ? 'blocked' : 'active';
+    try {
+      const res = await fetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, status: nextStatus }),
+      }).then(r => r.json());
+
+      if (res.success) {
+        setSaveFeedback(`Foydalanuvchi holati: ${nextStatus === 'active' ? 'Faol' : 'Bloklandi'}`);
+        setTimeout(() => setSaveFeedback(null), 2500);
+        loadTabData();
+      }
+    } catch {}
+  };
+
   useEffect(() => {
     loadTabData();
   }, [activeTab, unsubmittedOnly, parcelSearch, statusFilter, selectedCourseId]);
@@ -1312,33 +1380,169 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         )}
 
         {/* ========================================================================= */}
-        {/* TAB 4: USERS */}
+        {/* TAB 5: USERS & FULL WIPE */}
         {/* ========================================================================= */}
-        {activeTab === 'USERS' && (
-          <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-3 animate-fade-in">
-            <h3 className="font-bold text-sm text-gray-800">Foydalanuvchilar ro'yxati ({users.length} ta)</h3>
-            <div className="divide-y divide-gray-50">
-              {users.map(u => (
-                <div key={u.id} className="py-3 flex items-center justify-between text-xs">
+        {activeTab === 'USERS' && (() => {
+          const filteredUsers = users.filter(u => {
+            if (!userSearch.trim()) return true;
+            const q = userSearch.toLowerCase();
+            return (
+              u.name?.toLowerCase().includes(q) ||
+              u.customerCode?.toLowerCase().includes(q) ||
+              u.phone?.toLowerCase().includes(q) ||
+              String(u.telegramUserId).includes(q)
+            );
+          });
+
+          return (
+            <div className="space-y-4 animate-fade-in">
+              {/* Top Stats & Wipe Header */}
+              <div className="bg-white rounded-3xl p-5 shadow-soft border border-gray-100 space-y-4">
+                <div className="flex flex-wrap justify-between items-center gap-2">
                   <div>
-                    <div className="flex items-center gap-2">
-                      <span className="font-mono font-bold text-primary bg-primary/10 px-2 py-0.5 rounded text-[11px]">
-                        {u.customerCode}
+                    <h3 className="font-black text-base text-gray-900 flex items-center gap-2">
+                      <span>👤 Mijozlar & Telegram Bot Boshqaruvi</span>
+                      <span className="text-[11px] font-mono font-bold bg-primary/10 text-primary px-2.5 py-0.5 rounded-xl">
+                        {users.length} nafar mijoz
                       </span>
-                      <span className="font-bold text-gray-900">{u.name}</span>
-                    </div>
-                    <p className="text-gray-500 text-[11px] mt-0.5">
-                      Tel: {u.phone} • Filial: {u.defaultDeliveryBranch?.provider} {u.defaultDeliveryBranch?.branchName}
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Mijozlarni ko'rish, holatini o'zgartirish va Telegram botdagi barcha tarixini noldan tozalash (Full Wipe).
                     </p>
                   </div>
-                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                    {u.status}
-                  </span>
+
+                  <div className="flex items-center gap-2 text-xs font-bold">
+                    <span className="px-2.5 py-1 bg-green-50 text-green-700 rounded-xl border border-green-100">
+                      🟢 Faol: {users.filter(u => u.status !== 'blocked').length}
+                    </span>
+                    <span className="px-2.5 py-1 bg-red-50 text-red-700 rounded-xl border border-red-100">
+                      🔴 Bloklangan: {users.filter(u => u.status === 'blocked').length}
+                    </span>
+                  </div>
                 </div>
-              ))}
+
+                {/* Quick Manual Wipe Bar */}
+                <div className="bg-red-50/70 p-4 rounded-2xl border border-red-200 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">⚠️</span>
+                    <span className="font-black text-xs text-red-900">Mijozni tezkor butunlay tozalash (Full Wipe):</span>
+                  </div>
+                  <p className="text-[11px] text-red-800/80 leading-relaxed">
+                    Mijoz kodi (masalan: <b>YK-100</b>) yoki Telegram ID (masalan: <b>99887766</b>) kiriting. Bu amal uning botdagi suhbati, barcha yuklari va dars progressini butunlay yo'q qiladi.
+                  </p>
+                  <form onSubmit={handleManualWipe} className="flex gap-2 pt-1">
+                    <input
+                      type="text"
+                      value={manualWipeInput}
+                      onChange={(e) => setManualWipeInput(e.target.value)}
+                      placeholder="Mijoz kodi (YK-###) yoki Telegram ID..."
+                      className="flex-1 px-3.5 py-2.5 bg-white border border-red-200 rounded-xl text-xs font-bold text-gray-900 placeholder:text-gray-400 outline-none focus:border-red-500 font-mono"
+                    />
+                    <button
+                      type="submit"
+                      disabled={!manualWipeInput.trim()}
+                      className="px-4 py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-black shadow-md shadow-red-600/20 active:scale-95 transition-all disabled:opacity-50 flex items-center gap-1.5 shrink-0"
+                    >
+                      <span>🗑 Butunlay tozalash</span>
+                    </button>
+                  </form>
+                </div>
+
+                {/* Search Bar */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={userSearch}
+                    onChange={(e) => setUserSearch(e.target.value)}
+                    placeholder="Mijoz ismi, kodi (YK-###), telefon yoki Telegram ID bo'yicha qidirish..."
+                    className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:border-primary focus:bg-white text-xs font-medium text-gray-800 placeholder:text-gray-400 transition-all"
+                  />
+                  <svg className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                  </svg>
+                </div>
+              </div>
+
+              {/* Users List Cards */}
+              <div className="space-y-2.5">
+                {filteredUsers.length === 0 ? (
+                  <div className="p-10 bg-white rounded-3xl border border-dashed border-gray-200 text-center space-y-2">
+                    <span className="text-3xl block">👤</span>
+                    <p className="text-xs font-bold text-gray-700">Mijozlar topilmadi</p>
+                    <p className="text-[11px] text-gray-400">
+                      {userSearch ? "Qidiruv so'rovi bo'yicha hech qanday mijoz topilmadi" : "Hozircha foydalanuvchilar ro'yxati bo'sh"}
+                    </p>
+                  </div>
+                ) : (
+                  filteredUsers.map(u => {
+                    const isBlocked = u.status === 'blocked';
+                    const userParcelsCount = parcels.filter(p => p.customerCode === u.customerCode).length;
+
+                    return (
+                      <div
+                        key={u.id || u.customerCode || u.telegramUserId}
+                        className="bg-white p-4 rounded-2xl border border-gray-100 shadow-soft hover:border-gray-200 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs"
+                      >
+                        <div className="space-y-1.5 min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono font-black text-primary bg-primary/10 px-2 py-0.5 rounded-lg text-xs">
+                              {u.customerCode || 'YK-???'}
+                            </span>
+                            <span className="font-bold text-gray-900 text-sm">{u.name || 'Nomsiz'}</span>
+                            {u.telegramUserId && (
+                              <span className="font-mono text-[10px] text-gray-500 bg-gray-100 px-2 py-0.5 rounded font-bold">
+                                TG: {u.telegramUserId}
+                              </span>
+                            )}
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              isBlocked ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
+                            }`}>
+                              {isBlocked ? '⛔ Bloklangan' : '✅ Faol'}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
+                            {u.phone && <span>📞 {u.phone}</span>}
+                            <span>•</span>
+                            <span>📦 Yuklari: <b className="text-gray-800">{userParcelsCount} ta</b></span>
+                            {u.defaultDeliveryBranch && (
+                              <>
+                                <span>•</span>
+                                <span>🏢 {u.defaultDeliveryBranch.provider} {u.defaultDeliveryBranch.branchName}</span>
+                              </>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* User Actions: Block & Full Wipe */}
+                        <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                          <button
+                            onClick={() => handleToggleUserStatus(u)}
+                            className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition-colors border ${
+                              isBlocked
+                                ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
+                                : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
+                            }`}
+                          >
+                            {isBlocked ? 'Faollashtirish' : 'Bloklash'}
+                          </button>
+
+                          <button
+                            onClick={() => setWipeTargetUser(u)}
+                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-black text-[11px] transition-colors flex items-center gap-1 active:scale-95 shadow-sm"
+                            title="Foydalanuvchi bot tarixi, yuklari va barcha ma'lumotlarini to'liq o'chirish"
+                          >
+                            <span>🗑 Butunlay o'chirish</span>
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
 
 
@@ -1630,6 +1834,91 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================================= */}
+      {/* MODAL: FULL WIPE USER CONFIRMATION */}
+      {/* ========================================================================= */}
+      {wipeTargetUser && (
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in modal-backdrop">
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full space-y-4 animate-slide-up shadow-2xl border border-red-100">
+            <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center text-2xl mx-auto shadow-inner">
+              ⚠️
+            </div>
+
+            <div className="text-center space-y-1">
+              <h3 className="font-black text-lg text-gray-900">
+                Mijozni butunlay tozalash (Full Wipe)
+              </h3>
+              <p className="text-xs text-gray-500">
+                Ushbu amalni ortga qaytarib bo'lmaydi!
+              </p>
+            </div>
+
+            {/* Target info card */}
+            <div className="bg-red-50/70 rounded-2xl p-3.5 border border-red-200/80 text-xs text-red-950 space-y-1.5">
+              <div className="flex items-center justify-between font-bold">
+                <span>Mijoz kodi:</span>
+                <span className="font-mono bg-white px-2 py-0.5 rounded text-red-700 border border-red-200">
+                  {wipeTargetUser.customerCode || 'Mavjud emas'}
+                </span>
+              </div>
+              <div className="flex items-center justify-between">
+                <span className="text-gray-600">Ismi:</span>
+                <span className="font-bold">{wipeTargetUser.name || 'Mijoz'}</span>
+              </div>
+              {wipeTargetUser.telegramUserId && (
+                <div className="flex items-center justify-between">
+                  <span className="text-gray-600">Telegram ID:</span>
+                  <span className="font-mono font-bold">{wipeTargetUser.telegramUserId}</span>
+                </div>
+              )}
+            </div>
+
+            {/* What will be wiped list */}
+            <div className="space-y-1.5 text-xs text-gray-600 bg-gray-50 p-3.5 rounded-2xl border border-gray-100">
+              <p className="font-bold text-gray-800 text-[11px] uppercase tracking-wider mb-1">Quyidagi barcha ma'lumotlar o'chiriladi:</p>
+              <p className="flex items-start gap-1.5">
+                <span className="text-red-500 font-bold shrink-0">✓</span>
+                <span><b>Telegram bot tarixi:</b> Foydalanuvchining barcha suhbati va ro'yxatdan o'tish holati noldan boshlanadi.</span>
+              </p>
+              <p className="flex items-start gap-1.5">
+                <span className="text-red-500 font-bold shrink-0">✓</span>
+                <span><b>Barcha yuklari:</b> Ushbu mijozga tegishli barcha kiritilgan treklar va jo'natmalar o'chiriladi.</span>
+              </p>
+              <p className="flex items-start gap-1.5">
+                <span className="text-red-500 font-bold shrink-0">✓</span>
+                <span><b>Akademiya darslari:</b> Ko'rilgan darslar progressi va kursga berilgan ruxsatlar bekor qilinadi.</span>
+              </p>
+            </div>
+
+            {/* Action buttons */}
+            <div className="space-y-2 pt-1">
+              <button
+                onClick={() => handleWipeUser(wipeTargetUser)}
+                disabled={wipeLoading}
+                className="w-full py-3.5 bg-gradient-to-r from-red-600 to-rose-700 text-white rounded-2xl text-xs font-black shadow-lg shadow-red-600/30 active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {wipeLoading ? (
+                  <span>Tozalanmoqda...</span>
+                ) : (
+                  <>
+                    <span>🗑 Ha, barcha ma'lumotlarni butunlay tozalash</span>
+                  </>
+                )}
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWipeTargetUser(null)}
+                disabled={wipeLoading}
+                className="w-full py-2.5 text-xs font-bold text-gray-500 hover:text-gray-700 transition-colors"
+              >
+                Bekor qilish
+              </button>
+            </div>
           </div>
         </div>
       )}

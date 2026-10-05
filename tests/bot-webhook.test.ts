@@ -1,5 +1,6 @@
 import assert from 'assert';
 import { STATUS_MESSAGES } from '../api/_lib/botNotifications.ts';
+import { processTelegramUpdate, wipeBotUser, getInMemoryBotUsers } from '../api/_lib/botEngine.ts';
 
 async function runBotTests() {
   console.log('--- STARTING TELEGRAM BOT AUTOMATED AUDIT ---');
@@ -46,6 +47,26 @@ async function runBotTests() {
   assert.ok(warehouseTemplate.includes('YK-100'), 'Template must include safe customer code');
   assert.ok(!warehouseTemplate.toLowerCase().includes('ipost'), 'Customer-facing template must never hardcode upstream cargo name');
   console.log('  ✓ Upstream cargo company name isolation verified');
+
+  // TEST 5: Full Wipe Telegram Bot User Session
+  console.log('[TEST 5] Telegram Bot User Session Full Wipe');
+  const testTgId = 555666777;
+  await processTelegramUpdate({
+    message: {
+      message_id: 1,
+      from: { id: testTgId, first_name: 'WipeTester' },
+      chat: { id: testTgId, type: 'private' },
+      text: '/start',
+    },
+  });
+  const botUsersBefore = getInMemoryBotUsers();
+  assert.ok(botUsersBefore.some(u => u.telegramUserId === testTgId), 'User must be present after /start');
+
+  const wipeResult = wipeBotUser(testTgId);
+  assert.strictEqual(wipeResult.success, true);
+  const botUsersAfter = getInMemoryBotUsers();
+  assert.strictEqual(botUsersAfter.some(u => u.telegramUserId === testTgId), false, 'User must be deleted from memory after full wipe');
+  console.log('  ✓ Bot session and state fully wiped: user returns to brand new state');
 
   console.log('--- ALL TELEGRAM BOT TESTS PASSED SUCCESSFULLY! ---');
 }

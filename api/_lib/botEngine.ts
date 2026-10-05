@@ -26,6 +26,43 @@ export interface BotUser {
 const inMemoryUsers = new Map<number, BotUser>();
 let nextCustomerCodeNum = 100;
 
+/**
+ * Wipes all bot history, session, and state for a Telegram user so they start 100% fresh
+ */
+export function wipeBotUser(identifier: string | number): { success: boolean; wipedUser?: BotUser } {
+  const numericId = typeof identifier === 'number' ? identifier : Number(identifier);
+  let wipedUser: BotUser | undefined;
+
+  if (!isNaN(numericId) && inMemoryUsers.has(numericId)) {
+    wipedUser = inMemoryUsers.get(numericId);
+    inMemoryUsers.delete(numericId);
+    return { success: true, wipedUser };
+  }
+
+  const clean = String(identifier).trim().toUpperCase();
+  for (const [tgId, user] of inMemoryUsers.entries()) {
+    if (
+      user.id === identifier ||
+      user.customerCode.toUpperCase() === clean ||
+      String(user.telegramUserId) === clean ||
+      (user.name && user.name.toUpperCase().includes(clean))
+    ) {
+      wipedUser = user;
+      inMemoryUsers.delete(tgId);
+      return { success: true, wipedUser };
+    }
+  }
+
+  return { success: false };
+}
+
+/**
+ * Get all active in-memory bot users
+ */
+export function getInMemoryBotUsers(): BotUser[] {
+  return Array.from(inMemoryUsers.values());
+}
+
 export const getMainKeyboard = () => {
   const academyUrl = MINI_APP_URL.includes('?') ? `${MINI_APP_URL}&app=academy` : `${MINI_APP_URL}?app=academy`;
   return {

@@ -14,6 +14,7 @@ import {
   grantCourseAccess,
   revokeCourseAccess,
   getCourseAccessList,
+  wipeAcademyUser,
 } from '../api/_lib/academyData.ts';
 
 async function runAcademyTests() {
@@ -154,6 +155,18 @@ async function runAcademyTests() {
   assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), false, 'Revoked user must have access removed');
 
   console.log('  ✓ Access control engine fully validated: grant, request, and revoke workflows work correctly');
+
+  // TEST 8: Full Wipe Academy User
+  console.log('[TEST 8] Full Wipe Academy User Progress and Access');
+  const wipeStudentId = 'usr_wipe_test_' + Date.now();
+  recordUserLessonProgress(wipeStudentId, initialLessons[0].id, 100, false);
+  grantCourseAccess(wipeStudentId, courseId);
+  assert.strictEqual(hasUserCourseAccess(wipeStudentId, courseId), true);
+
+  const wipeRes = wipeAcademyUser(wipeStudentId);
+  assert.strictEqual(wipeRes.wipedProgressCount >= 1, true);
+  assert.strictEqual(hasUserCourseAccess(wipeStudentId, courseId), false);
+  console.log('  ✓ Academy user full wipe completely cleaned progress and course permissions');
 
   console.log('--- ALL ACADEMY LMS ENGINE TESTS PASSED! ---');
 }

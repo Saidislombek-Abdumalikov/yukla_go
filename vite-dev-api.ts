@@ -1,6 +1,6 @@
 import type { Plugin } from 'vite';
 import type { IncomingMessage, ServerResponse } from 'http';
-import { processTelegramUpdate } from './api/_lib/botEngine';
+import { processTelegramUpdate, wipeBotUser, getInMemoryBotUsers } from './api/_lib/botEngine';
 import { ALL_BRANCHES, findBranchById } from './api/_lib/branchesData';
 import {
   getCoursesWithUserProgress,
@@ -18,6 +18,7 @@ import {
   hasUserCourseAccess,
   getUserCourseAccessStatus,
   requestCourseAccess,
+  wipeAcademyUser,
 } from './api/_lib/academyData';
 
 interface DevParcel {
@@ -58,6 +59,58 @@ let devUser = {
     address: 'Mustaqillik ko\'chasi 10',
   },
 };
+
+let devUsersList: any[] = [
+  devUser,
+  {
+    id: 'usr_dev_101',
+    telegramUserId: 10101010,
+    customerCode: 'YK-101',
+    name: 'Bobur Mirzo',
+    phone: '+998 91 234 56 78',
+    phoneVerified: true,
+    status: 'active',
+    ofertaAccepted: true,
+    defaultDeliveryBranch: {
+      provider: 'BTS',
+      branchName: 'BTS Chorsu Markaz',
+      region: 'Namangan viloyati',
+      address: 'Namangan sh., Chorsu dahasi, 12-uy',
+    },
+  },
+  {
+    id: 'usr_dev_102',
+    telegramUserId: 20202020,
+    customerCode: 'YK-102',
+    name: 'Madina Alimova',
+    phone: '+998 93 345 67 89',
+    phoneVerified: true,
+    status: 'active',
+    ofertaAccepted: true,
+    defaultDeliveryBranch: {
+      provider: 'BTS',
+      branchName: 'BTS Chorsu Markaz',
+      region: 'Namangan viloyati',
+      address: 'Namangan sh., Chorsu dahasi, 12-uy',
+    },
+  },
+  {
+    id: 'usr_dev_103',
+    telegramUserId: 30303030,
+    customerCode: 'YK-103',
+    name: 'Jasur Bek',
+    phone: '+998 97 456 78 90',
+    phoneVerified: true,
+    status: 'active',
+    ofertaAccepted: true,
+    defaultDeliveryBranch: {
+      provider: 'BTS',
+      branchName: 'BTS Samarqand Markaz',
+      region: 'Samarqand viloyati',
+      address: 'Mirzo Ulug\'bek ko\'chasi 45',
+    },
+  },
+];
 
 let devRates = {
   pricePerKg: 9.5,
@@ -429,7 +482,97 @@ export function devApiPlugin(): Plugin {
           }
 
           if (path === '/api/admin/users') {
-            return sendJson(res, 200, [devUser]);
+            if (req.method === 'GET') {
+              const botUsers = getInMemoryBotUsers().map(bu => ({
+                id: bu.id,
+                telegramUserId: bu.telegramUserId,
+                customerCode: bu.customerCode,
+                name: bu.name,
+                phone: bu.phone || '-',
+                status: 'active',
+                onboarding_completed: bu.onboardingCompleted,
+                defaultDeliveryBranch: bu.defaultBranch || {
+                  provider: 'BTS',
+                  branchName: 'Markaziy',
+                  region: 'Toshkent',
+                  address: 'Markaz',
+                },
+              }));
+
+              const all = [...devUsersList];
+              for (const bu of botUsers) {
+                if (!all.some(u => u.customerCode === bu.customerCode || u.telegramUserId === bu.telegramUserId)) {
+                  all.push(bu);
+                }
+              }
+
+              const search = params.get('search');
+              if (search) {
+                const s = search.toLowerCase();
+                return sendJson(res, 200, all.filter(u =>
+                  u.name?.toLowerCase().includes(s) ||
+                  u.customerCode?.toLowerCase().includes(s) ||
+                  u.phone?.toLowerCase().includes(s) ||
+                  String(u.telegramUserId).includes(s)
+                ));
+              }
+              return sendJson(res, 200, all);
+            }
+
+            if (req.method === 'PATCH') {
+              const body = await readBody(req);
+              const { userId, status } = body;
+              const u = devUsersList.find(item => item.id === userId);
+              if (u) u.status = status;
+              return sendJson(res, 200, { success: true, message: `Holat yangilandi: ${status}` });
+            }
+
+            if (req.method === 'DELETE' || (req.method === 'POST' && path === '/api/admin/users')) {
+              const body = req.method === 'POST' ? await readBody(req) : {};
+              const targetId = params.get('id') || params.get('userId') || body.userId || body.id;
+              const customerCode = params.get('customerCode') || body.customerCode;
+              const tgId = params.get('telegramUserId') || body.telegramUserId;
+
+              // Find target user
+              const targetUser = devUsersList.find(u =>
+                (targetId && u.id === targetId) ||
+                (customerCode && u.customerCode.toUpperCase() === String(customerCode).toUpperCase()) ||
+                (tgId && String(u.telegramUserId) === String(tgId))
+              );
+
+              const wipedCode = targetUser?.customerCode || customerCode;
+              const wipedTgId = targetUser?.telegramUserId || tgId;
+              const wipedUserId = targetUser?.id || targetId;
+
+              // 1. Remove from devUsersList
+              if (wipedUserId || wipedCode) {
+                devUsersList = devUsersList.filter(u => u.id !== wipedUserId && u.customerCode !== wipedCode);
+              }
+
+              // 2. Wipe all parcels matching customer code
+              let deletedParcelsCount = 0;
+              if (wipedCode) {
+                const initialLen = devParcels.length;
+                devParcels = devParcels.filter(p => p.customerCode.toUpperCase() !== String(wipedCode).toUpperCase());
+                deletedParcelsCount = initialLen - devParcels.length;
+              }
+
+              // 3. Wipe bot session and history
+              if (wipedTgId) wipeBotUser(wipedTgId);
+              if (wipedCode) wipeBotUser(wipedCode);
+              if (wipedUserId) wipeBotUser(wipedUserId);
+
+              // 4. Wipe Academy progress & course access
+              if (wipedUserId) wipeAcademyUser(wipedUserId);
+              if (wipedCode) wipeAcademyUser(wipedCode);
+
+              return sendJson(res, 200, {
+                success: true,
+                message: `Mijoz (${wipedCode || wipedUserId}) va uning bot tarixi, ${deletedParcelsCount} ta yuk va dars progressi butunlay o'chirildi (Full Wipe)!`,
+                wipedCustomerCode: wipedCode,
+                deletedParcelsCount,
+              });
+            }
           }
 
           if (path === '/api/admin/parcels') {
