@@ -25,8 +25,12 @@ async function runAcademyTests() {
   assert.strictEqual(extractYouTubeId('https://youtu.be/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
   assert.strictEqual(extractYouTubeId('https://www.youtube.com/embed/jNQXAC9IVRw'), 'jNQXAC9IVRw');
   assert.strictEqual(extractYouTubeId('https://www.youtube.com/watch?feature=shared&v=21X5lGlDOfg'), '21X5lGlDOfg');
-  assert.strictEqual(extractYouTubeId('L_LUpnjgPso'), 'L_LUpnjgPso');
-  console.log('  ✓ All YouTube URL formats correctly parsed into 11-char IDs');
+  assert.strictEqual(extractYouTubeId('https://www.youtube.com/shorts/dQw4w9WgXcQ'), 'dQw4w9WgXcQ');
+  assert.strictEqual(extractYouTubeId('https://m.youtube.com/watch?v=M7lc1UVf-VE'), 'M7lc1UVf-VE');
+  assert.strictEqual(extractYouTubeId('https://youtu.be/dQw4w9WgXcQ?si=abcdef123&t=20s'), 'dQw4w9WgXcQ');
+  assert.strictEqual(extractYouTubeId('https://www.youtube.com/live/21X5lGlDOfg?feature=share'), '21X5lGlDOfg');
+  assert.strictEqual(extractYouTubeId('  L_LUpnjgPso  '), 'L_LUpnjgPso');
+  console.log('  ✓ All YouTube URL formats (watch, share, shorts, live, mobile) correctly parsed into 11-char IDs');
 
   // TEST 2: Sequential Lesson Lock / Unlock Behavior
   console.log('[TEST 2] Sequential Lesson Lock / Unlock Flow');

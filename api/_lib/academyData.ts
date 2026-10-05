@@ -154,14 +154,33 @@ progressStore.set('usr_dev_100:les_c1_2', {
 });
 
 /**
- * Extract clean 11-char YouTube video ID from link or plain ID
+ * Extract clean 11-char YouTube video ID from any link format or plain ID.
+ * Supports:
+ * - standard watch: youtube.com/watch?v=ID
+ * - short link: youtu.be/ID
+ * - embed: youtube.com/embed/ID
+ * - shorts: youtube.com/shorts/ID
+ * - live stream: youtube.com/live/ID
+ * - mobile/subdomain: m.youtube.com/watch?v=ID
+ * - with query params (t=, si=, feature=, etc.)
  */
 export function extractYouTubeId(input: string): string {
   if (!input) return '';
   const trimmed = input.trim();
-  const match = trimmed.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
+
+  // 1. If already a clean 11-char video ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+
+  // 2. Comprehensive regex matching standard, shorts, live, embed, and share links
+  const match = trimmed.match(
+    /(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i
+  );
   if (match && match[1]) return match[1];
-  if (/^[\w-]{11}$/.test(trimmed)) return trimmed;
+
+  // 3. Fallback search for any 11-char sequence after v= or trailing slash
+  const fallback = trimmed.match(/(?:[?&]v=|\/)([a-zA-Z0-9_-]{11})(?:[?&/#]|$)/);
+  if (fallback && fallback[1]) return fallback[1];
+
   return trimmed;
 }
 

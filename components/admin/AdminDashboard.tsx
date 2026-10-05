@@ -1711,25 +1711,88 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                   className="w-full px-3 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold font-mono text-gray-900 outline-none focus:border-primary"
                   required
                 />
-                <span className="text-[10px] text-gray-400 mt-1 block">
-                  YouTube Unlisted yoki Public video havolasini qo'yishingiz mumkin.
-                </span>
+                
+                {/* Live Preview if YouTube ID recognized */}
+                {(() => {
+                  const val = newLessonYoutube.trim();
+                  const match = val.match(/(?:https?:\/\/)?(?:www\.|m\.|music\.)?(?:youtube\.com\/(?:watch\?(?:.*&)?v=|embed\/|v\/|shorts\/|live\/)|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+                  const parsedId = (match && match[1]) || (/^[a-zA-Z0-9_-]{11}$/.test(val) ? val : null);
+
+                  if (parsedId) {
+                    return (
+                      <div className="mt-2 p-2.5 bg-blue-50/70 border border-blue-200/80 rounded-xl flex items-center gap-3 animate-fade-in">
+                        <img
+                          src={`https://img.youtube.com/vi/${parsedId}/mqdefault.jpg`}
+                          alt="Video thumbnail"
+                          className="w-20 h-12 object-cover rounded-lg border border-blue-200 shrink-0 bg-black"
+                          onError={(e) => { (e.target as any).style.display = 'none'; }}
+                        />
+                        <div className="min-w-0 flex-1 text-[11px]">
+                          <p className="font-bold text-blue-950 flex items-center gap-1">
+                            <span>✓ Video ID aniqlandi:</span>
+                            <span className="font-mono bg-blue-200/60 px-1.5 py-0.2 rounded font-black">{parsedId}</span>
+                          </p>
+                          <a
+                            href={`https://www.youtube.com/watch?v=${parsedId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-primary hover:underline font-bold inline-flex items-center gap-1 mt-0.5"
+                          >
+                            <span>▶️ YouTube'da ochib ko'rish</span>
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
+                {/* Helpful YouTube upload tips */}
+                <div className="mt-2 p-2.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed">
+                  <p className="font-bold mb-0.5">💡 YouTube'ga video yuklashda muhim sozlamalar:</p>
+                  <ul className="list-disc list-inside space-y-0.5 text-amber-800">
+                    <li>Kirish turi: <b>«Unlisted» (Доступ по ссылке)</b> qilib belgilang.</li>
+                    <li>Kengaytirilgan sozlamalarda: <b>«Allow embedding» (Разрешить встраивание)</b> yoqilganligini tekshiring.</li>
+                  </ul>
+                </div>
               </div>
 
               <div>
                 <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
                   Taxminiy davomiyligi (sekundda) *
                 </label>
-                <input
-                  type="number"
-                  value={newLessonDuration}
-                  onChange={(e) => setNewLessonDuration(e.target.value)}
-                  placeholder="360"
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold font-mono text-gray-900 outline-none focus:border-primary"
-                  required
-                />
-                <span className="text-[10px] text-gray-400 mt-0.5 block">
-                  Masalan 6 daqiqa = 360 sekund, 10 daqiqa = 600 sekund.
+                <div className="flex gap-2 items-center">
+                  <input
+                    type="number"
+                    value={newLessonDuration}
+                    onChange={(e) => setNewLessonDuration(e.target.value)}
+                    placeholder="360"
+                    className="flex-1 px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold font-mono text-gray-900 outline-none focus:border-primary"
+                    required
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    {[
+                      { label: '5 daq', sec: '300' },
+                      { label: '10 daq', sec: '600' },
+                      { label: '15 daq', sec: '900' },
+                    ].map(preset => (
+                      <button
+                        key={preset.sec}
+                        type="button"
+                        onClick={() => setNewLessonDuration(preset.sec)}
+                        className={`px-2 py-1.5 rounded-lg text-[10px] font-bold border transition-colors ${
+                          newLessonDuration === preset.sec
+                            ? 'bg-primary text-white border-primary'
+                            : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-100'
+                        }`}
+                      >
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <span className="text-[10px] text-gray-400 mt-1 block">
+                  *(Talaba videoni boshlaganda, dars davomiyligi YouTube orqali avtomatik aniq vaqtga moslanadi).
                 </span>
               </div>
 
