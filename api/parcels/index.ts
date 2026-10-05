@@ -17,28 +17,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // -------------------------------------------------------------
   if (req.method === 'GET') {
     if (!supabase) {
-      // Development mock parcels
-      return res.status(200).json([
-        {
-          id: 'p_1',
-          trackingNumber: 'YT882910291CN',
-          customerCode: session.customerCode,
-          status: 'in_transit',
-          paymentStatus: 'pending',
-          weightKg: 3.5,
-          amount: 33.25,
-          currency: 'USD',
-          chinaDate: '28.09.2026',
-          estimatedArrival: '05.10.2026',
-          deliveryBranchSnapshot: {
-            provider: 'BTS',
-            branchName: 'BTS Chorsu',
-            region: 'Namangan',
-            address: 'Namangan sh., Chorsu dahasi, 12-uy',
-          },
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      return res.status(200).json([]);
     }
 
     try {

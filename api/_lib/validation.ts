@@ -44,5 +44,7 @@ export const CargoProviderUpdateSchema = z.object({
 export const SettingsUpdateSchema = z.object({
   pricePerKg: z.number().positive(),
   exchangeRate: z.number().positive(),
-  supportUsername: z.string().min(1)
+  supportUsername: z.string().min(1),
+  ofertaText: z.string().optional(),
+  ofertaTitle: z.string().optional(),
 });

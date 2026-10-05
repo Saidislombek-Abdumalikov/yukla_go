@@ -1,6 +1,7 @@
 import { getSupabase } from './supabase.ts';
 import { STATUS_MESSAGES, sendTelegramMessage } from './botNotifications.ts';
 import { ALL_BRANCHES, REGIONS_LIST, getBranches, getRegionsForProvider, findBranchById } from './branchesData.ts';
+import { getOfertaText } from './ofertaData.ts';
 
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yukla-go.vercel.app';
 
@@ -427,19 +428,19 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     return true;
   }
 
-  // New User /start flow -> Instant access
+  // New User /start flow -> Oferta -> Phone -> Name -> Mini App
   if (!isCompleted) {
     if (rawText === '/start') {
-      localUser.onboardingCompleted = true;
-      localUser.onboardingStep = 'completed';
-      if (supabase && dbUser) {
-        await supabase.from('users').update({
-          onboarding_completed: true,
-          onboarding_step: 'completed',
-        }).eq('id', dbUser.id);
-      }
-
       if (isAdmin) {
+        localUser.onboardingCompleted = true;
+        localUser.onboardingStep = 'completed';
+        if (supabase && dbUser) {
+          await supabase.from('users').update({
+            onboarding_completed: true,
+            onboarding_step: 'completed',
+          }).eq('id', dbUser.id);
+        }
+
         await sendTelegramMessage(
           chatId,
           `👑 <b>Assalomu alaykum, Administrator!</b>\n\n` +
@@ -453,13 +454,53 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         return true;
       }
 
+      // Regular new user: Step 1 is Oferta!
+      localUser.onboardingStep = 'oferta';
+      const oferta = await getOfertaText();
+
       await sendTelegramMessage(
         chatId,
-        `Assalomu alaykum, <b>${userName}</b>!\n\n` +
-        `Yukla Go xizmatiga xush kelibsiz.\n` +
-        `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Quyidagi tugmalar orqali Video darslarni ochishingiz mumkin:`,
-        getMainKeyboard()
+        `📜 <b>${oferta.title}</b>\n\n` +
+        `${oferta.content}\n\n` +
+        `<i>Xizmatdan foydalanish va ro'yxatdan o'tish uchun quyidagi tugma orqali oferta shartlarini qabul qiling:</i>`,
+        {
+          inline_keyboard: [
+            [
+              { text: '✅ Qabul qilaman', callback_data: 'oferta_accept' },
+              { text: '❌ Rad etaman', callback_data: 'oferta_decline' },
+            ],
+          ],
+        }
+      );
+      return true;
+    }
+
+    if (currentStep === 'oferta') {
+      const oferta = await getOfertaText();
+      await sendTelegramMessage(
+        chatId,
+        `Iltimos, avval oferta shartlarini qabul qiling:\n\n📜 <b>${oferta.title}</b>`,
+        {
+          inline_keyboard: [
+            [
+              { text: '✅ Qabul qilaman', callback_data: 'oferta_accept' },
+              { text: '❌ Rad etaman', callback_data: 'oferta_decline' },
+            ],
+          ],
+        }
+      );
+      return true;
+    }
+
+    if (currentStep === 'phone') {
+      await sendTelegramMessage(
+        chatId,
+        'Iltimos, telefon raqamingizni tasdiqlash uchun pastdagi <b>"📱 Telefon raqamni yuborish"</b> tugmasini bosing:',
+        {
+          keyboard: [[{ text: '📱 Telefon raqamni yuborish', request_contact: true }]],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        }
       );
       return true;
     }

@@ -9,9 +9,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const session = verifySessionToken(req.headers.authorization);
-  const userId = session?.userId || 'usr_dev_100';
-
   const { courseId, name, customerCode, telegramUserId } = req.body || {};
+  const userId = session?.userId || (session?.telegramUserId ? String(session.telegramUserId) : (telegramUserId ? String(telegramUserId) : 'guest_user'));
   if (!courseId) {
     return res.status(400).json({ error: 'courseId talab qilinadi' });
   }

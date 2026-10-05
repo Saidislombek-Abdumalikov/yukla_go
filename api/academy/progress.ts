@@ -8,7 +8,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const session = verifySessionToken(req.headers.authorization);
-  const userId = session?.userId || 'usr_dev_100';
+  const userId = session?.userId || (session?.telegramUserId ? String(session.telegramUserId) : 'guest_user');
 
   const { lessonId, watchedSeconds, completed = false } = req.body || {};
 

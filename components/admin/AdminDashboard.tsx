@@ -41,7 +41,13 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
   const [addCourseLoading, setAddCourseLoading] = useState(false);
 
   // Settings & Warehouse state
-  const [settings, setSettings] = useState<any>({ pricePerKg: 9.5, exchangeRate: 12850, supportUsername: 'nothing_related' });
+  const [settings, setSettings] = useState<any>({
+    pricePerKg: 9.5,
+    exchangeRate: 12850,
+    supportUsername: 'nothing_related',
+    ofertaText: '',
+    ofertaTitle: '',
+  });
   const [warehouse, setWarehouse] = useState<any>({
     receiver_name: 'Yukla Go',
     phone: '13335957161',
@@ -175,7 +181,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         setUsers(Array.isArray(res) ? res : []);
       } else if (activeTab === 'STATS') {
         const res = await fetch('/api/admin/stats').then(r => r.json()).catch(() => null);
-        setStats(res || { totalUsers: 145, activeParcels: 38, unsubmittedTracks: 12, pendingLocationRequests: 3 });
+        setStats(res || { totalUsers: 0, activeParcels: 0, unsubmittedTracks: 0, pendingLocationRequests: 0, deliveredParcels: 0 });
       }
     } finally {
       setLoading(false);
@@ -1369,58 +1375,110 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
         {/* TAB 4: RATES & SYSTEM SETTINGS */}
         {/* ========================================================================= */}
         {activeTab === 'SETTINGS' && (
-          <div className="bg-white rounded-3xl p-6 shadow-soft border border-gray-100 space-y-4 animate-fade-in">
-            <h3 className="font-black text-base text-gray-900">Tizim tariflari va kurs sozlamalari</h3>
-            <p className="text-xs text-gray-500">
-              Ushbu narxlar foydalanuvchi kalkulyatorida va barcha yangi yuklarning avtomatik narx hisob-kitobida aks etadi.
-            </p>
+          <div className="space-y-6 animate-fade-in">
+            {/* 1. Rates & Currency Card */}
+            <div className="bg-white rounded-3xl p-6 shadow-soft border border-gray-100 space-y-4">
+              <h3 className="font-black text-base text-gray-900">Tizim tariflari va kurs sozlamalari</h3>
+              <p className="text-xs text-gray-500">
+                Ushbu narxlar foydalanuvchi kalkulyatorida va barcha yangi yuklarning avtomatik narx hisob-kitobida aks etadi.
+              </p>
 
-            <div className="space-y-3 text-xs max-w-md">
+              <div className="space-y-3 text-xs max-w-md">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                    Aviatarif ($ / kg)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={settings.pricePerKg}
+                    onChange={(e) => setSettings({ ...settings, pricePerKg: parseFloat(e.target.value) || 0 })}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                    Valyuta kursi (1 USD = ? UZS)
+                  </label>
+                  <input
+                    type="number"
+                    value={settings.exchangeRate}
+                    onChange={(e) => setSettings({ ...settings, exchangeRate: parseInt(e.target.value, 10) || 0 })}
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                    Telegram Qo'llab-quvvatlash (Username)
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.supportUsername}
+                    onChange={(e) => setSettings({ ...settings, supportUsername: e.target.value })}
+                    placeholder="nothing_related"
+                    className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
+                  />
+                </div>
+
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={loading}
+                  className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs transition-colors shadow-md shadow-primary/20 active:scale-95"
+                >
+                  {loading ? 'Saqlanmoqda...' : 'Tariflarni saqlash'}
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Oferta Text Management Card */}
+            <div className="bg-white rounded-3xl p-6 shadow-soft border border-gray-100 space-y-4">
               <div>
-                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
-                  Aviatarif ($ / kg)
-                </label>
-                <input
-                  type="number"
-                  step="0.1"
-                  value={settings.pricePerKg}
-                  onChange={(e) => setSettings({ ...settings, pricePerKg: parseFloat(e.target.value) || 0 })}
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
-                />
+                <h3 className="font-black text-base text-gray-900 flex items-center gap-2">
+                  <span>📜</span>
+                  <span>Ommaviy Oferta Matnini Tahrirlash</span>
+                </h3>
+                <p className="text-xs text-gray-500 mt-1 leading-relaxed">
+                  Yangi foydalanuvchilar Telegram botga (<code>/start</code>) kirganda birinchi navbatda ushbu oferta matnini o'qib, rozilik berishlari talab qilinadi. Matnni shu yerdan to'liq o'zgartirishingiz mumkin.
+                </p>
               </div>
 
-              <div>
-                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
-                  Valyuta kursi (1 USD = ? UZS)
-                </label>
-                <input
-                  type="number"
-                  value={settings.exchangeRate}
-                  onChange={(e) => setSettings({ ...settings, exchangeRate: parseInt(e.target.value, 10) || 0 })}
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
-                />
-              </div>
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                    Oferta Sarlavhasi
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.ofertaTitle || ''}
+                    onChange={(e) => setSettings({ ...settings, ofertaTitle: e.target.value })}
+                    placeholder="Yukla Go Xizmatidan Foydalanish Shartlari (Ommaviy Oferta)"
+                    className="w-full px-3.5 py-2.5 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
+                  />
+                </div>
 
-              <div>
-                <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
-                  Telegram Qo'llab-quvvatlash (Username)
-                </label>
-                <input
-                  type="text"
-                  value={settings.supportUsername}
-                  onChange={(e) => setSettings({ ...settings, supportUsername: e.target.value })}
-                  placeholder="nothing_related"
-                  className="w-full px-3 py-2 bg-gray-50 border border-gray-200 rounded-xl font-bold text-gray-800 outline-none focus:border-primary"
-                />
-              </div>
+                <div>
+                  <label className="text-[10px] uppercase font-bold text-gray-400 block mb-1">
+                    Oferta To'liq Matni (Bandlar, Qoidalar, Majburiyatlar)
+                  </label>
+                  <textarea
+                    rows={12}
+                    value={settings.ofertaText || ''}
+                    onChange={(e) => setSettings({ ...settings, ofertaText: e.target.value })}
+                    placeholder="Oferta shartlarini shu yerga kiriting..."
+                    className="w-full px-3.5 py-3 bg-gray-50 border border-gray-200 rounded-xl font-medium text-gray-800 outline-none focus:border-primary font-mono text-xs leading-relaxed"
+                  />
+                </div>
 
-              <button
-                onClick={handleSaveSettings}
-                disabled={loading}
-                className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs transition-colors shadow-md shadow-primary/20 active:scale-95"
-              >
-                {loading ? 'Saqlanmoqda...' : 'Tariflarni saqlash'}
-              </button>
+                <button
+                  onClick={handleSaveSettings}
+                  disabled={loading}
+                  className="w-full py-3.5 bg-primary hover:bg-primary-dark text-white rounded-xl font-bold text-xs transition-colors shadow-md shadow-primary/20 active:scale-95 flex items-center justify-center gap-2"
+                >
+                  {loading ? 'Saqlanmoqda...' : '📜 Oferta matnini saqlash'}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -16,20 +16,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // -------------------------------------------------------------
   if (req.method === 'GET') {
     if (!supabase) {
-      return res.status(200).json([
-        {
-          id: 'p_dev_1',
-          trackingNumber: 'YT882910291CN',
-          customerCode: 'YK-100',
-          status: 'added',
-          paymentStatus: 'pending',
-          weightKg: 2.5,
-          amount: 23.75,
-          cargoSubmittedAt: null,
-          deliveryBranchSnapshot: { provider: 'BTS', branchName: 'BTS Chorsu', region: 'Namangan' },
-          createdAt: new Date().toISOString(),
-        },
-      ]);
+      return res.status(200).json([]);
     }
 
     try {

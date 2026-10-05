@@ -12,15 +12,10 @@ import {
   getCourseAccessList,
   grantCourseAccess,
   revokeCourseAccess,
+  DEMO_ACADEMY_USERS,
 } from '../_lib/academyData';
 import { sendTelegramMessage } from '../_lib/botNotifications';
-
-const DEMO_STUDENTS = [
-  { id: 'usr_dev_100', name: 'Saidislom', customerCode: 'YK-100' },
-  { id: 'usr_dev_101', name: 'Bobur Mirzo', customerCode: 'YK-101' },
-  { id: 'usr_dev_102', name: 'Madina Alimova', customerCode: 'YK-102' },
-  { id: 'usr_dev_103', name: 'Jasur Bek', customerCode: 'YK-103' },
-];
+import { getInMemoryBotUsers } from '../_lib/botEngine';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
@@ -38,7 +33,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     if (action === 'students') {
-      const summary = getStudentsProgressSummary(DEMO_STUDENTS, String(courseId));
+      const allUsers = [...DEMO_ACADEMY_USERS];
+      const botUsers = getInMemoryBotUsers();
+      for (const bu of botUsers) {
+        if (!allUsers.some(u => u.id === bu.id || u.customerCode === bu.customerCode)) {
+          allUsers.push({
+            id: bu.id,
+            name: bu.name,
+            customerCode: bu.customerCode,
+            telegramUserId: bu.telegramUserId,
+          });
+        }
+      }
+      const summary = getStudentsProgressSummary(allUsers, String(courseId));
       return res.status(200).json(summary);
     }
 

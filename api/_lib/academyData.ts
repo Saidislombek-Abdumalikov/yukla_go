@@ -127,27 +127,6 @@ interface ProgressRecord {
 // In-memory progress store keyed by `userId:lessonId`
 const progressStore = new Map<string, ProgressRecord>();
 
-// Preload sample progress for demo
-progressStore.set('usr_dev_100:les_c1_1', {
-  userId: 'usr_dev_100',
-  lessonId: 'les_c1_1',
-  maxWatchedSeconds: 360,
-  lastPositionSeconds: 360,
-  completed: true,
-  lastSyncTimestamp: Date.now() - 3600000,
-  updatedAt: new Date(Date.now() - 3600000).toISOString(),
-});
-
-progressStore.set('usr_dev_100:les_c1_2', {
-  userId: 'usr_dev_100',
-  lessonId: 'les_c1_2',
-  maxWatchedSeconds: 240,
-  lastPositionSeconds: 240,
-  completed: false,
-  lastSyncTimestamp: Date.now() - 1800000,
-  updatedAt: new Date(Date.now() - 1800000).toISOString(),
-});
-
 /**
  * Extract clean 11-char YouTube video ID from any link format or plain ID.
  * Supports:
@@ -399,47 +378,25 @@ export function deleteLesson(lessonId: string): boolean {
 // -----------------------------------------------------------------------------
 // Course Access & Permissions Management
 // -----------------------------------------------------------------------------
-export const DEMO_ACADEMY_USERS = [
-  { id: 'usr_dev_100', name: 'Saidislom', customerCode: 'YK-100', telegramUserId: 99887766 },
-  { id: 'usr_dev_101', name: 'Bobur Mirzo', customerCode: 'YK-101', telegramUserId: 99887767 },
-  { id: 'usr_dev_102', name: 'Madina Alimova', customerCode: 'YK-102', telegramUserId: 99887768 },
-  { id: 'usr_dev_103', name: 'Jasur Bek', customerCode: 'YK-103', telegramUserId: 99887769 },
-];
+export const DEMO_ACADEMY_USERS: Array<{
+  id: string;
+  name: string;
+  customerCode: string;
+  telegramUserId?: number;
+}> = [];
 
 const courseAccessStore = new Map<string, CourseAccessItem>();
 
-// Seed default permissions
-courseAccessStore.set('usr_dev_100:course_cargo_101', {
-  userId: 'usr_dev_100',
-  customerCode: 'YK-100',
-  name: 'Saidislom',
-  telegramUserId: 99887766,
-  courseId: 'course_cargo_101',
-  status: 'granted',
-  grantedAt: new Date(Date.now() - 86400000).toISOString(),
-});
-
-courseAccessStore.set('usr_dev_101:course_cargo_101', {
-  userId: 'usr_dev_101',
-  customerCode: 'YK-101',
-  name: 'Bobur Mirzo',
-  telegramUserId: 99887767,
-  courseId: 'course_cargo_101',
-  status: 'pending',
-  requestedAt: new Date(Date.now() - 3600000).toISOString(),
-});
-
-courseAccessStore.set('usr_dev_102:course_cargo_101', {
-  userId: 'usr_dev_102',
-  customerCode: 'YK-102',
-  name: 'Madina Alimova',
-  telegramUserId: 99887768,
-  courseId: 'course_cargo_101',
-  status: 'granted',
-  grantedAt: new Date(Date.now() - 43200000).toISOString(),
-});
+const ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
 
 export function hasUserCourseAccess(userId: string, courseId: string): boolean {
+  // Administrators always have full access to all courses
+  const numericId = Number(userId);
+  if (!isNaN(numericId) && ADMIN_TELEGRAM_IDS.includes(numericId)) {
+    return true;
+  }
+
+  // Regular users require explicit permission granted by admin
   const record = courseAccessStore.get(`${userId}:${courseId}`);
   return record?.status === 'granted';
 }

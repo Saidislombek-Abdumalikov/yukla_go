@@ -122,11 +122,14 @@ async function runAcademyTests() {
 
   // TEST 7: Admin Course Access Control & Permission Management
   console.log('[TEST 7] Admin Course Access Control & Permission Engine');
-  const studentYK100 = 'usr_dev_100'; // Pre-seeded as granted for YK-100
-  const studentYK101 = 'usr_dev_101'; // Pre-seeded as pending for YK-101
+  const studentYK100 = 'usr_dev_100';
+  const studentYK101 = 'usr_dev_101';
   const newStudentId = 'usr_new_test_guest';
 
-  // 1. Check pre-seeded statuses
+  // 1. Setup test permissions
+  grantCourseAccess(studentYK100, courseId);
+  requestCourseAccess(studentYK101, courseId, { name: 'Bobur', customerCode: 'YK-101' });
+
   assert.strictEqual(hasUserCourseAccess(studentYK100, courseId), true, 'YK-100 must have granted access');
   assert.strictEqual(getUserCourseAccessStatus(studentYK100, courseId), 'granted');
   assert.strictEqual(hasUserCourseAccess(studentYK101, courseId), false, 'YK-101 pending user must not have direct access');

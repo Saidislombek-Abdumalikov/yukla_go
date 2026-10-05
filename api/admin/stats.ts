@@ -2,6 +2,8 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifySessionToken } from '../_lib/auth';
 import { getSupabase } from '../_lib/supabase';
 
+import { getInMemoryBotUsers } from '../_lib/botEngine';
+
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -14,12 +16,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const supabase = getSupabase();
   if (!supabase) {
+    const memUsers = getInMemoryBotUsers();
     return res.status(200).json({
-      totalUsers: 145,
-      activeParcels: 38,
-      unsubmittedTracks: 12,
-      pendingLocationRequests: 3,
-      deliveredParcels: 280,
+      totalUsers: memUsers.length,
+      activeParcels: 0,
+      unsubmittedTracks: 0,
+      pendingLocationRequests: 0,
+      deliveredParcels: 0,
     });
   }
 

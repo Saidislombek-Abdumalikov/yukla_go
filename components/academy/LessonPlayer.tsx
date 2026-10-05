@@ -112,7 +112,32 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     };
   }, []);
 
-  // Controls Auto-Hide timer
+  // Listen for native Fullscreen API changes
+  useEffect(() => {
+    const handleFsChange = () => {
+      const isFull = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+      setIsFullscreen(isFull);
+    };
+
+    document.addEventListener('fullscreenchange', handleFsChange);
+    document.addEventListener('webkitfullscreenchange', handleFsChange);
+    document.addEventListener('mozfullscreenchange', handleFsChange);
+    document.addEventListener('MSFullscreenChange', handleFsChange);
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFsChange);
+      document.removeEventListener('webkitfullscreenchange', handleFsChange);
+      document.removeEventListener('mozfullscreenchange', handleFsChange);
+      document.removeEventListener('MSFullscreenChange', handleFsChange);
+    };
+  }, []);
+
+  // Controls Auto-Hide timer (Fast and snappy: 1300ms)
   const scheduleControlsHide = () => {
     if (hideControlsTimerRef.current) clearTimeout(hideControlsTimerRef.current);
     setShowControls(true);
@@ -120,7 +145,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
       if (isPlayingRef.current) {
         setShowControls(false);
       }
-    }, 3200);
+    }, 1300);
   };
 
   const handlePlayerContainerClick = () => {
@@ -186,9 +211,49 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     scheduleControlsHide();
   };
 
-  const toggleFullscreen = (e: React.MouseEvent) => {
-    e.stopPropagation();
-    setIsFullscreen(prev => !prev);
+  const toggleFullscreen = async (e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    const box = playerBoxRef.current;
+    try {
+      const isCurrentlyFullscreen = !!(
+        document.fullscreenElement ||
+        (document as any).webkitFullscreenElement ||
+        (document as any).mozFullScreenElement ||
+        (document as any).msFullscreenElement
+      );
+
+      if (!isCurrentlyFullscreen && box) {
+        // Expand Telegram WebApp if supported
+        try { (window as any).Telegram?.WebApp?.expand?.(); } catch {}
+
+        if (box.requestFullscreen) {
+          await box.requestFullscreen();
+        } else if ((box as any).webkitRequestFullscreen) {
+          await (box as any).webkitRequestFullscreen();
+        } else if ((box as any).mozRequestFullScreen) {
+          await (box as any).mozRequestFullScreen();
+        } else if ((box as any).msRequestFullscreen) {
+          await (box as any).msRequestFullscreen();
+        } else {
+          setIsFullscreen(true);
+        }
+      } else {
+        if (document.exitFullscreen) {
+          await document.exitFullscreen();
+        } else if ((document as any).webkitExitFullscreen) {
+          await (document as any).webkitExitFullscreen();
+        } else if ((document as any).mozCancelFullScreen) {
+          await (document as any).mozCancelFullScreen();
+        } else if ((document as any).msExitFullscreen) {
+          await (document as any).msExitFullscreen();
+        } else {
+          setIsFullscreen(false);
+        }
+      }
+    } catch {
+      // In mobile webviews that disallow requestFullscreen, toggle CSS state
+      setIsFullscreen(prev => !prev);
+    }
     scheduleControlsHide();
   };
 
@@ -256,6 +321,9 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
             iv_load_policy: 3, // Disable annotations
             fs: 0, // Disable native YouTube fullscreen (no link leak)
             disablekb: 1, // Disable keyboard hotkeys
+            cc_load_policy: 0, // DISABLING SUBTITLES / CAPTIONS
+            cc_lang_pref: 'none',
+            hl: 'uz',
             start: initialStart,
             origin: window.location.origin,
           },
@@ -264,6 +332,16 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
               if (!isMounted) return;
               setIsPlayerReady(true);
               setPlayerError(null);
+              // Explicitly turn off closed captions / subtitles module
+              try {
+                if (typeof event.target?.unloadModule === 'function') {
+                  event.target.unloadModule('captions');
+                  event.target.unloadModule('cc');
+                }
+                if (typeof event.target?.setOption === 'function') {
+                  event.target.setOption('captions', 'track', {});
+                }
+              } catch {}
               const d = event.target?.getDuration?.();
               if (d && d > 0) {
                 const roundedD = Math.round(d);
@@ -442,9 +520,10 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
     Math.round((maxWatched / (effectiveDuration || 1)) * 100)
   );
 
-  // Dynamic high-contrast watermark text containing unique user identifiers
-  const tgId = user?.telegramUserId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || 'Telegram';
-  const watermarkText = `👤 ${user?.name || 'Talaba'} • ID: ${tgId} • Kod: ${user?.customerCode || 'YK-100'}`;
+  // Dynamic micro-badge watermark text (Subtle, clean, non-intrusive)
+  const tgId = user?.telegramUserId || window.Telegram?.WebApp?.initDataUnsafe?.user?.id || '';
+  const customerCode = user?.customerCode || '';
+  const watermarkText = tgId ? `ID:${tgId} • ${customerCode}` : (customerCode || 'YUKLA');
 
   return (
     <div className="space-y-3 animate-fade-in select-none" onContextMenu={e => e.preventDefault()}>
@@ -455,16 +534,16 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
         onClick={handlePlayerContainerClick}
         className={`relative w-full bg-black overflow-hidden shadow-2xl border border-gray-800 transition-all ${
           isFullscreen 
-            ? 'fixed inset-0 z-50 rounded-0 flex items-center justify-center' 
+            ? 'fixed inset-0 z-50 rounded-none w-screen h-screen flex items-center justify-center' 
             : 'aspect-video rounded-3xl'
         }`}
       >
         {/* Protected YouTube IFrame Target (POINTER-EVENTS DISABLED TO PREVENT LINK LEAKS) */}
         <div id={containerId} className="w-full h-full pointer-events-none select-none scale-[1.01]" />
 
-        {/* Dynamic GPU-Accelerated Drifting Watermark */}
+        {/* Dynamic GPU-Accelerated Drifting Micro Watermark */}
         <div className="absolute inset-0 pointer-events-none overflow-hidden z-20">
-          <div className="watermark-drift absolute top-0 left-0 text-white/40 text-[10px] sm:text-xs font-mono font-black tracking-wider uppercase select-none px-3 py-1.5 rounded-xl bg-black/40 backdrop-blur-[4px] border border-white/15 shadow-md will-change-transform">
+          <div className="watermark-drift absolute top-0 left-0 text-white/30 text-[8px] sm:text-[9px] font-mono tracking-wider uppercase select-none px-2 py-0.5 rounded-md bg-black/25 backdrop-blur-[1px] border border-white/5 shadow-sm will-change-transform">
             {watermarkText}
           </div>
         </div>
@@ -659,14 +738,14 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
         )}
       </div>
 
-      {/* GPU-Accelerated Hardware Animation (Zero Lag, Infinite Drift) */}
+      {/* GPU-Accelerated Hardware Animation (Zero Lag, Subtle Drift) */}
       <style>{`
         @keyframes watermarkDriftGPU {
-          0% { transform: translate3d(15px, 15px, 0); }
-          25% { transform: translate3d(calc(100% - 220px), 85px, 0); }
-          50% { transform: translate3d(calc(100% - 200px), 20px, 0); }
-          75% { transform: translate3d(25px, 95px, 0); }
-          100% { transform: translate3d(15px, 15px, 0); }
+          0% { transform: translate3d(10px, 10px, 0); }
+          25% { transform: translate3d(calc(100% - 130px), 48px, 0); }
+          50% { transform: translate3d(calc(100% - 130px), 12px, 0); }
+          75% { transform: translate3d(12px, 54px, 0); }
+          100% { transform: translate3d(10px, 10px, 0); }
         }
         .watermark-drift {
           animation: watermarkDriftGPU 36s ease-in-out infinite;

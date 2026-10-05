@@ -2,6 +2,7 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifySessionToken } from '../_lib/auth';
 import { getSupabase } from '../_lib/supabase';
 import { SettingsUpdateSchema } from '../_lib/validation';
+import { getOfertaText, updateOfertaText } from '../_lib/ofertaData';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
@@ -10,10 +11,17 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   const supabase = getSupabase();
+  const oferta = await getOfertaText();
 
   if (req.method === 'GET') {
     if (!supabase) {
-      return res.status(200).json({ pricePerKg: 9.5, exchangeRate: 12850, supportUsername: 'nothing_related' });
+      return res.status(200).json({
+        pricePerKg: 9.5,
+        exchangeRate: 12850,
+        supportUsername: 'nothing_related',
+        ofertaText: oferta.content,
+        ofertaTitle: oferta.title,
+      });
     }
 
     try {
@@ -28,7 +36,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         if (s.key === 'support_contact') supportUsername = s.value?.telegram_username ?? 'nothing_related';
       });
 
-      return res.status(200).json({ pricePerKg, exchangeRate, supportUsername });
+      return res.status(200).json({
+        pricePerKg,
+        exchangeRate,
+        supportUsername,
+        ofertaText: oferta.content,
+        ofertaTitle: oferta.title,
+      });
     } catch (err) {
       return res.status(500).json({ error: 'Xatolik' });
     }
@@ -40,10 +54,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(400).json({ error: parsed.error.issues[0]?.message || 'Noto\'g\'ri qiymatlar' });
     }
 
-    const { pricePerKg, exchangeRate, supportUsername } = parsed.data;
+    const { pricePerKg, exchangeRate, supportUsername, ofertaText, ofertaTitle } = parsed.data;
+
+    if (ofertaText) {
+      await updateOfertaText(ofertaText, ofertaTitle);
+    }
 
     if (!supabase) {
-      return res.status(200).json({ success: true });
+      return res.status(200).json({ success: true, message: 'Sozlamalar saqlandi' });
     }
 
     try {
@@ -70,7 +88,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         action: 'UPDATE_SETTINGS',
         entity_type: 'app_settings',
         entity_id: 'global',
-        details: { pricePerKg, exchangeRate, supportUsername },
+        details: { pricePerKg, exchangeRate, supportUsername, ofertaTitle },
       });
 
       return res.status(200).json({ success: true, message: 'Sozlamalar saqlandi' });
