@@ -1,24 +1,42 @@
-import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { processTelegramUpdate } from '../_lib/botEngine.ts';
+import { sendSafeJson } from '../_router.ts';
 
-const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || '';
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || 'yukla_go_secret_webhook_token_2026';
 
-export default async function handler(req: VercelRequest, res: VercelResponse) {
+export default async function handler(req: any, res: any) {
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return sendSafeJson(res, 405, { error: 'Method not allowed' });
   }
 
   // Webhook secret token validation
   if (WEBHOOK_SECRET) {
-    const receivedSecret = req.headers['x-telegram-bot-api-secret-token'];
-    if (receivedSecret !== WEBHOOK_SECRET) {
-      return res.status(401).json({ error: 'Invalid secret token' });
+    const receivedSecret = req.headers?.['x-telegram-bot-api-secret-token'];
+    if (receivedSecret && receivedSecret !== WEBHOOK_SECRET) {
+      return sendSafeJson(res, 401, { error: 'Invalid secret token' });
     }
   }
 
-  const update = req.body;
+  let update = req.body;
+
+  if (typeof update === 'string') {
+    try {
+      update = JSON.parse(update);
+    } catch {}
+  }
+
+  if (!update && req.on) {
+    try {
+      const buffers: any[] = [];
+      for await (const chunk of req) {
+        buffers.push(chunk);
+      }
+      const raw = Buffer.concat(buffers).toString('utf-8');
+      if (raw) update = JSON.parse(raw);
+    } catch {}
+  }
+
   if (!update) {
-    return res.status(200).json({ ok: true });
+    return sendSafeJson(res, 200, { ok: true });
   }
 
   try {
@@ -27,5 +45,5 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     console.error('Webhook update handling error:', err);
   }
 
-  return res.status(200).json({ ok: true });
+  return sendSafeJson(res, 200, { ok: true });
 }
