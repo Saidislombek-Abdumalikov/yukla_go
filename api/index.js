@@ -122,6 +122,12 @@ async function answerTelegramCallbackQuery(callbackQueryId, text) {
 // api/_lib/botEngine.ts
 var MINI_APP_URL2 = process.env.MINI_APP_URL || "https://yuklago.vercel.app";
 var userSessions = /* @__PURE__ */ new Map();
+function getTelegramName(from) {
+  const parts = [from?.first_name, from?.last_name].filter(Boolean);
+  if (parts.length > 0) return parts.join(" ").trim();
+  if (from?.username) return `@${from.username}`;
+  return "Hurmatli talaba";
+}
 function formatPhoneNumber(raw) {
   const digits = raw.replace(/\D/g, "");
   if (digits.length === 9) {
@@ -147,11 +153,22 @@ async function processTelegramUpdate(update) {
     const data = callbackQuery.data;
     await answerTelegramCallbackQuery(callbackQuery.id);
     if (data === "accept_oferta") {
-      userSessions.set(telegramUserId, { step: "name" });
+      userSessions.set(telegramUserId, { step: "phone" });
       await sendTelegramMessage(
         chatId,
-        "\u2705 <b>Oferta shartlari qabul qilindi.</b>\n\nIltimos, to\u2018liq <b>ism va familiyangizni</b> kiriting:\n<i>(Masalan: Saidislom Karimov)</i>",
-        { remove_keyboard: true }
+        "✅ <b>Oferta shartlari qabul qilindi.</b>\n\n📱 Ro‘yxatdan o‘tishni yakunlash uchun pastdagi <b>«Telefon raqamni yuborish»</b> tugmasini bosing:",
+        {
+          keyboard: [
+            [
+              {
+                text: "📱 Telefon raqamni yuborish",
+                request_contact: true
+              }
+            ]
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true
+        }
       );
       return true;
     }
@@ -160,8 +177,7 @@ async function processTelegramUpdate(update) {
   if (message?.contact) {
     const contact = message.contact;
     const phone = contact.phone_number.startsWith("+") ? contact.phone_number : `+${contact.phone_number}`;
-    const session2 = userSessions.get(telegramUserId) || { step: "name" };
-    const userName = session2.name || from.first_name || "Hurmatli talaba";
+    const userName = getTelegramName(from);
     return await completeRegistration(chatId, telegramUserId, from, userName, phone, supabase);
   }
   const rawText = message?.text?.trim() || "";
@@ -212,66 +228,42 @@ Darslarni davom ettirish uchun quyidagi tugmani bosing:`,
       );
       return true;
     }
-    userSessions.set(telegramUserId, { step: "oferta" });
-    const welcomeText = `\u{1F44B} <b>Assalomu alaykum, ${from.first_name || "Hurmatli talaba"}!</b>
+    userSessions.set(telegramUserId, { step: "phone" });
+    const userName = getTelegramName(from);
+    const welcomeText =
+      `👋 <b>Assalomu alaykum, ${userName}!</b>\n\n` +
+      `Yukla Go yopiq video ta’lim platformasiga xush kelibsiz.\n\n` +
+      `Platformamiz orqali Xitoydan tovar olib kelish, 1688, Taobao va xavfsiz import sirlarini bosqichma-bosqich o‘rganasiz.\n\n` +
+      `Kursni boshlashdan oldin ommaviy oferta (foydalanish shartlari) bilan tanishib chiqing:\n` +
+      `📄 <a href="https://telegra.ph/Yukla-Go-Ommaviy-Oferta-01-01">Ommaviy Oferta shartlarini o‘qish</a>\n\n` +
+      `📱 Ro‘yxatdan o‘tish va darslarga kirish uchun pastdagi <b>«Telefon raqamni yuborish»</b> tugmasini bosing:`;
 
-Yukla Go yopiq video ta\u2019lim platformasiga xush kelibsiz.
-
-Platformamiz orqali Xitoydan tovar olib kelish, 1688, Taobao va xavfsiz import sirlarini bosqichma-bosqich o\u2018rganasiz.
-
-Kursni boshlashdan oldin ommaviy oferta (foydalanish shartlari) bilan tanishib chiqing:
-\u{1F4C4} <a href="https://telegra.ph/Yukla-Go-Ommaviy-Oferta-01-01">Ommaviy Oferta shartlarini o\u2018qish</a>
-
-Davom etish uchun quyidagi tugmani bosing:`;
     await sendTelegramMessage(
       chatId,
       welcomeText,
       {
-        inline_keyboard: [
+        keyboard: [
           [
             {
-              text: "\u2705 Ofertani qabul qilaman va roziman",
-              callback_data: "accept_oferta"
-            }
-          ]
-        ]
+              text: "📱 Telefon raqamni yuborish",
+              request_contact: true,
+            },
+          ],
+        ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
       }
     );
     return true;
   }
-  if (session && session.step === "name") {
-    if (rawText.length < 2) {
-      await sendTelegramMessage(
-        chatId,
-        "\u26A0\uFE0F Iltimos, ism va familiyangizni to\u2018liq kiriting (kamida 2 ta belgi):",
-        { remove_keyboard: true }
-      );
-      return true;
-    }
-    userSessions.set(telegramUserId, { step: "phone", name: rawText });
-    await sendTelegramMessage(
-      chatId,
-      `\u{1F44D} Rahmat, <b>${rawText}</b>!
 
-Endi <b>telefon raqamingizni</b> yozib yuboring:
-<i>(Masalan: +998901234567)</i>`,
-      { remove_keyboard: true }
-    );
-    return true;
-  }
-  if (session && session.step === "phone") {
-    const formattedPhone = formatPhoneNumber(rawText);
-    if (formattedPhone.replace(/\D/g, "").length < 7) {
-      await sendTelegramMessage(
-        chatId,
-        "\u26A0\uFE0F Telefon raqam noto\u2018g\u2018ri kiritildi. Iltimos, to\u2018g\u2018ri raqam kiriting:\n<i>(Masalan: +998901234567)</i>",
-        { remove_keyboard: true }
-      );
-      return true;
-    }
-    const userName = session.name || from.first_name || "Talaba";
+  // Fallback: If user typed phone number manually as text
+  const formattedPhone = formatPhoneNumber(rawText);
+  if (formattedPhone.replace(/\D/g, "").length >= 7) {
+    const userName = getTelegramName(from);
     return await completeRegistration(chatId, telegramUserId, from, userName, formattedPhone, supabase);
   }
+
   let existingUser = null;
   if (supabase) {
     try {
@@ -294,12 +286,12 @@ Endi <b>telefon raqamingizni</b> yozib yuboring:
     }
     await sendTelegramMessage(
       chatId,
-      `Siz ro\u2018yxatdan o\u2018tgansiz. Darslarga kirish uchun quyidagi tugmani bosing:`,
+      `Siz ro‘yxatdan o‘tgansiz. Darslarga kirish uchun quyidagi tugmani bosing:`,
       {
         inline_keyboard: [
           [
             {
-              text: "\u{1F680} Darslarni boshlash",
+              text: "🚀 Darslarni boshlash",
               web_app: { url: MINI_APP_URL2 }
             }
           ]
@@ -310,8 +302,19 @@ Endi <b>telefon raqamingizni</b> yozib yuboring:
   }
   await sendTelegramMessage(
     chatId,
-    "Ro\u2018yxatdan o\u2018tish va darslarga kirish uchun /start buyrug\u2018ini bosing.",
-    { remove_keyboard: true }
+    "Ro‘yxatdan o‘tish uchun pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing:",
+    {
+      keyboard: [
+        [
+          {
+            text: "📱 Telefon raqamni yuborish",
+            request_contact: true
+          }
+        ]
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true
+    }
   );
   return true;
 }
@@ -340,24 +343,6 @@ async function completeRegistration(chatId, telegramUserId, from, userName, phon
       ).select().single();
       if (userRow) {
         userId = userRow.id;
-        if (userRow.customer_code) customerCode = userRow.customer_code;
-        try {
-          const { data: courses } = await supabase.from("academy_courses").select("id").eq("active", true);
-          if (courses && courses.length > 0) {
-            for (const c of courses) {
-              await supabase.from("academy_access").upsert(
-                {
-                  user_id: userRow.id,
-                  course_id: c.id,
-                  status: "granted",
-                  granted_at: (/* @__PURE__ */ new Date()).toISOString()
-                },
-                { onConflict: "user_id,course_id" }
-              );
-            }
-          }
-        } catch {
-        }
       }
     } catch (err) {
       console.error("Supabase user insert error:", err);
@@ -374,15 +359,17 @@ async function completeRegistration(chatId, telegramUserId, from, userName, phon
     }, "30d");
   } catch {
   }
-  const successMessage = `\u{1F389} <b>Tabriklaymiz, ${userName}!</b>
-
-Siz Yukla Go ta\u2019lim platformasidan muvaffaqiyatli ro\u2018yxatdan o\u2018tdingiz.
-
-\u{1F4CB} <b>Sizning ma\u2019lumotlaringiz:</b>
-\u2022 <b>Mijoz kodi:</b> <code>${customerCode}</code>
-\u2022 <b>Telefon:</b> <code>${phone}</code>
-
-\u{1F447} Shaxsiy o\u2018quv kabinetingizga kirish uchun quyidagi tugmani bosing:`;
+  await sendTelegramMessage(
+    chatId,
+    "✅ Rahmat, ma‘lumotlaringiz qabul qilindi.",
+    { remove_keyboard: true }
+  );
+  const successMessage = `🎉 <b>Tabriklaymiz, ${userName}!</b>\n\n` +
+    `Siz Yukla Go ta‘lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tdingiz.\n\n` +
+    `📋 <b>Sizning ma‘lumotlaringiz:</b>\n` +
+    `• <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
+    `• <b>Telefon:</b> <code>${phone}</code>\n\n` +
+    `👇 Shaxsiy o‘quv kabinetingizga kirish uchun quyidagi tugmani bosing:`;
   await sendTelegramMessage(
     chatId,
     successMessage,
@@ -390,7 +377,7 @@ Siz Yukla Go ta\u2019lim platformasidan muvaffaqiyatli ro\u2018yxatdan o\u2018td
       inline_keyboard: [
         [
           {
-            text: "\u{1F680} Darslarni boshlash",
+            text: "🚀 Darslarni boshlash",
             web_app: { url: MINI_APP_URL2 }
           }
         ]
@@ -408,7 +395,7 @@ async function handler(req, res) {
   }
   if (WEBHOOK_SECRET) {
     const receivedSecret = req.headers?.["x-telegram-bot-api-secret-token"];
-    if (receivedSecret && receivedSecret !== WEBHOOK_SECRET) {
+    if (!receivedSecret || receivedSecret !== WEBHOOK_SECRET) {
       return sendSafeJson(res, 401, { error: "Invalid secret token" });
     }
   }
@@ -537,11 +524,6 @@ async function handler2(req, res) {
           users = dbUsers.map((u) => {
             const initials = (u.name || "U").trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "YG";
             const userCourseAccess = accessMap[u.id] || {};
-            courses.forEach((c) => {
-              if (!userCourseAccess[c.id]) {
-                userCourseAccess[c.id] = "Faol";
-              }
-            });
             return {
               id: u.customer_code || u.id,
               name: u.name || "Hurmatli talaba",

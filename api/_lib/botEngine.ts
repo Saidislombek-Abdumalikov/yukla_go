@@ -325,6 +325,12 @@ async function completeRegistration(
     }, '30d');
   } catch {}
 
+  await sendTelegramMessage(
+    chatId,
+    "✅ Rahmat, ma‘lumotlaringiz qabul qilindi.",
+    { remove_keyboard: true }
+  );
+
   const successMessage =
     `🎉 <b>Tabriklaymiz, ${userName}!</b>\n\n` +
     `Siz Yukla Go ta’lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tdingiz.\n\n` +

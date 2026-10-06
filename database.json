@@ -1,41 +1,11 @@
 {
   "users": [
     {
-      "id": "YK-103",
-      "supabaseId": "060a7a77-4ec0-4d8b-8d73-4bc78757446b",
-      "telegramId": 5850120555,
-      "name": "abu",
-      "initials": "A",
-      "phone": "+998901234567",
-      "registeredAt": "06/10/2026",
-      "coursesAccess": {},
-      "access": "Faol",
-      "progress": 0,
-      "done": "0 / 1",
-      "activity": "Faol"
-    },
-    {
-      "id": "YK-102",
-      "supabaseId": "fe0012fe-1846-49ce-9129-6c146b6c19b6",
-      "telegramId": 7232597769,
-      "name": "Saidislom Karimov)",
-      "initials": "SK",
-      "phone": "+998901234567",
-      "registeredAt": "06/10/2026",
-      "coursesAccess": {
-        "1791305084906": "Faol"
-      },
-      "access": "Faol",
-      "progress": 0,
-      "done": "0 / 1",
-      "activity": "Faol"
-    },
-    {
-      "id": "YK-101",
-      "supabaseId": "fb2e73fd-1cbb-4639-bbd8-d13cfec4bf5d",
+      "id": "YK-104",
+      "supabaseId": "89abdc64-3e77-40ad-be3e-77e7bb5f1b3f",
       "telegramId": 5059829001,
-      "name": "Saidislom Karimov",
-      "initials": "SK",
+      "name": "Saidislom",
+      "initials": "S",
       "phone": "+998901234567",
       "registeredAt": "06/10/2026",
       "coursesAccess": {
@@ -68,7 +38,7 @@
       "description": "",
       "duration": "4:40",
       "durationSeconds": 280,
-      "videoUrl": "https://youtu.be/ykRrTt4oD9w?si=zHGz6Da5gWb9MjMR",
+      "videoUrl": "https://youtu.be/hh-paiINYrk",
       "videoFormat": "auto",
       "status": "Faol",
       "thumbnailUrl": "https://img.youtube.com/vi/ykRrTt4oD9w/hqdefault.jpg",
@@ -85,14 +55,5 @@
     "dynamicWatermark": true,
     "watermarkFormat": "id-brand"
   },
-  "progress": {
-    "YK-103": {
-      "1791307566366": {
-        "current": 20,
-        "maxWatched": 20,
-        "completed": false,
-        "lastUpdated": 1791308691791
-      }
-    }
-  }
+  "progress": {}
 }
