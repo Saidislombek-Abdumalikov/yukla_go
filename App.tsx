@@ -41,7 +41,13 @@ function App() {
     }
 
     const initData = tg?.initData;
-    if (!initData) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const token = urlParams.get('token');
+    const code = urlParams.get('code');
+    const u = urlParams.get('u') || urlParams.get('id');
+    const name = urlParams.get('name');
+
+    if (!initData && !token && !code && !u) {
       setPhase('outside');
       return;
     }
@@ -49,17 +55,42 @@ function App() {
     let cancelled = false;
     setPhase('loading');
     setAuthError(null);
-    api.authWithTelegram(initData)
-      .then((res) => {
-        if (cancelled) return;
-        setRole(res.user?.role || 'customer');
-        setPhase('ready');
-      })
-      .catch((err) => {
-        if (cancelled) return;
-        setAuthError(err?.message || 'Kirishda xatolik yuz berdi');
-        setPhase('error');
+
+    if (token) {
+      api.setSessionToken(token);
+    }
+
+    if (code || u) {
+      const userCode = code || 'YK-100';
+      const userName = name ? decodeURIComponent(name) : 'O‘quvchi';
+      api.saveStoredProfile({
+        id: u || userCode,
+        telegramUserId: 0,
+        customerCode: userCode,
+        name: userName,
+        phone: '',
+        phoneVerified: true,
+        status: 'active',
+        ofertaAccepted: true,
       });
+      setRole('customer');
+      setPhase('ready');
+      return;
+    }
+
+    if (initData) {
+      api.authWithTelegram(initData)
+        .then((res) => {
+          if (cancelled) return;
+          setRole(res.user?.role || 'customer');
+          setPhase('ready');
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          setAuthError(err?.message || 'Kirishda xatolik yuz berdi');
+          setPhase('error');
+        });
+    }
     return () => { cancelled = true; };
   }, [attempt]);
 
@@ -213,22 +244,6 @@ function App() {
       <main className="relative z-10 max-w-md mx-auto min-h-screen px-4 pt-4 pb-20 safe-area-top">
         <AcademyApp />
       </main>
-
-      {/* Floating Admin Switcher: ONLY visible to authorized admin IDs, NEVER shown to regular users */}
-      {isAdminUser && (
-        <div className="fixed bottom-4 right-4 z-50">
-          <button
-            onClick={() => {
-              setIsAdminPreview(true);
-              window.location.hash = '#admin';
-            }}
-            className="px-4 py-2.5 bg-gradient-to-r from-gray-950 to-gray-800 hover:from-black hover:to-gray-900 text-white rounded-2xl text-xs font-black shadow-2xl border border-gray-700/80 flex items-center gap-1.5 active:scale-95 transition-all"
-            title="Admin Dashboardga o'tish"
-          >
-            <span>👑 Admin Panel</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }

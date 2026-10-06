@@ -1401,28 +1401,30 @@ function getInMemoryBotUsers() {
   return Array.from(inMemoryUsers.values());
 }
 var ADMIN_TELEGRAM_IDS2 = ADMIN_TELEGRAM_IDS;
-var getAdminInlineKeyboard = () => {
+var getMainInlineKeyboard = (customerCode, name, telegramUserId, userId) => {
+  let tokenParam = "";
+  if (telegramUserId) {
+    try {
+      const token = createSessionToken({
+        userId: userId || `usr_${telegramUserId}`,
+        telegramUserId,
+        customerCode: customerCode || "YK-100",
+        role: isTelegramAdmin(telegramUserId) ? "admin" : "customer"
+      }, "30d");
+      tokenParam = `&token=${encodeURIComponent(token)}`;
+    } catch {
+    }
+  }
+  const query = customerCode ? `?code=${encodeURIComponent(customerCode)}${name ? `&name=${encodeURIComponent(name)}` : ""}${userId ? `&u=${encodeURIComponent(userId)}` : ""}${tokenParam}` : "";
+  const personalAppUrl = `${MINI_APP_URL2}${query}`;
   return {
     inline_keyboard: [
-      [{ text: "\u2699\uFE0F Admin Dashboard", web_app: { url: `${MINI_APP_URL2}#admin` } }],
-      [{ text: "\u{1F393} Video darslar", web_app: { url: MINI_APP_URL2 } }],
-      [{ text: "\u{1F464} Mening profilim", callback_data: "cmd_profile" }],
-      [{ text: "\u{1F1E8}\u{1F1F3} Xitoy manzili", callback_data: "cmd_address" }, { text: "\u260E\uFE0F Yordam", callback_data: "cmd_help" }]
+      [{ text: "\u{1F680} Platformaga kirish", url: personalAppUrl }]
     ]
   };
 };
-var getMainInlineKeyboard = (customerCode, name) => {
-  const query = customerCode ? `?code=${encodeURIComponent(customerCode)}${name ? `&name=${encodeURIComponent(name)}` : ""}` : "";
-  const personalAppUrl = `${MINI_APP_URL2}${query}`;
-  const academyUrl = `${personalAppUrl}${query ? "&" : "?"}app=academy`;
-  return {
-    inline_keyboard: [
-      [{ text: customerCode ? `\u{1F4F1} Shaxsiy hisobim (${customerCode})` : "\u{1F4F1} Shaxsiy hisobimni ochish", web_app: { url: personalAppUrl } }],
-      [{ text: "\u{1F393} Video darslar", web_app: { url: academyUrl } }],
-      [{ text: "\u{1F464} Mening profilim", callback_data: "cmd_profile" }],
-      [{ text: "\u{1F1E8}\u{1F1F3} Xitoy manzili", callback_data: "cmd_address" }, { text: "\u260E\uFE0F Yordam", callback_data: "cmd_help" }]
-    ]
-  };
+var getAdminInlineKeyboard = (customerCode, name, telegramUserId, userId) => {
+  return getMainInlineKeyboard(customerCode, name, telegramUserId, userId);
 };
 async function processTelegramUpdate(update) {
   const message = update.message;
@@ -1752,10 +1754,9 @@ Endi to'liq ism va familiyangizni kiriting:
 Siz Yukla Go tizimidan muvaffaqiyatli ro'yxatdan o'tdingiz!
 \u{1F464} Sizning shaxsiy mijoz kodingiz: <code>${customerCode}</code>
 
-Quyidagi tugma orqali shaxsiy hisobingizga kiring:`,
-      getMainInlineKeyboard(customerCode, rawText)
+Quyidagi havola tugmasi orqali shaxsiy o\u2018quv kabinetingizga kiring:`,
+      getMainInlineKeyboard(customerCode, rawText, telegramUserId, dbUser?.id)
     );
-    await sendWarehouseAddress(chatId, customerCode, supabase);
     return true;
   }
   if (!isCompleted) {
@@ -1771,15 +1772,12 @@ Quyidagi tugma orqali shaxsiy hisobingizga kiring:`,
         }
         await sendTelegramMessage(
           chatId,
-          `\u{1F451} <b>Assalomu alaykum, Administrator!</b>
+          `Assalomu alaykum!
 
-Siz tizimga administrator sifatida kirdingiz.
-\u{1F464} ID: <code>${telegramUserId}</code> | Mijoz kodi: <code>${customerCode}</code>
+Sizning mijoz kodingiz: <code>${customerCode}</code>
 
-Quyidagi menyu orqali kerakli bo'limni ochishingiz mumkin:
-1\uFE0F\u20E3 <b>\u{1F393} Video darslar</b> \u2014 Foydalanuvchi interfeysi
-2\uFE0F\u20E3 <b>\u2699\uFE0F Admin Dashboard</b> \u2014 Tizim va foydalanuvchilar boshqaruvi`,
-          getAdminInlineKeyboard()
+Shaxsiy hisobingizga kirish uchun quyidagi havola tugmasini bosing:`,
+          getMainInlineKeyboard(customerCode, "Administrator", telegramUserId, dbUser?.id)
         );
         return true;
       }
@@ -1860,61 +1858,26 @@ Quyidagi menyu orqali kerakli bo'limni ochishingiz mumkin:
 
 \u{1F464} Sizning shaxsiy mijoz kodingiz: <code>${customerCode}</code>
 
-Quyidagi menyu orqali shaxsiy hisobingiz yoki Video darslarni ochishingiz mumkin:`,
-        getMainInlineKeyboard(customerCode, userName)
+Shaxsiy o\u2018quv kabinetingizga kirish uchun quyidagi havola tugmasini bosing:`,
+        getMainInlineKeyboard(customerCode, userName, telegramUserId, dbUser?.id)
       );
       return true;
     }
     if (textLower === "/academy" || textLower === "/kurs" || textLower === "/darslar" || textLower === "\u{1F393} video darslar") {
-      const personalUrl = `${MINI_APP_URL2}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}&app=academy`;
       await sendTelegramMessage(
         chatId,
-        `\u{1F393} <b>Yukla Go Akademiya \u2014 Video Darslar</b>
+        `\u{1F393} <b>Yukla Go \u2014 Video Darslar</b>
 
 \u{1F464} Shaxsiy mijoz kodingiz: <code>${customerCode}</code>
 
-Xitoydan to'g'ri tovar buyurtma qilish bo'yicha bosqichma-bosqich amaliy darslar:
-
-\u2705 1. Kirish: Xitoy karqo qanday ishlaydi?
-\u25B6\uFE0F 2. Taobao va 1688 ilovalarida ro'yxatdan o'tish
-\u{1F512} 3. Xitoy ombor manzilini to'g'ri kiritish
-\u{1F512} 4. To'lov qilish va mahsulot sifatini tekshirish
-\u{1F512} 5. Trek kodini kiritish va O'zbekistonda qabul qilish
-
-<i>Darslar ketma-ketlikda ochiladi. Har bir darsni to'liq ko'rgach, keyingi dars ochiladi.</i>`,
-        {
-          inline_keyboard: [
-            [{ text: `\u25B6\uFE0F Darslarni ochish (${customerCode})`, web_app: { url: personalUrl } }],
-            [{ text: `\u{1F4F1} Shaxsiy hisobim`, web_app: { url: `${MINI_APP_URL2}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}` } }]
-          ]
-        }
+Quyidagi havola orqali darslarni davom ettiring:`,
+        getMainInlineKeyboard(customerCode, userName, telegramUserId, dbUser?.id)
       );
       return true;
     }
-    if (textLower === "/admin") {
-      if (!isAdmin) {
-        await sendTelegramMessage(chatId, `\u26D4 <b>Ruxsat berilmagan:</b> Ushbu buyruq faqat administratorlar uchun mo'ljallangan.`);
-        return true;
-      }
-      await sendTelegramMessage(
-        chatId,
-        `\u{1F451} <b>Admin Dashboard:</b>
-
-Quyidagi tugma orqali boshqaruv panelini ochishingiz mumkin:`,
-        {
-          inline_keyboard: [
-            [{ text: "\u2699\uFE0F Admin Dashboardni ochish", web_app: { url: `${MINI_APP_URL2}#admin` } }]
-          ]
-        }
-      );
-      return true;
-    }
-    if (textLower === "/address" || textLower === "/manzil" || textLower === "\u{1F1E8}\u{1F1F3} xitoy manzili") {
-      await sendWarehouseAddress(chatId, customerCode, supabase);
-      return true;
-    }
-    if (textLower === "/myid" || textLower === "/id" || textLower === "/kod" || textLower === "\u{1F464} mening profilim") {
-      const phoneDisplay = dbUser?.phone || localUser.phone || "+998 90 123 45 67";
+    if (textLower === "/myid" || textLower === "/id" || textLower === "/kod") {
+      const phoneDisplay = dbUser?.phone || localUser.phone || "Kiritilmagan";
+      const personalUrl = `${MINI_APP_URL2}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}`;
       await sendTelegramMessage(
         chatId,
         `\u{1F464} <b>Mening Profilim:</b>
@@ -1923,10 +1886,10 @@ Mijoz kodi: <code>${customerCode}</code>
 F.I.SH: <b>${userName}</b>
 Telefon: <code>${phoneDisplay}</code>
 
-\u{1F4E6} <i>Tovarlaringiz O'zbekistonga yetib kelgach, administrator shaxsan sizga yetkazib beradi.</i>`,
+Shaxsiy kabinetingizga kirish uchun quyidagi havola tugmasini bosing:`,
         {
           inline_keyboard: [
-            [{ text: "\u{1F393} Video darslarni ochish", web_app: { url: MINI_APP_URL2 } }]
+            [{ text: "\u{1F680} Kabinetga kirish", url: personalUrl }]
           ]
         }
       );

@@ -1,5 +1,5 @@
 import { getSupabase } from './supabase.ts';
-import { ADMIN_TELEGRAM_IDS as AUTH_ADMIN_IDS } from './auth.ts';
+import { ADMIN_TELEGRAM_IDS as AUTH_ADMIN_IDS, createSessionToken, isTelegramAdmin } from './auth.ts';
 import { STATUS_MESSAGES, sendTelegramMessage } from './botNotifications.ts';
 import { ALL_BRANCHES, REGIONS_LIST, getBranches, getRegionsForProvider, findBranchById } from './branchesData.ts';
 import { getOfertaText } from './ofertaData.ts';
@@ -67,32 +67,39 @@ export function getInMemoryBotUsers(): BotUser[] {
 
 export const ADMIN_TELEGRAM_IDS: number[] = AUTH_ADMIN_IDS;
 
-export const getAdminInlineKeyboard = () => {
+export const getMainInlineKeyboard = (
+  customerCode?: string,
+  name?: string,
+  telegramUserId?: number,
+  userId?: string
+) => {
+  let tokenParam = '';
+  if (telegramUserId) {
+    try {
+      const token = createSessionToken({
+        userId: userId || `usr_${telegramUserId}`,
+        telegramUserId,
+        customerCode: customerCode || 'YK-100',
+        role: isTelegramAdmin(telegramUserId) ? 'admin' : 'customer',
+      }, '30d');
+      tokenParam = `&token=${encodeURIComponent(token)}`;
+    } catch {}
+  }
+
+  const query = customerCode
+    ? `?code=${encodeURIComponent(customerCode)}${name ? `&name=${encodeURIComponent(name)}` : ''}${userId ? `&u=${encodeURIComponent(userId)}` : ''}${tokenParam}`
+    : '';
+  const personalAppUrl = `${MINI_APP_URL}${query}`;
+
   return {
     inline_keyboard: [
-      [{ text: '⚙️ Admin Dashboard', web_app: { url: `${MINI_APP_URL}#admin` } }],
-      [{ text: '🎓 Video darslar', web_app: { url: MINI_APP_URL } }],
-      [{ text: '👤 Mening profilim', callback_data: 'cmd_profile' }],
-      [{ text: '🇨🇳 Xitoy manzili', callback_data: 'cmd_address' }, { text: '☎️ Yordam', callback_data: 'cmd_help' }],
+      [{ text: '🚀 Platformaga kirish', url: personalAppUrl }],
     ],
   };
 };
 
-export const getMainInlineKeyboard = (customerCode?: string, name?: string) => {
-  const query = customerCode
-    ? `?code=${encodeURIComponent(customerCode)}${name ? `&name=${encodeURIComponent(name)}` : ''}`
-    : '';
-  const personalAppUrl = `${MINI_APP_URL}${query}`;
-  const academyUrl = `${personalAppUrl}${query ? '&' : '?'}app=academy`;
-
-  return {
-    inline_keyboard: [
-      [{ text: customerCode ? `📱 Shaxsiy hisobim (${customerCode})` : '📱 Shaxsiy hisobimni ochish', web_app: { url: personalAppUrl } }],
-      [{ text: '🎓 Video darslar', web_app: { url: academyUrl } }],
-      [{ text: '👤 Mening profilim', callback_data: 'cmd_profile' }],
-      [{ text: '🇨🇳 Xitoy manzili', callback_data: 'cmd_address' }, { text: '☎️ Yordam', callback_data: 'cmd_help' }],
-    ],
-  };
+export const getAdminInlineKeyboard = (customerCode?: string, name?: string, telegramUserId?: number, userId?: string) => {
+  return getMainInlineKeyboard(customerCode, name, telegramUserId, userId);
 };
 
 export async function processTelegramUpdate(update: any): Promise<boolean> {
@@ -506,15 +513,13 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
       `🎉 <b>Tabriklaymiz, ${rawText}!</b>\n\n` +
       `Siz Yukla Go tizimidan muvaffaqiyatli ro'yxatdan o'tdingiz!\n` +
       `👤 Sizning shaxsiy mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-      `Quyidagi tugma orqali shaxsiy hisobingizga kiring:`,
-      getMainInlineKeyboard(customerCode, rawText)
+      `Quyidagi havola tugmasi orqali shaxsiy o‘quv kabinetingizga kiring:`,
+      getMainInlineKeyboard(customerCode, rawText, telegramUserId, dbUser?.id)
     );
-
-    await sendWarehouseAddress(chatId, customerCode, supabase);
     return true;
   }
 
-  // New User /start flow -> Oferta -> Phone -> Name -> Mini App
+  // New User /start flow -> Oferta -> Phone -> Name -> Link Button
   if (!isCompleted) {
     if (rawText === '/start') {
       if (isAdmin) {
@@ -529,13 +534,10 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
 
         await sendTelegramMessage(
           chatId,
-          `👑 <b>Assalomu alaykum, Administrator!</b>\n\n` +
-          `Siz tizimga administrator sifatida kirdingiz.\n` +
-          `👤 ID: <code>${telegramUserId}</code> | Mijoz kodi: <code>${customerCode}</code>\n\n` +
-          `Quyidagi menyu orqali kerakli bo'limni ochishingiz mumkin:\n` +
-          `1️⃣ <b>🎓 Video darslar</b> — Foydalanuvchi interfeysi\n` +
-          `2️⃣ <b>⚙️ Admin Dashboard</b> — Tizim va foydalanuvchilar boshqaruvi`,
-          getAdminInlineKeyboard()
+          `Assalomu alaykum!\n\n` +
+          `Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
+          `Shaxsiy hisobingizga kirish uchun quyidagi havola tugmasini bosing:`,
+          getMainInlineKeyboard(customerCode, 'Administrator', telegramUserId, dbUser?.id)
         );
         return true;
       }
@@ -621,63 +623,28 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         chatId,
         `Assalomu alaykum, <b>${userName}</b>!\n\n` +
         `👤 Sizning shaxsiy mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Quyidagi menyu orqali shaxsiy hisobingiz yoki Video darslarni ochishingiz mumkin:`,
-        getMainInlineKeyboard(customerCode, userName)
+        `Shaxsiy o‘quv kabinetingizga kirish uchun quyidagi havola tugmasini bosing:`,
+        getMainInlineKeyboard(customerCode, userName, telegramUserId, dbUser?.id)
       );
       return true;
     }
 
-    // Academy & Video Lessons command (available to completed users)
+    // Academy & Video Lessons command
     if (textLower === '/academy' || textLower === '/kurs' || textLower === '/darslar' || textLower === '🎓 video darslar') {
-      const personalUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}&app=academy`;
       await sendTelegramMessage(
         chatId,
-        `🎓 <b>Yukla Go Akademiya — Video Darslar</b>\n\n` +
+        `🎓 <b>Yukla Go — Video Darslar</b>\n\n` +
         `👤 Shaxsiy mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Xitoydan to'g'ri tovar buyurtma qilish bo'yicha bosqichma-bosqich amaliy darslar:\n\n` +
-        `✅ 1. Kirish: Xitoy karqo qanday ishlaydi?\n` +
-        `▶️ 2. Taobao va 1688 ilovalarida ro'yxatdan o'tish\n` +
-        `🔒 3. Xitoy ombor manzilini to'g'ri kiritish\n` +
-        `🔒 4. To'lov qilish va mahsulot sifatini tekshirish\n` +
-        `🔒 5. Trek kodini kiritish va O'zbekistonda qabul qilish\n\n` +
-        `<i>Darslar ketma-ketlikda ochiladi. Har bir darsni to'liq ko'rgach, keyingi dars ochiladi.</i>`,
-        {
-          inline_keyboard: [
-            [{ text: `▶️ Darslarni ochish (${customerCode})`, web_app: { url: personalUrl } }],
-            [{ text: `📱 Shaxsiy hisobim`, web_app: { url: `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}` } }],
-          ],
-        }
+        `Quyidagi havola orqali darslarni davom ettiring:`,
+        getMainInlineKeyboard(customerCode, userName, telegramUserId, dbUser?.id)
       );
-      return true;
-    }
-
-    // /admin (Exclusive for Admin Telegram IDs)
-    if (textLower === '/admin') {
-      if (!isAdmin) {
-        await sendTelegramMessage(chatId, `⛔ <b>Ruxsat berilmagan:</b> Ushbu buyruq faqat administratorlar uchun mo'ljallangan.`);
-        return true;
-      }
-      await sendTelegramMessage(
-        chatId,
-        `👑 <b>Admin Dashboard:</b>\n\nQuyidagi tugma orqali boshqaruv panelini ochishingiz mumkin:`,
-        {
-          inline_keyboard: [
-            [{ text: '⚙️ Admin Dashboardni ochish', web_app: { url: `${MINI_APP_URL}#admin` } }],
-          ],
-        }
-      );
-      return true;
-    }
-
-    // China Warehouse Address
-    if (textLower === '/address' || textLower === '/manzil' || textLower === '🇨🇳 xitoy manzili') {
-      await sendWarehouseAddress(chatId, customerCode, supabase);
       return true;
     }
 
     // Profile & ID
-    if (textLower === '/myid' || textLower === '/id' || textLower === '/kod' || textLower === '👤 mening profilim') {
-      const phoneDisplay = dbUser?.phone || localUser.phone || '+998 90 123 45 67';
+    if (textLower === '/myid' || textLower === '/id' || textLower === '/kod') {
+      const phoneDisplay = dbUser?.phone || localUser.phone || 'Kiritilmagan';
+      const personalUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}`;
 
       await sendTelegramMessage(
         chatId,
@@ -685,10 +652,10 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         `Mijoz kodi: <code>${customerCode}</code>\n` +
         `F.I.SH: <b>${userName}</b>\n` +
         `Telefon: <code>${phoneDisplay}</code>\n\n` +
-        `📦 <i>Tovarlaringiz O'zbekistonga yetib kelgach, administrator shaxsan sizga yetkazib beradi.</i>`,
+        `Shaxsiy kabinetingizga kirish uchun quyidagi havola tugmasini bosing:`,
         {
           inline_keyboard: [
-            [{ text: '🎓 Video darslarni ochish', web_app: { url: MINI_APP_URL } }],
+            [{ text: '🚀 Kabinetga kirish', url: personalUrl }],
           ],
         }
       );
