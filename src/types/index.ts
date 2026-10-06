@@ -83,4 +83,5 @@ export type IconName =
   | "refresh"
   | "logout"
   | "user"
-  | "close";
+  | "close"
+  | "settings";

@@ -87,6 +87,12 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </>
     ),
     close: <path d="M18 6 6 18M6 6l12 12" />,
+    settings: (
+      <>
+        <circle cx="12" cy="12" r="3" />
+        <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+      </>
+    ),
   };
 
   return (
@@ -677,6 +683,7 @@ export function parseYouTubeVideo(url?: string): {
       iv_load_policy: "3",
       disablekb: "1",
       fs: "0",
+      vq: "hd720",
     });
     return {
       videoId,
@@ -688,6 +695,8 @@ export function parseYouTubeVideo(url?: string): {
 
   return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
 }
+
+type VideoQuality = "1080p" | "720p" | "480p" | "auto";
 
 function VideoPlayer({
   lesson,
@@ -721,11 +730,26 @@ function VideoPlayer({
     [lesson.videoUrl, youtubeEmbedUrl]
   );
 
-  // Default to 9:16 (Phone Mode) unless lesson is explicitly set to standard 16:9
+  // Default to 9:16 (Phone Mode) unless lesson is explicitly standard 16:9
   const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">(() => {
     if (lesson.videoFormat === "standard") return "16:9";
     return "9:16";
   });
+
+  // Fit mode: "fill" fills 9:16 screen completely without any gaps or letterboxing!
+  // "fit" fits the video inside the frame.
+  const [fitMode, setFitMode] = useState<"fill" | "fit">("fill");
+
+  // Quality Control: default strictly to 720p HD minimum
+  const [quality, setQuality] = useState<VideoQuality>("720p");
+  const [qualityMenuOpen, setQualityMenuOpen] = useState(false);
+
+  // Double-tap splash indicator
+  const [doubleTapSplash, setDoubleTapSplash] = useState<"-10s" | "+10s" | null>(null);
+  const splashTimerRef = useRef<number | undefined>(undefined);
+
+  // Expandable description sheet in 9:16 phone mode
+  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
 
   const total = lesson.durationSeconds || 600;
   const [duration, setDuration] = useState(total);
@@ -746,6 +770,7 @@ function VideoPlayer({
   const controlsTimeoutRef = useRef<number | undefined>(undefined);
   const pulseTimeoutRef = useRef<number | undefined>(undefined);
   const noticeTimerRef = useRef<number | undefined>(undefined);
+  const lastTapRef = useRef<{ time: number; x: number }>({ time: 0, x: 0 });
 
   const currentRef = useRef(current);
   const maxWatchedRef = useRef(maxWatched);
@@ -761,7 +786,8 @@ function VideoPlayer({
     if (playing) {
       controlsTimeoutRef.current = window.setTimeout(() => {
         setControlsVisible(false);
-      }, 3200);
+        setQualityMenuOpen(false);
+      }, 3400);
     }
   };
 
@@ -771,17 +797,44 @@ function VideoPlayer({
     noticeTimerRef.current = window.setTimeout(() => setScrubNotice(false), 2400);
   };
 
+  const triggerDoubleTapSplash = (type: "-10s" | "+10s") => {
+    setDoubleTapSplash(type);
+    if (splashTimerRef.current) window.clearTimeout(splashTimerRef.current);
+    splashTimerRef.current = window.setTimeout(() => setDoubleTapSplash(null), 600);
+  };
+
   // Post commands to YouTube iframe API
   const postToYouTube = (func: string, args: any[] = []) => {
     if (!iframeRef.current || !iframeRef.current.contentWindow) return;
-    iframeRef.current.contentWindow.postMessage(
-      JSON.stringify({
-        event: "command",
-        func,
-        args,
-      }),
-      "*"
-    );
+    try {
+      iframeRef.current.contentWindow.postMessage(
+        JSON.stringify({
+          event: "command",
+          func,
+          args,
+        }),
+        "*"
+      );
+    } catch {}
+  };
+
+  // Set Quality in YouTube iframe
+  const ytQualityMap: Record<VideoQuality, string> = {
+    "1080p": "hd1080",
+    "720p": "hd720",
+    "480p": "large",
+    auto: "default",
+  };
+
+  const handleSelectQuality = (q: VideoQuality) => {
+    setQuality(q);
+    setQualityMenuOpen(false);
+    const targetQ = ytQualityMap[q] || "hd720";
+    if (youtubeEmbedUrl) {
+      postToYouTube("setPlaybackQuality", [targetQ]);
+      postToYouTube("setPlaybackQualityRange", [targetQ, targetQ === "default" ? "highres" : targetQ]);
+    }
+    showControlsTemporarily();
   };
 
   // Listen to YouTube player messages
@@ -902,6 +955,8 @@ function VideoPlayer({
 
     if (youtubeEmbedUrl) {
       postToYouTube(next ? "playVideo" : "pauseVideo");
+      // Reinforce HD quality on play
+      postToYouTube("setPlaybackQuality", [ytQualityMap[quality] || "hd720"]);
     } else if (isDirectVideo && videoRef.current) {
       if (next) videoRef.current.play().catch(() => {});
       else videoRef.current.pause();
@@ -1003,6 +1058,33 @@ function VideoPlayer({
     }
   };
 
+  // Smart tap handling (single tap: show controls / toggle play; double tap left/right: 10s seek)
+  const handleShieldTap = (e: React.MouseEvent<HTMLDivElement>) => {
+    const now = Date.now();
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const width = rect.width;
+    const isLeft = clickX < width * 0.38;
+    const isRight = clickX > width * 0.62;
+
+    if (now - lastTapRef.current.time < 300) {
+      // Double tap detected!
+      if (isLeft) {
+        handleRewind10();
+        triggerDoubleTapSplash("-10s");
+      } else if (isRight) {
+        handleForward10();
+        triggerDoubleTapSplash("+10s");
+      } else {
+        togglePlay();
+      }
+      lastTapRef.current = { time: 0, x: clickX };
+    } else {
+      lastTapRef.current = { time: now, x: clickX };
+      showControlsTemporarily();
+    }
+  };
+
   // Dynamic security watermark
   const [watermarkPos, setWatermarkPos] = useState({ top: 16, left: 16 });
   useEffect(() => {
@@ -1025,21 +1107,36 @@ function VideoPlayer({
   const watchedPercent = duration > 0 ? (maxWatched / duration) * 100 : 0;
   const currentPercent = duration > 0 ? (current / duration) * 100 : 0;
 
+  // Iframe load handler (Enforce 720p HD right from startup)
+  const handleIframeLoad = () => {
+    postToYouTube("listening");
+    postToYouTube("setPlaybackQuality", ["hd720"]);
+    postToYouTube("setPlaybackQualityRange", ["hd720", "highres"]);
+  };
+
+  const isPhoneMode = aspectRatio === "9:16";
+
+  // --- Quality Label ---
+  const qualityLabel = quality === "1080p" ? "1080p HD" : quality === "720p" ? "720p HD" : quality === "480p" ? "480p" : "Avto";
+
   return (
-    <main className="screen player-screen">
-      <div className="player-header">
-        <button aria-label="Orqaga" className="icon-button" onClick={onBack}>
-          <Icon name="arrow-left" />
-        </button>
-        <span>{lessonIndex + 1}-dars</span>
-        <span className="header-spacer" />
-      </div>
+    <main className={`screen player-screen ${isPhoneMode ? "screen-player-immersive" : ""}`}>
+      {/* Top Header (Visible only in 16:9 Wide mode; in 9:16 mode header is overlaid directly on video) */}
+      {!isPhoneMode && (
+        <div className="player-header">
+          <button aria-label="Orqaga" className="icon-button" onClick={onBack}>
+            <Icon name="arrow-left" />
+          </button>
+          <span>{lessonIndex + 1}-dars</span>
+          <span className="header-spacer" />
+        </div>
+      )}
 
       {/* --- Custom In-App Video Player --- */}
       {youtubeEmbedUrl || isDirectVideo || lesson.videoUrl ? (
         <div
           ref={containerRef}
-          className={`custom-video-player ${aspectRatio === "9:16" ? "mode-phone" : "mode-wide"} ${isFullscreen ? "is-fullscreen" : ""} ${!controlsVisible && playing ? "hide-controls" : ""}`}
+          className={`custom-video-player ${isPhoneMode ? "mode-phone" : "mode-wide"} ${isFullscreen ? "is-fullscreen" : ""} ${!controlsVisible && playing ? "hide-controls" : ""}`}
           onMouseMove={showControlsTemporarily}
           onTouchStart={showControlsTemporarily}
           onContextMenu={(e) => e.preventDefault()}
@@ -1047,16 +1144,95 @@ function VideoPlayer({
           {/* Top Bar Overlay */}
           <div className="player-overlay-top">
             <div className="player-top-left">
+              {isPhoneMode && (
+                <button
+                  type="button"
+                  className="player-back-pill"
+                  onClick={onBack}
+                  title="Darslarga qaytish"
+                >
+                  <Icon name="arrow-left" size={16} />
+                  <span>Darslar</span>
+                </button>
+              )}
+              <span className="player-lesson-badge">
+                {lessonIndex + 1}-dars
+              </span>
               <button
                 type="button"
                 className="player-pill-btn active"
                 onClick={() => setAspectRatio((prev) => (prev === "9:16" ? "16:9" : "9:16"))}
-                title="Formatni o‘zgartirish (Telefon 9:16 / Keng 16:9)"
+                title="Formatni o‘zgartirish (9:16 Telefon / 16:9 Keng)"
               >
-                {aspectRatio === "9:16" ? "📱 9:16 Telefon" : "💻 16:9 Keng"}
+                {aspectRatio === "9:16" ? "📱 9:16" : "💻 16:9"}
               </button>
             </div>
+
             <div className="player-top-right">
+              {/* Fill / Fit Mode Toggle (Eliminates black pillarbox gaps in 9:16) */}
+              {isPhoneMode && (
+                <button
+                  type="button"
+                  className={`player-pill-btn ${fitMode === "fill" ? "active-gold" : ""}`}
+                  onClick={() => setFitMode((prev) => (prev === "fill" ? "fit" : "fill"))}
+                  title={fitMode === "fill" ? "Moslash (Asl o‘lcham)" : "To‘ldirish (Bo‘shliqsiz to‘liq ekran)"}
+                >
+                  {fitMode === "fill" ? "⛶ To‘ldirish" : "↔ Moslash"}
+                </button>
+              )}
+
+              {/* Quality Selector (At least 720p HD & Changeable) */}
+              <div className="player-quality-wrapper">
+                <button
+                  type="button"
+                  className="player-pill-btn quality-pill"
+                  onClick={() => setQualityMenuOpen((prev) => !prev)}
+                  title="Video sifati (At least 720p HD)"
+                >
+                  <Icon name="settings" size={14} />
+                  <span>{qualityLabel}</span>
+                </button>
+
+                {qualityMenuOpen && (
+                  <div className="player-quality-dropdown">
+                    <p className="quality-dropdown-title">Video sifati</p>
+                    <button
+                      type="button"
+                      className={`quality-opt-btn ${quality === "1080p" ? "active" : ""}`}
+                      onClick={() => handleSelectQuality("1080p")}
+                    >
+                      <span>1080p Full HD</span>
+                      {quality === "1080p" && <Icon name="check" size={14} />}
+                    </button>
+                    <button
+                      type="button"
+                      className={`quality-opt-btn ${quality === "720p" ? "active" : ""}`}
+                      onClick={() => handleSelectQuality("720p")}
+                    >
+                      <span>720p HD (Tavsiya etiladi)</span>
+                      {quality === "720p" && <Icon name="check" size={14} />}
+                    </button>
+                    <button
+                      type="button"
+                      className={`quality-opt-btn ${quality === "480p" ? "active" : ""}`}
+                      onClick={() => handleSelectQuality("480p")}
+                    >
+                      <span>480p Standart</span>
+                      {quality === "480p" && <Icon name="check" size={14} />}
+                    </button>
+                    <button
+                      type="button"
+                      className={`quality-opt-btn ${quality === "auto" ? "active" : ""}`}
+                      onClick={() => handleSelectQuality("auto")}
+                    >
+                      <span>Avto (Tejamkor)</span>
+                      {quality === "auto" && <Icon name="check" size={14} />}
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Speed Button */}
               <button
                 type="button"
                 className="player-pill-btn"
@@ -1065,19 +1241,21 @@ function VideoPlayer({
               >
                 {speed}x
               </button>
+
+              {/* Fullscreen Button */}
               <button
                 type="button"
                 className="player-icon-btn"
                 onClick={toggleFullscreen}
-                title={isFullscreen ? "To‘liq ekrandan chiqish" : "To‘liq ekran (Fullscreen)"}
+                title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
               >
                 <Icon name={isFullscreen ? "minimize" : "maximize"} size={18} />
               </button>
             </div>
           </div>
 
-          {/* Media Box */}
-          <div className="custom-player-media-box">
+          {/* Media Box (Crops YouTube top header and bottom watermark completely!) */}
+          <div className={`custom-player-media-box ${isPhoneMode ? `phone-box mode-${fitMode}` : "wide-box"}`}>
             {youtubeEmbedUrl ? (
               <iframe
                 ref={iframeRef}
@@ -1086,7 +1264,7 @@ function VideoPlayer({
                 allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
                 allowFullScreen
                 className="custom-player-iframe"
-                onLoad={() => postToYouTube("listening")}
+                onLoad={handleIframeLoad}
               />
             ) : isDirectVideo ? (
               <video
@@ -1118,16 +1296,23 @@ function VideoPlayer({
             )}
           </div>
 
-          {/* Interactive Click Shield (Tapping anywhere plays/pauses) */}
+          {/* Interactive Click Shield (Tap anywhere to play/pause, Double-tap left/right to rewind/forward) */}
           <div
             className="custom-player-click-shield"
-            onClick={togglePlay}
-            onDoubleClick={toggleFullscreen}
+            onClick={handleShieldTap}
           />
+
+          {/* Double-tap splash feedback (-10s / +10s) */}
+          {doubleTapSplash && (
+            <div className={`double-tap-splash splash-${doubleTapSplash === "-10s" ? "left" : "right"}`}>
+              <Icon name={doubleTapSplash === "-10s" ? "rewind-10" : "forward-10"} size={36} />
+              <span>{doubleTapSplash === "-10s" ? "10 soniya orqaga" : "10 soniya oldinga"}</span>
+            </div>
+          )}
 
           {/* Center Play/Pause Animated Pulse */}
           <div className={`center-pulse-indicator ${centerPulse ? "active" : ""}`}>
-            <Icon name={centerPulse === "pause" ? "pause" : "play"} size={30} />
+            <Icon name={centerPulse === "pause" ? "pause" : "play"} size={32} />
           </div>
 
           {/* Anti-Scrubbing Toast Warning */}
@@ -1149,6 +1334,30 @@ function VideoPlayer({
 
           {/* Bottom Controls Overlay */}
           <div className="player-overlay-bottom">
+            {/* In 9:16 mode: Title and info trigger */}
+            {isPhoneMode && (
+              <div className="player-bottom-title-row">
+                <div className="player-bottom-title-info">
+                  <h2 className="player-overlay-title">{lesson.title}</h2>
+                  {lesson.description && (
+                    <button
+                      type="button"
+                      className="player-info-trigger-btn"
+                      onClick={() => setInfoDrawerOpen(true)}
+                    >
+                      📖 Dars haqida
+                    </button>
+                  )}
+                </div>
+                {completed && (
+                  <span className="player-completed-chip">
+                    <Icon name="check" size={14} />
+                    <span>Tugallangan</span>
+                  </span>
+                )}
+              </div>
+            )}
+
             {/* Scrubber Progress Bar */}
             <div
               ref={scrubberTrackRef}
@@ -1180,7 +1389,7 @@ function VideoPlayer({
                   onClick={togglePlay}
                   title={playing ? "To‘xtatish" : "O‘ynatish"}
                 >
-                  <Icon name={playing ? "pause" : "play"} size={20} />
+                  <Icon name={playing ? "pause" : "play"} size={22} />
                 </button>
                 <button
                   type="button"
@@ -1206,17 +1415,58 @@ function VideoPlayer({
               </div>
 
               <div className="player-controls-right">
-                <button
-                  type="button"
-                  className="player-icon-btn"
-                  onClick={toggleFullscreen}
-                  title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
-                >
-                  <Icon name={isFullscreen ? "minimize" : "maximize"} size={20} />
-                </button>
+                {hasNextLesson && onNextLesson && (
+                  <button
+                    type="button"
+                    className={`player-next-lesson-btn ${completed ? "highlighted" : ""}`}
+                    onClick={onNextLesson}
+                    title="Keyingi darsga o‘tish"
+                  >
+                    <span>Keyingi dars</span>
+                    <Icon name="chevron" size={16} />
+                  </button>
+                )}
+                {!isPhoneMode && (
+                  <button
+                    type="button"
+                    className="player-icon-btn"
+                    onClick={toggleFullscreen}
+                    title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
+                  >
+                    <Icon name={isFullscreen ? "minimize" : "maximize"} size={20} />
+                  </button>
+                )}
               </div>
             </div>
           </div>
+
+          {/* Slide-up Info Drawer in 9:16 mode */}
+          {infoDrawerOpen && (
+            <div className="player-info-drawer">
+              <div className="info-drawer-header">
+                <h3>{lesson.title}</h3>
+                <button
+                  type="button"
+                  className="info-drawer-close"
+                  onClick={() => setInfoDrawerOpen(false)}
+                >
+                  <Icon name="close" size={18} />
+                </button>
+              </div>
+              <p className="info-drawer-body">
+                {lesson.description || "Ushbu dars uchun qo‘shimcha tavsif kiritilmagan."}
+              </p>
+              <div className="info-drawer-footer">
+                <button
+                  type="button"
+                  className="player-pill-btn active"
+                  onClick={() => setInfoDrawerOpen(false)}
+                >
+                  Tushunarli
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       ) : (
         <div className="video-frame no-video-notice-box">
@@ -1227,73 +1477,72 @@ function VideoPlayer({
         </div>
       )}
 
-      {/* Lesson Details & Completion Section */}
-      <section className="lesson-detail">
-        <div className="lesson-header-flex">
-          <div>
-            <p className="eyebrow">
-              {lessonIndex + 1}-dars{" "}
-              {aspectRatio === "9:16" && <span className="shorts-badge-small">📱 9:16 Vertikal</span>}
-            </p>
-            <h1>{lesson.title}</h1>
-          </div>
-        </div>
-
-        <p className="lesson-description">
-          {lesson.description ||
-            "Xarid qilishdan oldin mahsulot sifati va ma’lumotlarini to‘g‘ri baholashni o‘rganing."}
-        </p>
-
-        {/* Watch Progress Overview */}
-        <div className="watch-progress">
-          <div className="watch-row">
-            <span>Ko‘rish jarayoni</span>
-            <strong>
-              {formatTime(current)} / {formatTime(duration)}
-            </strong>
-          </div>
-          <ProgressBar max={duration} value={current} />
-          <div className="watch-hint">
-            <span>Ko‘rilgan qismga qaytishingiz mumkin</span>
-            <span>{Math.round((maxWatched / Math.max(1, duration)) * 100)}%</span>
-          </div>
-        </div>
-
-        {completed ? (
-          <div className="completion-card">
-            <div className="completion-icon">
-              <Icon name="check" size={22} />
-            </div>
+      {/* Lesson Details & Completion Section (Shown only in 16:9 Wide mode) */}
+      {!isPhoneMode && (
+        <section className="lesson-detail">
+          <div className="lesson-header-flex">
             <div>
-              <h2>Dars tugallandi</h2>
-              <p>Keyingi dars siz uchun ochildi.</p>
+              <p className="eyebrow">{lessonIndex + 1}-dars</p>
+              <h1>{lesson.title}</h1>
             </div>
           </div>
-        ) : (
-          <div className="resume-note">
-            <span className="resume-icon">
-              <Icon name="check" size={15} />
-            </span>
-            <div>
-              <strong>Darsni ko‘rib bo‘lgach tasdiqlang</strong>
-              <span>Keyingi darsga o‘tish uchun quyidagi tugmani bosing</span>
-            </div>
-          </div>
-        )}
 
-        <div className="player-actions">
-          {completed && hasNextLesson ? (
-            <PrimaryButton onClick={onNextLesson}>Keyingi dars</PrimaryButton>
-          ) : !completed ? (
-            <PrimaryButton icon="check" onClick={handleFinishLesson}>
-              Darsni tugatish va keyingisiga o‘tish
-            </PrimaryButton>
+          <p className="lesson-description">
+            {lesson.description ||
+              "Xarid qilishdan oldin mahsulot sifati va ma’lumotlarini to‘g‘ri baholashni o‘rganing."}
+          </p>
+
+          {/* Watch Progress Overview */}
+          <div className="watch-progress">
+            <div className="watch-row">
+              <span>Ko‘rish jarayoni</span>
+              <strong>
+                {formatTime(current)} / {formatTime(duration)}
+              </strong>
+            </div>
+            <ProgressBar max={duration} value={current} />
+            <div className="watch-hint">
+              <span>Ko‘rilgan qismga qaytishingiz mumkin</span>
+              <span>{Math.round((maxWatched / Math.max(1, duration)) * 100)}%</span>
+            </div>
+          </div>
+
+          {completed ? (
+            <div className="completion-card">
+              <div className="completion-icon">
+                <Icon name="check" size={22} />
+              </div>
+              <div>
+                <h2>Dars tugallandi</h2>
+                <p>Keyingi dars siz uchun ochildi.</p>
+              </div>
+            </div>
           ) : (
-            <PrimaryButton onClick={onBack}>Barcha darslarga qaytish</PrimaryButton>
+            <div className="resume-note">
+              <span className="resume-icon">
+                <Icon name="check" size={15} />
+              </span>
+              <div>
+                <strong>Darsni ko‘rib bo‘lgach tasdiqlang</strong>
+                <span>Keyingi darsga o‘tish uchun quyidagi tugmani bosing</span>
+              </div>
+            </div>
           )}
-          <SecondaryButton onClick={onBack}>Darslar ro‘yxatiga qaytish</SecondaryButton>
-        </div>
-      </section>
+
+          <div className="player-actions">
+            {completed && hasNextLesson ? (
+              <PrimaryButton onClick={onNextLesson}>Keyingi dars</PrimaryButton>
+            ) : !completed ? (
+              <PrimaryButton icon="check" onClick={handleFinishLesson}>
+                Darsni tugatish va keyingisiga o‘tish
+              </PrimaryButton>
+            ) : (
+              <PrimaryButton onClick={onBack}>Barcha darslarga qaytish</PrimaryButton>
+            )}
+            <SecondaryButton onClick={onBack}>Darslar ro‘yxatiga qaytish</SecondaryButton>
+          </div>
+        </section>
+      )}
     </main>
   );
 }
@@ -1491,9 +1740,17 @@ export default function App() {
   const [settings, setSettings] = useState<AdminSettings>(() => store.getSettings());
   const [userProgress, setUserProgress] = useState<Record<string | number, any>>(() => (user ? store.getUserProgress(user.id) : {}));
 
-  // Auto load user from Telegram Mini App or link
+  // Auto load user from Telegram Mini App or link + load courses synchronously
   useEffect(() => {
-    store.loadUserFromUrlOrStorage().then(({ user: loadedUser, error }) => {
+    Promise.all([
+      store.loadUserFromUrlOrStorage(),
+      store.syncStateFromServer(),
+    ]).then(([{ user: loadedUser, error }, stateData]) => {
+      if (stateData) {
+        if (Array.isArray(stateData.courses)) setCourses(stateData.courses);
+        if (Array.isArray(stateData.lessons)) setLessons(stateData.lessons);
+        if (stateData.settings) setSettings(stateData.settings);
+      }
       if (loadedUser) {
         setUser(loadedUser);
         setUserProgress(store.getUserProgress(loadedUser.id));
@@ -1514,7 +1771,6 @@ export default function App() {
       });
     };
 
-    doSync();
     const interval = setInterval(doSync, 4000);
     return () => clearInterval(interval);
   }, []);

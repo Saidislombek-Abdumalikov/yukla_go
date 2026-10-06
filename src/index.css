@@ -1604,7 +1604,7 @@ p {
   outline: none;
 }
 
-/* --- Modern Custom In-App Video Player (No YouTube Branding, Phone 9:16 & Wide 16:9) --- */
+/* --- Modern Custom In-App Video Player (Pure Video, No YouTube Branding, Phone 9:16 & Wide 16:9) --- */
 .custom-video-player {
   position: relative;
   width: 100%;
@@ -1616,14 +1616,43 @@ p {
   transition: max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
 }
 
-/* Phone Mode (9:16 Portrait / Shorts / Mobile format) */
+/* 9:16 Phone Mode: Full-bleed Immersive Mobile View (Zero Gaps, Reels / Shorts / TikTok UX) */
+.screen.player-screen.screen-player-immersive {
+  width: 100%;
+  max-width: 480px;
+  height: 100vh;
+  height: 100dvh;
+  margin: 0 auto;
+  background: #000000;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.screen.player-screen.screen-player-immersive .custom-video-player.mode-phone {
+  width: 100%;
+  height: 100%;
+  max-width: 100%;
+  max-height: 100%;
+  aspect-ratio: auto;
+  margin: 0;
+  border-radius: 0;
+  box-shadow: none;
+  flex: 1;
+}
+
+/* Fallback non-immersive Phone Mode */
 .custom-video-player.mode-phone {
   aspect-ratio: 9 / 16;
-  max-width: 380px;
-  max-height: 72vh;
-  margin: 0 auto 16px auto;
+  max-width: 420px;
+  max-height: 85vh;
+  margin: 0 auto;
   border-radius: 20px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
 }
 
 /* Wide Mode (16:9 Landscape / Desktop format) */
@@ -1641,6 +1670,7 @@ p {
   inset: 0 !important;
   width: 100vw !important;
   height: 100vh !important;
+  height: 100dvh !important;
   max-width: none !important;
   max-height: none !important;
   z-index: 999999 !important;
@@ -1655,7 +1685,7 @@ p {
 
 .custom-video-player.is-fullscreen.mode-phone .custom-player-media-box {
   width: 100%;
-  max-width: 56.25vh; /* 9:16 proportional in fullscreen */
+  max-width: 56.25vh; /* 9:16 proportional in desktop fullscreen */
   height: 100vh;
 }
 
@@ -1664,7 +1694,7 @@ p {
   height: 100vh;
 }
 
-/* Media Box & Elements */
+/* Media Box & Video Frame */
 .custom-player-media-box {
   position: absolute;
   inset: 0;
@@ -1677,12 +1707,39 @@ p {
   background: #000000;
 }
 
+/* Zero Gaps Phone Box: Fill Mode scales video to eliminate black pillarbox bars completely! */
+.custom-player-media-box.phone-box.mode-fill .custom-player-iframe {
+  width: 100%;
+  height: 116%;
+  margin-top: -8%;
+  transform: scale(1.18);
+  transform-origin: center center;
+}
+
+/* Fit Mode: keeps original aspect ratio with minimal crop to eliminate YouTube title & watermark */
+.custom-player-media-box.phone-box.mode-fit .custom-player-iframe {
+  width: 100%;
+  height: 108%;
+  margin-top: -4%;
+  transform: scale(1.05);
+  transform-origin: center center;
+}
+
+/* Wide Mode Media Box: crops YouTube branding */
+.custom-player-media-box.wide-box .custom-player-iframe {
+  width: 100%;
+  height: 110%;
+  margin-top: -5%;
+  transform: scale(1.06);
+  transform-origin: center center;
+}
+
 .custom-player-iframe {
   width: 100%;
   height: 100%;
   border: 0;
   display: block;
-  pointer-events: none; /* User interacts through custom shield layer */
+  pointer-events: none; /* User interacts solely through custom shield layer */
 }
 
 .custom-player-native-video {
@@ -1708,11 +1765,11 @@ p {
   left: 50%;
   transform: translate(-50%, -50%) scale(0.6);
   z-index: 15;
-  width: 64px;
-  height: 64px;
+  width: 68px;
+  height: 68px;
   border-radius: 50%;
-  background: rgba(15, 23, 42, 0.75);
-  backdrop-filter: blur(8px);
+  background: rgba(15, 23, 42, 0.8);
+  backdrop-filter: blur(10px);
   color: #ffffff;
   display: flex;
   align-items: center;
@@ -1720,12 +1777,50 @@ p {
   opacity: 0;
   pointer-events: none;
   transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275), opacity 0.3s ease;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
 }
 
 .center-pulse-indicator.active {
   transform: translate(-50%, -50%) scale(1);
   opacity: 1;
+}
+
+/* Double-Tap Seek Splash Feedback (-10s / +10s) */
+.double-tap-splash {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 25;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 16px 22px;
+  border-radius: 20px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(12px);
+  color: #38bdf8;
+  font-size: 13px;
+  font-weight: 800;
+  pointer-events: none;
+  animation: splashPop 0.55s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+.double-tap-splash.splash-left {
+  left: 12%;
+}
+
+.double-tap-splash.splash-right {
+  right: 12%;
+}
+
+@keyframes splashPop {
+  0% { opacity: 0; transform: translateY(-50%) scale(0.6); }
+  35% { opacity: 1; transform: translateY(-50%) scale(1.08); }
+  75% { opacity: 1; transform: translateY(-50%) scale(1); }
+  100% { opacity: 0; transform: translateY(-50%) scale(0.9); }
 }
 
 /* Top Bar Overlay */
@@ -1735,11 +1830,11 @@ p {
   left: 0;
   right: 0;
   z-index: 20;
-  padding: 12px 14px;
+  padding: 14px 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: linear-gradient(180deg, rgba(0, 0, 0, 0.75) 0%, rgba(0, 0, 0, 0.3) 60%, transparent 100%);
+  background: linear-gradient(180deg, rgba(0, 0, 0, 0.85) 0%, rgba(0, 0, 0, 0.4) 60%, transparent 100%);
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
@@ -1755,6 +1850,112 @@ p {
   gap: 8px;
 }
 
+.player-back-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(15, 23, 42, 0.65);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 12px;
+  border-radius: 20px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.player-back-pill:hover {
+  background: rgba(15, 23, 42, 0.9);
+  border-color: #38bdf8;
+  color: #38bdf8;
+}
+
+.player-lesson-badge {
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 5px 10px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+
+.player-pill-btn.active-gold {
+  background: #f59e0b;
+  border-color: #fbbf24;
+  color: #000000;
+  font-weight: 800;
+}
+
+/* Quality Selector Menu */
+.player-quality-wrapper {
+  position: relative;
+}
+
+.player-quality-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 50;
+  background: rgba(15, 23, 42, 0.94);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 14px;
+  padding: 8px 6px;
+  min-width: 190px;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.75);
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  animation: dropdownIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes dropdownIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.quality-dropdown-title {
+  font-size: 10px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  padding: 4px 10px 6px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  margin-bottom: 4px;
+}
+
+.quality-opt-btn {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: transparent;
+  color: #cbd5e1;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.quality-opt-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: #ffffff;
+}
+
+.quality-opt-btn.active {
+  background: rgba(2, 132, 199, 0.4);
+  color: #38bdf8;
+  font-weight: 700;
+}
+
 /* Bottom Controls Overlay */
 .player-overlay-bottom {
   position: absolute;
@@ -1762,8 +1963,8 @@ p {
   left: 0;
   right: 0;
   z-index: 20;
-  padding: 18px 14px 12px;
-  background: linear-gradient(0deg, rgba(0, 0, 0, 0.9) 0%, rgba(0, 0, 0, 0.5) 60%, transparent 100%);
+  padding: 20px 16px 14px;
+  background: linear-gradient(0deg, rgba(0, 0, 0, 0.95) 0%, rgba(0, 0, 0, 0.6) 60%, transparent 100%);
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -1781,6 +1982,164 @@ p {
   opacity: 0;
   transform: translateY(8px);
   pointer-events: none;
+}
+
+/* Bottom Title Row in 9:16 Immersive mode */
+.player-bottom-title-row {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+.player-bottom-title-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.player-overlay-title {
+  font-size: 15px;
+  font-weight: 800;
+  color: #ffffff;
+  line-height: 1.3;
+  margin: 0;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.player-info-trigger-btn {
+  align-self: flex-start;
+  background: rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 9px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.player-info-trigger-btn:hover {
+  background: rgba(255, 255, 255, 0.32);
+  color: #38bdf8;
+}
+
+.player-completed-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(16, 185, 129, 0.85);
+  backdrop-filter: blur(6px);
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 9px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+
+.player-next-lesson-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(2, 132, 199, 0.85);
+  backdrop-filter: blur(8px);
+  border: 1px solid #38bdf8;
+  color: #ffffff;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 6px 14px;
+  border-radius: 12px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.player-next-lesson-btn:hover {
+  background: #0284c7;
+  transform: scale(1.04);
+}
+
+.player-next-lesson-btn.highlighted {
+  background: #10b981;
+  border-color: #34d399;
+  animation: glowGreen 2s infinite;
+}
+
+@keyframes glowGreen {
+  0%, 100% { box-shadow: 0 0 10px rgba(16, 185, 129, 0.5); }
+  50% { box-shadow: 0 0 20px rgba(16, 185, 129, 0.8); }
+}
+
+/* Slide-up Info Drawer in 9:16 mode */
+.player-info-drawer {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 35;
+  background: rgba(15, 23, 42, 0.95);
+  backdrop-filter: blur(20px);
+  border-top: 1px solid rgba(255, 255, 255, 0.2);
+  border-radius: 24px 24px 0 0;
+  padding: 22px 20px;
+  box-shadow: 0 -12px 40px rgba(0, 0, 0, 0.75);
+  animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+.info-drawer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.info-drawer-header h3 {
+  font-size: 16px;
+  font-weight: 800;
+  color: #ffffff;
+  margin: 0;
+}
+
+.info-drawer-close {
+  background: rgba(255, 255, 255, 0.15);
+  border: 0;
+  color: #ffffff;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+
+.info-drawer-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: #cbd5e1;
+  margin-bottom: 16px;
+}
+
+.info-drawer-footer {
+  display: flex;
+  justify-content: flex-end;
 }
 
 /* Scrubber / Progress Bar */
