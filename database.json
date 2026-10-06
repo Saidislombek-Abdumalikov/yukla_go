@@ -1,6 +1,22 @@
 {
   "users": [
     {
+      "id": "YK-102",
+      "supabaseId": "fe0012fe-1846-49ce-9129-6c146b6c19b6",
+      "telegramId": 7232597769,
+      "name": "Saidislom Karimov)",
+      "initials": "SK",
+      "phone": "+998901234567",
+      "registeredAt": "06/10/2026",
+      "coursesAccess": {
+        "1791305084906": "Faol"
+      },
+      "access": "Faol",
+      "progress": 0,
+      "done": "0 / 1",
+      "activity": "Faol"
+    },
+    {
       "id": "YK-101",
       "supabaseId": "fb2e73fd-1cbb-4639-bbd8-d13cfec4bf5d",
       "telegramId": 5059829001,
@@ -13,7 +29,7 @@
       },
       "access": "Faol",
       "progress": 0,
-      "done": "0 / 0",
+      "done": "0 / 1",
       "activity": "Faol"
     }
   ],
@@ -22,7 +38,7 @@
       "id": 1791305084906,
       "title": "Xitoydan tovar olib kelish asoslari",
       "description": "Boshlangich kurs",
-      "lessons": 0,
+      "lessons": 1,
       "users": 0,
       "completion": 0,
       "status": "Faol",
@@ -30,7 +46,23 @@
       "tone": "blue"
     }
   ],
-  "lessons": [],
+  "lessons": [
+    {
+      "id": 1791307566366,
+      "courseId": 1791305084906,
+      "title": "Ilovani yuklash va ro'yxatdan o'tish.",
+      "description": "",
+      "duration": "4:40",
+      "durationSeconds": 280,
+      "videoUrl": "https://youtu.be/ykRrTt4oD9w?si=zHGz6Da5gWb9MjMR",
+      "videoFormat": "auto",
+      "status": "Faol",
+      "thumbnailUrl": "https://img.youtube.com/vi/ykRrTt4oD9w/hqdefault.jpg",
+      "color": "lesson-blue",
+      "viewers": 0,
+      "completion": 0
+    }
+  ],
   "settings": {
     "adminPassword": "admin123",
     "defaultCompletionPercent": 95,

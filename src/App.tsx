@@ -21,6 +21,20 @@ function Icon({ name, size = 20 }: { name: IconName; size?: number }) {
       </>
     ),
     expand: <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />,
+    maximize: <path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" />,
+    minimize: <path d="M4 14h6v6M20 10h-6V4M14 14h6v6M10 10H4V4" />,
+    "rewind-10": (
+      <>
+        <path d="M11 17l-5-5 5-5" />
+        <path d="M18 17l-5-5 5-5" />
+      </>
+    ),
+    "forward-10": (
+      <>
+        <path d="M6 17l5-5-5-5" />
+        <path d="M13 17l5-5-5-5" />
+      </>
+    ),
     lock: (
       <>
         <rect x="5" y="10" width="14" height="10" rx="3" />
@@ -636,36 +650,33 @@ export function parseYouTubeVideo(url?: string): {
     return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
   }
   const trimmed = url.trim();
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
-    const videoId = trimmed;
-    const params = new URLSearchParams({
-      rel: "0",
-      modestbranding: "1",
-      playsinline: "1",
-      enablejsapi: "1",
-      disablekb: "1",
-      iv_load_policy: "3",
-    });
-    return {
-      videoId,
-      isShort: false,
-      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`,
-      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-    };
-  }
+
+  let videoId: string | null = null;
   const isShort = trimmed.includes("/shorts/");
-  const match = trimmed.match(
-    /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|v\/|embed\/|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i
-  );
-  if (match && match[1]) {
-    const videoId = match[1];
+
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    videoId = trimmed;
+  } else {
+    const match = trimmed.match(
+      /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|v\/|embed\/|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i
+    );
+    if (match && match[1]) {
+      videoId = match[1];
+    }
+  }
+
+  if (videoId) {
+    // enablejsapi=1 allows our custom player to control the video
+    // controls=0 & modestbranding=1 & fs=0 & iv_load_policy=3 completely removes YouTube branding, logo, and controls
     const params = new URLSearchParams({
-      rel: "0",
-      modestbranding: "1",
-      playsinline: "1",
       enablejsapi: "1",
-      disablekb: "1",
+      controls: "0",
+      modestbranding: "1",
+      rel: "0",
+      playsinline: "1",
       iv_load_policy: "3",
+      disablekb: "1",
+      fs: "0",
     });
     return {
       videoId,
@@ -674,6 +685,7 @@ export function parseYouTubeVideo(url?: string): {
       thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
     };
   }
+
   return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
 }
 
@@ -703,39 +715,128 @@ function VideoPlayer({
   hasNextLesson: boolean;
 }) {
   const parsedYt = useMemo(() => parseYouTubeVideo(lesson.videoUrl), [lesson.videoUrl]);
-  const isShort = lesson.videoFormat === "shorts" || parsedYt.isShort;
   const youtubeEmbedUrl = parsedYt.embedUrl;
   const isDirectVideo = useMemo(
     () => Boolean(lesson.videoUrl && !youtubeEmbedUrl && (lesson.videoUrl.endsWith(".mp4") || lesson.videoUrl.includes("video"))),
     [lesson.videoUrl, youtubeEmbedUrl]
   );
 
+  // Default to 9:16 (Phone Mode) unless lesson is explicitly set to standard 16:9
+  const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">(() => {
+    if (lesson.videoFormat === "standard") return "16:9";
+    return "9:16";
+  });
+
   const total = lesson.durationSeconds || 600;
+  const [duration, setDuration] = useState(total);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(initialPosition);
   const [maxWatched, setMaxWatched] = useState(Math.max(initialMaxWatched, initialPosition));
-  const [notice, setNotice] = useState(false);
   const [completed, setCompleted] = useState(isAlreadyCompleted);
-  const noticeTimer = useRef<number | undefined>(undefined);
+  const [speed, setSpeed] = useState<1 | 1.25 | 1.5 | 2>(1);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [controlsVisible, setControlsVisible] = useState(true);
+  const [centerPulse, setCenterPulse] = useState<"play" | "pause" | null>(null);
+  const [scrubNotice, setScrubNotice] = useState(false);
 
-  const [watermarkPos, setWatermarkPos] = useState({ top: 16, left: 16 });
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setWatermarkPos({
-        top: Math.floor(10 + Math.random() * 65),
-        left: Math.floor(6 + Math.random() * 65),
-      });
-    }, 8000);
-    return () => clearInterval(timer);
-  }, []);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const scrubberTrackRef = useRef<HTMLDivElement>(null);
+  const controlsTimeoutRef = useRef<number | undefined>(undefined);
+  const pulseTimeoutRef = useRef<number | undefined>(undefined);
+  const noticeTimerRef = useRef<number | undefined>(undefined);
 
   const currentRef = useRef(current);
   const maxWatchedRef = useRef(maxWatched);
   const completedRef = useRef(completed);
-
   currentRef.current = current;
   maxWatchedRef.current = maxWatched;
   completedRef.current = completed;
+
+  // Auto-hide controls after 3.2s of playback
+  const showControlsTemporarily = () => {
+    setControlsVisible(true);
+    if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
+    if (playing) {
+      controlsTimeoutRef.current = window.setTimeout(() => {
+        setControlsVisible(false);
+      }, 3200);
+    }
+  };
+
+  const showScrubWarning = () => {
+    setScrubNotice(true);
+    if (noticeTimerRef.current) window.clearTimeout(noticeTimerRef.current);
+    noticeTimerRef.current = window.setTimeout(() => setScrubNotice(false), 2400);
+  };
+
+  // Post commands to YouTube iframe API
+  const postToYouTube = (func: string, args: any[] = []) => {
+    if (!iframeRef.current || !iframeRef.current.contentWindow) return;
+    iframeRef.current.contentWindow.postMessage(
+      JSON.stringify({
+        event: "command",
+        func,
+        args,
+      }),
+      "*"
+    );
+  };
+
+  // Listen to YouTube player messages
+  useEffect(() => {
+    const onMessage = (e: MessageEvent) => {
+      try {
+        if (!e.data || typeof e.data !== "string") return;
+        const data = JSON.parse(e.data);
+        if (data.event === "infoDelivery" || data.event === "initialDelivery") {
+          if (typeof data.info?.currentTime === "number") {
+            const t = Math.floor(data.info.currentTime);
+            setCurrent(t);
+            setMaxWatched((prev) => Math.max(prev, t));
+          }
+          if (typeof data.info?.duration === "number" && data.info.duration > 0) {
+            setDuration(Math.floor(data.info.duration));
+          }
+          if (data.info?.playerState === 1) {
+            setPlaying(true);
+          } else if (data.info?.playerState === 2) {
+            setPlaying(false);
+          } else if (data.info?.playerState === 0) {
+            setPlaying(false);
+            setCompleted(true);
+            onComplete(lesson.id);
+          }
+        } else if (data.event === "onStateChange") {
+          if (data.info === 1) setPlaying(true);
+          else if (data.info === 2) setPlaying(false);
+          else if (data.info === 0) {
+            setPlaying(false);
+            setCompleted(true);
+            onComplete(lesson.id);
+          }
+        }
+      } catch {}
+    };
+
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, [lesson.id, onComplete]);
+
+  // Fullscreen change listener
+  useEffect(() => {
+    const onFsChange = () => {
+      const active = Boolean(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      setIsFullscreen(active);
+    };
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    return () => {
+      document.removeEventListener("fullscreenchange", onFsChange);
+      document.removeEventListener("webkitfullscreenchange", onFsChange);
+    };
+  }, []);
 
   // Save progress on unmount
   useEffect(() => {
@@ -752,25 +853,25 @@ function VideoPlayer({
     };
   }, [user.id, lesson.id, settings.autoSaveProgress]);
 
-  // Video playback simulation loop (when not using youtube iframe)
+  // Playback ticker (smooth timer fallback & auto-save)
   useEffect(() => {
-    if (!playing || youtubeEmbedUrl) return;
+    if (!playing) return;
 
     const timer = window.setInterval(() => {
-      setCurrent((position) => {
-        const next = Math.min(total, position + 1);
+      setCurrent((pos) => {
+        const next = Math.min(duration, pos + 1);
         const newMax = Math.max(maxWatchedRef.current, next);
         setMaxWatched(newMax);
 
         const thresholdPercent = settings.defaultCompletionPercent || 95;
-        const targetSeconds = (total * thresholdPercent) / 100;
+        const targetSeconds = (duration * thresholdPercent) / 100;
 
         if (next >= targetSeconds && !completedRef.current) {
           setCompleted(true);
           onComplete(lesson.id);
         }
 
-        if (next >= total) {
+        if (next >= duration) {
           setPlaying(false);
         }
 
@@ -789,18 +890,109 @@ function VideoPlayer({
     }, 1000);
 
     return () => window.clearInterval(timer);
-  }, [playing, total, lesson.id, user.id, settings, onComplete, youtubeEmbedUrl]);
+  }, [playing, duration, lesson.id, user.id, settings, onComplete]);
 
-  // Anti-scrubbing protection
-  const seek = (value: number) => {
-    if (value > maxWatched + 2) {
-      setCurrent(maxWatched);
-      setNotice(true);
-      window.clearTimeout(noticeTimer.current);
-      noticeTimer.current = window.setTimeout(() => setNotice(false), 1800);
+  // Control Actions
+  const togglePlay = () => {
+    const next = !playing;
+    setPlaying(next);
+    setCenterPulse(next ? "play" : "pause");
+    if (pulseTimeoutRef.current) window.clearTimeout(pulseTimeoutRef.current);
+    pulseTimeoutRef.current = window.setTimeout(() => setCenterPulse(null), 650);
+
+    if (youtubeEmbedUrl) {
+      postToYouTube(next ? "playVideo" : "pauseVideo");
+    } else if (isDirectVideo && videoRef.current) {
+      if (next) videoRef.current.play().catch(() => {});
+      else videoRef.current.pause();
+    }
+
+    showControlsTemporarily();
+  };
+
+  const toggleFullscreen = () => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const isFs = Boolean(
+      document.fullscreenElement ||
+      (document as any).webkitFullscreenElement ||
+      isFullscreen
+    );
+
+    if (!isFs) {
+      if (container.requestFullscreen) {
+        container.requestFullscreen().catch(() => setIsFullscreen(true));
+      } else if ((container as any).webkitRequestFullscreen) {
+        (container as any).webkitRequestFullscreen();
+      } else {
+        setIsFullscreen(true);
+      }
+      setIsFullscreen(true);
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      } else if ((document as any).webkitExitFullscreen) {
+        (document as any).webkitExitFullscreen();
+      }
+      setIsFullscreen(false);
+    }
+  };
+
+  const handleRewind10 = () => {
+    const target = Math.max(0, current - 10);
+    setCurrent(target);
+    if (youtubeEmbedUrl) postToYouTube("seekTo", [target, true]);
+    else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = target;
+    showControlsTemporarily();
+  };
+
+  const handleForward10 = () => {
+    // Respect anti-scrubbing
+    if (current + 10 > maxWatched + 2) {
+      showScrubWarning();
       return;
     }
-    setCurrent(value);
+    const target = Math.min(duration, current + 10);
+    setCurrent(target);
+    if (youtubeEmbedUrl) postToYouTube("seekTo", [target, true]);
+    else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = target;
+    showControlsTemporarily();
+  };
+
+  const handleSeek = (newTime: number) => {
+    // Enforce anti-scrubbing: cannot skip past watched point
+    if (newTime > maxWatched + 2) {
+      showScrubWarning();
+      const clamped = maxWatched;
+      setCurrent(clamped);
+      if (youtubeEmbedUrl) postToYouTube("seekTo", [clamped, true]);
+      else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = clamped;
+      return;
+    }
+    setCurrent(newTime);
+    if (youtubeEmbedUrl) postToYouTube("seekTo", [newTime, true]);
+    else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = newTime;
+    showControlsTemporarily();
+  };
+
+  const handleScrubberClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!scrubberTrackRef.current) return;
+    const rect = scrubberTrackRef.current.getBoundingClientRect();
+    const clickX = e.clientX - rect.left;
+    const pct = Math.max(0, Math.min(1, clickX / rect.width));
+    const targetTime = Math.round(pct * duration);
+    handleSeek(targetTime);
+  };
+
+  const speeds: (1 | 1.25 | 1.5 | 2)[] = [1, 1.25, 1.5, 2];
+  const handleToggleSpeed = () => {
+    const idx = speeds.indexOf(speed);
+    const nextSpeed = speeds[(idx + 1) % speeds.length];
+    setSpeed(nextSpeed);
+    if (youtubeEmbedUrl) postToYouTube("setPlaybackRate", [nextSpeed]);
+    else if (isDirectVideo && videoRef.current) videoRef.current.playbackRate = nextSpeed;
+    showControlsTemporarily();
   };
 
   const handleFinishLesson = () => {
@@ -811,12 +1003,27 @@ function VideoPlayer({
     }
   };
 
+  // Dynamic security watermark
+  const [watermarkPos, setWatermarkPos] = useState({ top: 16, left: 16 });
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWatermarkPos({
+        top: Math.floor(10 + Math.random() * 65),
+        left: Math.floor(6 + Math.random() * 65),
+      });
+    }, 8000);
+    return () => clearInterval(timer);
+  }, []);
+
   const watermarkText = useMemo(() => {
     if (!settings.dynamicWatermark) return null;
     if (settings.watermarkFormat === "id") return user.id;
     if (settings.watermarkFormat === "full") return `${user.name} (${user.id}) • Yukla Go`;
     return `${user.id} • Yukla Go`;
   }, [settings, user]);
+
+  const watchedPercent = duration > 0 ? (maxWatched / duration) * 100 : 0;
+  const currentPercent = duration > 0 ? (current / duration) * 100 : 0;
 
   return (
     <main className="screen player-screen">
@@ -828,24 +1035,109 @@ function VideoPlayer({
         <span className="header-spacer" />
       </div>
 
-      {youtubeEmbedUrl ? (
+      {/* --- Custom In-App Video Player --- */}
+      {youtubeEmbedUrl || isDirectVideo || lesson.videoUrl ? (
         <div
-          className={`video-frame video-secure-wrapper ${isShort ? "youtube-shorts-container" : "youtube-container"}`}
+          ref={containerRef}
+          className={`custom-video-player ${aspectRatio === "9:16" ? "mode-phone" : "mode-wide"} ${isFullscreen ? "is-fullscreen" : ""} ${!controlsVisible && playing ? "hide-controls" : ""}`}
+          onMouseMove={showControlsTemporarily}
+          onTouchStart={showControlsTemporarily}
           onContextMenu={(e) => e.preventDefault()}
         >
-          {/* Security Shield 1: Top bar (Blocks clicking title & Share button) */}
-          <div className="video-shield-top" onClick={(e) => e.stopPropagation()} />
+          {/* Top Bar Overlay */}
+          <div className="player-overlay-top">
+            <div className="player-top-left">
+              <button
+                type="button"
+                className="player-pill-btn active"
+                onClick={() => setAspectRatio((prev) => (prev === "9:16" ? "16:9" : "9:16"))}
+                title="Formatni o‘zgartirish (Telefon 9:16 / Keng 16:9)"
+              >
+                {aspectRatio === "9:16" ? "📱 9:16 Telefon" : "💻 16:9 Keng"}
+              </button>
+            </div>
+            <div className="player-top-right">
+              <button
+                type="button"
+                className="player-pill-btn"
+                onClick={handleToggleSpeed}
+                title="Tezlikni o‘zgartirish"
+              >
+                {speed}x
+              </button>
+              <button
+                type="button"
+                className="player-icon-btn"
+                onClick={toggleFullscreen}
+                title={isFullscreen ? "To‘liq ekrandan chiqish" : "To‘liq ekran (Fullscreen)"}
+              >
+                <Icon name={isFullscreen ? "minimize" : "maximize"} size={18} />
+              </button>
+            </div>
+          </div>
 
-          {/* Security Shield 2: Bottom-right corner (Blocks clicking YouTube logo) */}
-          <div className="video-shield-bottom-right" onClick={(e) => e.stopPropagation()} />
+          {/* Media Box */}
+          <div className="custom-player-media-box">
+            {youtubeEmbedUrl ? (
+              <iframe
+                ref={iframeRef}
+                src={youtubeEmbedUrl}
+                title={lesson.title}
+                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                allowFullScreen
+                className="custom-player-iframe"
+                onLoad={() => postToYouTube("listening")}
+              />
+            ) : isDirectVideo ? (
+              <video
+                ref={videoRef}
+                src={lesson.videoUrl}
+                playsInline
+                className="custom-player-native-video"
+                onLoadedMetadata={(e) => setDuration(Math.floor(e.currentTarget.duration))}
+                onTimeUpdate={(e) => {
+                  const t = Math.floor(e.currentTarget.currentTime);
+                  setCurrent(t);
+                  setMaxWatched((prev) => Math.max(prev, t));
+                }}
+                onEnded={() => {
+                  setPlaying(false);
+                  setCompleted(true);
+                  onComplete(lesson.id);
+                }}
+              />
+            ) : (
+              <iframe
+                ref={iframeRef}
+                src={lesson.videoUrl}
+                title={lesson.title}
+                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
+                allowFullScreen
+                className="custom-player-iframe"
+              />
+            )}
+          </div>
 
-          <iframe
-            src={youtubeEmbedUrl}
-            title={lesson.title}
-            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
-            className="youtube-iframe"
+          {/* Interactive Click Shield (Tapping anywhere plays/pauses) */}
+          <div
+            className="custom-player-click-shield"
+            onClick={togglePlay}
+            onDoubleClick={toggleFullscreen}
           />
 
+          {/* Center Play/Pause Animated Pulse */}
+          <div className={`center-pulse-indicator ${centerPulse ? "active" : ""}`}>
+            <Icon name={centerPulse === "pause" ? "pause" : "play"} size={30} />
+          </div>
+
+          {/* Anti-Scrubbing Toast Warning */}
+          {scrubNotice && (
+            <div className="anti-scrub-notice">
+              <span>⚠️ Darsni to‘liq ko‘rishingiz kerak. Oldinga o‘tkazish cheklangan.</span>
+            </div>
+          )}
+
+          {/* Floating Dynamic Security Watermark */}
           {watermarkText && (
             <div
               className="dynamic-security-watermark"
@@ -854,54 +1146,77 @@ function VideoPlayer({
               <span>{watermarkText}</span>
             </div>
           )}
-        </div>
-      ) : isDirectVideo ? (
-        <div
-          className="video-frame video-secure-wrapper direct-video-container"
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <video
-            src={lesson.videoUrl}
-            controls
-            controlsList="nodownload noplaybackrate"
-            disablePictureInPicture
-            onContextMenu={(e) => e.preventDefault()}
-            className="native-video-elem"
-            onEnded={() => {
-              setCompleted(true);
-              onComplete(lesson.id);
-            }}
-          />
-          {watermarkText && (
+
+          {/* Bottom Controls Overlay */}
+          <div className="player-overlay-bottom">
+            {/* Scrubber Progress Bar */}
             <div
-              className="dynamic-security-watermark"
-              style={{ top: `${watermarkPos.top}%`, left: `${watermarkPos.left}%` }}
+              ref={scrubberTrackRef}
+              className="player-scrubber-container"
+              onClick={handleScrubberClick}
             >
-              <span>{watermarkText}</span>
+              <div className="player-scrubber-track">
+                <div
+                  className="player-scrubber-watched"
+                  style={{ width: `${Math.min(100, watchedPercent)}%` }}
+                />
+                <div
+                  className="player-scrubber-progress"
+                  style={{ width: `${Math.min(100, currentPercent)}%` }}
+                />
+                <div
+                  className="player-scrubber-thumb"
+                  style={{ left: `${Math.min(100, currentPercent)}%` }}
+                />
+              </div>
             </div>
-          )}
-        </div>
-      ) : lesson.videoUrl ? (
-        <div
-          className="video-frame video-secure-wrapper youtube-container"
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <div className="video-shield-top" onClick={(e) => e.stopPropagation()} />
-          <div className="video-shield-bottom-right" onClick={(e) => e.stopPropagation()} />
-          <iframe
-            src={lesson.videoUrl}
-            title={lesson.title}
-            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
-            className="youtube-iframe"
-          />
-          {watermarkText && (
-            <div
-              className="dynamic-security-watermark"
-              style={{ top: `${watermarkPos.top}%`, left: `${watermarkPos.left}%` }}
-            >
-              <span>{watermarkText}</span>
+
+            {/* Buttons Row */}
+            <div className="player-controls-row">
+              <div className="player-controls-left">
+                <button
+                  type="button"
+                  className="player-icon-btn primary-play"
+                  onClick={togglePlay}
+                  title={playing ? "To‘xtatish" : "O‘ynatish"}
+                >
+                  <Icon name={playing ? "pause" : "play"} size={20} />
+                </button>
+                <button
+                  type="button"
+                  className="player-skip-btn"
+                  onClick={handleRewind10}
+                  title="10 soniya orqaga"
+                >
+                  <Icon name="rewind-10" size={14} />
+                  <span>10s</span>
+                </button>
+                <button
+                  type="button"
+                  className="player-skip-btn"
+                  onClick={handleForward10}
+                  title="10 soniya oldinga"
+                >
+                  <span>10s</span>
+                  <Icon name="forward-10" size={14} />
+                </button>
+                <span className="player-time-text">
+                  {formatTime(current)} / {formatTime(duration)}
+                </span>
+              </div>
+
+              <div className="player-controls-right">
+                <button
+                  type="button"
+                  className="player-icon-btn"
+                  onClick={toggleFullscreen}
+                  title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
+                >
+                  <Icon name={isFullscreen ? "minimize" : "maximize"} size={20} />
+                </button>
+              </div>
             </div>
-          )}
+          </div>
         </div>
       ) : (
         <div className="video-frame no-video-notice-box">
@@ -912,11 +1227,13 @@ function VideoPlayer({
         </div>
       )}
 
+      {/* Lesson Details & Completion Section */}
       <section className="lesson-detail">
         <div className="lesson-header-flex">
           <div>
             <p className="eyebrow">
-              {lessonIndex + 1}-dars {isShort && <span className="shorts-badge-small">⚡ Shorts</span>}
+              {lessonIndex + 1}-dars{" "}
+              {aspectRatio === "9:16" && <span className="shorts-badge-small">📱 9:16 Vertikal</span>}
             </p>
             <h1>{lesson.title}</h1>
           </div>
@@ -927,21 +1244,20 @@ function VideoPlayer({
             "Xarid qilishdan oldin mahsulot sifati va ma’lumotlarini to‘g‘ri baholashni o‘rganing."}
         </p>
 
-        {!youtubeEmbedUrl && (
-          <div className="watch-progress">
-            <div className="watch-row">
-              <span>Ko‘rish jarayoni</span>
-              <strong>
-                {formatTime(current)} / {formatTime(total)}
-              </strong>
-            </div>
-            <ProgressBar max={total} value={current} />
-            <div className="watch-hint">
-              <span>Ko‘rilgan qismga qaytishingiz mumkin</span>
-              <span>{Math.round((maxWatched / total) * 100)}%</span>
-            </div>
+        {/* Watch Progress Overview */}
+        <div className="watch-progress">
+          <div className="watch-row">
+            <span>Ko‘rish jarayoni</span>
+            <strong>
+              {formatTime(current)} / {formatTime(duration)}
+            </strong>
           </div>
-        )}
+          <ProgressBar max={duration} value={current} />
+          <div className="watch-hint">
+            <span>Ko‘rilgan qismga qaytishingiz mumkin</span>
+            <span>{Math.round((maxWatched / Math.max(1, duration)) * 100)}%</span>
+          </div>
+        </div>
 
         {completed ? (
           <div className="completion-card">
