@@ -38,100 +38,18 @@ export async function adminFetch(endpoint: string, options: RequestInit = {}): P
 }
 
 // -----------------------------------------------------------------------------
-// Fallback & Mock Data Store (used in dev/preview/offline)
+// Dynamic User Profile & Storage Utilities
 // -----------------------------------------------------------------------------
-const FALLBACK_USER: UserProfile = {
-  id: 'usr_dev_100',
-  telegramUserId: 99887766,
-  customerCode: 'YK-100',
-  name: 'Saidislom',
-  phone: '+998 90 123 45 67',
-  phoneVerified: true,
-  status: 'active',
-  ofertaAccepted: true,
-  defaultDeliveryBranch: {
-    provider: 'BTS',
-    branchName: 'BTS Chorsu',
-    region: 'Namangan',
-    address: 'Namangan sh., Chorsu dahasi, 12-uy',
-  },
-};
-
-const FALLBACK_WAREHOUSE: ChinaWarehouseAddress = {
-  receiver: 'Yukla Go (YK-100)',
-  phone: '13335957161',
-  region: '浙江省金华市义乌市',
-  address: '077库房/70099号 YK-100',
-  customerCode: 'YK-100',
-};
-
 const FALLBACK_RATES: ShippingRates = {
   pricePerKg: 9.5,
   exchangeRate: 12850,
 };
 
-const INITIAL_FALLBACK_PARCELS: Parcel[] = [
-  {
-    id: 'p_1',
-    trackingNumber: 'YT882910291CN',
-    customerCode: 'YK-100',
-    status: 'in_transit',
-    paymentStatus: 'pending',
-    weightKg: 3.2,
-    amount: 30.40,
-    currency: 'USD',
-    chinaDate: '28.09.2026',
-    estimatedArrival: '05.10.2026',
-    deliveryBranchSnapshot: FALLBACK_USER.defaultDeliveryBranch,
-    createdAt: '2026-09-28T10:00:00.000Z',
-  },
-  {
-    id: 'p_2',
-    trackingNumber: 'SF992019482CN',
-    customerCode: 'YK-100',
-    status: 'china_warehouse',
-    paymentStatus: 'pending',
-    weightKg: 1.5,
-    amount: 14.25,
-    currency: 'USD',
-    chinaDate: '01.10.2026',
-    estimatedArrival: '08.10.2026',
-    deliveryBranchSnapshot: FALLBACK_USER.defaultDeliveryBranch,
-    createdAt: '2026-10-01T08:30:00.000Z',
-  },
-  {
-    id: 'p_3',
-    trackingNumber: 'JT382910381CN',
-    customerCode: 'YK-100',
-    status: 'uzbekistan',
-    paymentStatus: 'paid',
-    weightKg: 4.8,
-    amount: 45.60,
-    currency: 'USD',
-    chinaDate: '20.09.2026',
-    estimatedArrival: '02.10.2026',
-    deliveryBranchSnapshot: FALLBACK_USER.defaultDeliveryBranch,
-    createdAt: '2026-09-20T14:15:00.000Z',
-  },
-  {
-    id: 'p_4',
-    trackingNumber: 'YT771928371CN',
-    customerCode: 'YK-100',
-    status: 'delivered',
-    paymentStatus: 'paid',
-    weightKg: 2.1,
-    amount: 19.95,
-    currency: 'USD',
-    chinaDate: '10.09.2026',
-    estimatedArrival: '18.09.2026',
-    deliveryBranchSnapshot: FALLBACK_USER.defaultDeliveryBranch,
-    createdAt: '2026-09-10T11:00:00.000Z',
-  },
-];
+const INITIAL_FALLBACK_PARCELS: Parcel[] = [];
 
 const FALLBACK_BRANCHES: DeliveryBranchSnapshot[] = [
-  { provider: 'BTS', branchName: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12-uy' },
   { provider: 'BTS', branchName: 'BTS Chilonzor', region: 'Toshkent', address: 'Chilonzor 9-mavze, Qatortol 1' },
+  { provider: 'BTS', branchName: 'BTS Chorsu', region: 'Namangan', address: 'Namangan sh., Chorsu dahasi, 12-uy' },
   { provider: 'EMU', branchName: 'EMU Yunusobod', region: 'Toshkent', address: 'Yunusobod 4-mavze, 15-uy' },
   { provider: 'EMU', branchName: 'EMU Chortoq', region: 'Namangan', address: 'Mustaqillik ko\'chasi 10' },
   { provider: 'UZPOST', branchName: 'Bosh Pochtampt', region: 'Toshkent', address: 'Shahrisabz ko\'chasi 7' },
@@ -142,7 +60,7 @@ function getStoredParcels(): Parcel[] {
     const raw = localStorage.getItem('yukla_parcels');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      if (Array.isArray(parsed)) return parsed;
     }
   } catch {
     // Ignore localStorage errors
@@ -158,7 +76,7 @@ function saveStoredParcels(parcels: Parcel[]) {
   }
 }
 
-function getStoredProfile(): UserProfile {
+export function getStoredProfile(): UserProfile {
   try {
     const raw = localStorage.getItem('yukla_profile');
     if (raw) {
@@ -168,10 +86,58 @@ function getStoredProfile(): UserProfile {
   } catch {
     // Ignore
   }
-  return FALLBACK_USER;
+
+  // Derive personalized profile from URL params and Telegram environment
+  let derivedName = 'Mijoz';
+  let derivedCode = 'YK-001';
+  let telegramUserId = 0;
+
+  if (typeof window !== 'undefined') {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlCode = params.get('code');
+      const urlName = params.get('name');
+      const tgUser = (window as any).Telegram?.WebApp?.initDataUnsafe?.user;
+
+      if (urlName) {
+        derivedName = urlName;
+      } else if (tgUser) {
+        derivedName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Mijoz';
+      }
+
+      if (urlCode) {
+        derivedCode = urlCode;
+      } else if (tgUser?.id) {
+        derivedCode = `YK-${String(tgUser.id).slice(-4)}`;
+      }
+
+      if (tgUser?.id) {
+        telegramUserId = tgUser.id;
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  return {
+    id: `usr_${telegramUserId || 'guest'}`,
+    telegramUserId,
+    customerCode: derivedCode,
+    name: derivedName,
+    phone: '',
+    phoneVerified: true,
+    status: 'active',
+    ofertaAccepted: true,
+    defaultDeliveryBranch: {
+      provider: 'BTS',
+      branchName: 'BTS Chilonzor',
+      region: 'Toshkent',
+      address: 'Chilonzor 9-mavze, Qatortol 1',
+    },
+  };
 }
 
-function saveStoredProfile(profile: UserProfile) {
+export function saveStoredProfile(profile: UserProfile) {
   try {
     localStorage.setItem('yukla_profile', JSON.stringify(profile));
   } catch {
@@ -227,6 +193,24 @@ export const api = {
       if (res.token) {
         setSessionToken(res.token);
       }
+      if (res.user) {
+        saveStoredProfile({
+          id: res.user.id || `usr_${res.user.telegramUserId}`,
+          telegramUserId: res.user.telegramUserId,
+          customerCode: res.user.customerCode,
+          name: res.user.name,
+          phone: res.user.phone || '',
+          phoneVerified: true,
+          status: res.user.status || 'active',
+          ofertaAccepted: true,
+          defaultDeliveryBranch: res.user.defaultDeliveryBranch || {
+            provider: 'BTS',
+            branchName: 'BTS Chilonzor',
+            region: 'Toshkent',
+            address: 'Chilonzor 9-mavze, Qatortol 1',
+          },
+        });
+      }
       return res;
     } catch (err: any) {
       if (import.meta.env.DEV) {
@@ -246,6 +230,18 @@ export const api = {
     });
     if (res.token) {
       setSessionToken(res.token);
+    }
+    if (res.user) {
+      saveStoredProfile({
+        id: res.user.id,
+        telegramUserId: res.user.telegramUserId,
+        customerCode: res.user.customerCode,
+        name: res.user.name,
+        phone: '',
+        phoneVerified: true,
+        status: 'active',
+        ofertaAccepted: true,
+      });
     }
     return res;
   },
@@ -286,12 +282,26 @@ export const api = {
 
   // 4. China warehouse address
   getWarehouseAddress: async (): Promise<ChinaWarehouseAddress> => {
+    const profile = getStoredProfile();
+    const code = profile?.customerCode || 'YK-001';
     try {
       const res = await request<ChinaWarehouseAddress>('/api/config/warehouse');
       if (res && res.receiver) return res;
-      return FALLBACK_WAREHOUSE;
+      return {
+        receiver: `Yukla Go (${code})`,
+        phone: '13335957161',
+        region: '浙江省金华市义乌市',
+        address: `077库房/70099号 ${code}`,
+        customerCode: code,
+      };
     } catch {
-      return FALLBACK_WAREHOUSE;
+      return {
+        receiver: `Yukla Go (${code})`,
+        phone: '13335957161',
+        region: '浙江省金华市义乌市',
+        address: `077库房/70099号 ${code}`,
+        customerCode: code,
+      };
     }
   },
 

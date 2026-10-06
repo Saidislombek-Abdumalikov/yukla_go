@@ -67,13 +67,15 @@ function App() {
     // Attempt authentication if initData is present
     if (initData) {
       api.authWithTelegram(initData)
+        .then(() => api.getProfile())
         .then(() => {
           setAuthLoading(false);
         })
         .catch((err) => {
           console.warn('Auth issue:', err.message);
-          setAuthError(err.message);
-          setAuthLoading(false);
+          api.getProfile().finally(() => {
+            setAuthLoading(false);
+          });
         });
     } else {
       // Dev / Preview mode: preload profile

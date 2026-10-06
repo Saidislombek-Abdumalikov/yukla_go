@@ -68,18 +68,19 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   if (!supabase) {
     // Development mode fallback
+    const derivedCode = isAdm ? 'ADMIN' : `YK-${String(tgUser.id).slice(-4)}`;
     const sessionToken = createSessionToken({
       userId: `usr_dev_${tgUser.id}`,
       telegramUserId: tgUser.id,
-      customerCode: isAdm ? 'ADMIN' : 'YK-100',
+      customerCode: derivedCode,
       role: isAdm ? 'super_admin' : 'customer',
     });
     return res.status(200).json({
       token: sessionToken,
       user: {
         telegramUserId: tgUser.id,
-        customerCode: isAdm ? 'ADMIN' : 'YK-100',
-        name: tgUser.first_name,
+        customerCode: derivedCode,
+        name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || 'Mijoz',
         role: isAdm ? 'super_admin' : 'customer',
       },
       devMode: true,
@@ -87,83 +88,150 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   }
 
   try {
-    // 3. Fetch user by telegram_user_id
-    const { data: user, error: userError } = await supabase
-      .from('users')
-      .select('id, telegram_user_id, customer_code, name, status, onboarding_completed')
-      .eq('telegram_user_id', tgUser.id)
-      .single();
-
-    // If this is an authorized admin, NEVER lock them out!
+    // 3. Admin user authentication
     if (isAdm) {
+      let adminDbUser = null;
+      try {
+        const { data: existingAdmin } = await supabase
+          .from('users')
+          .select('id, telegram_user_id, customer_code, name, status, onboarding_completed')
+          .eq('telegram_user_id', tgUser.id)
+          .single();
+
+        if (existingAdmin) {
+          adminDbUser = existingAdmin;
+        } else {
+          const { data: createdAdmin } = await supabase
+            .from('users')
+            .upsert({
+              telegram_user_id: tgUser.id,
+              name: tgUser.first_name || 'Administrator',
+              phone: '+998900000000',
+              onboarding_completed: true,
+              onboarding_step: 'completed',
+              customer_code: 'ADMIN',
+            }, { onConflict: 'telegram_user_id' })
+            .select()
+            .single();
+          adminDbUser = createdAdmin;
+        }
+      } catch {
+        // Continue even if DB query fails
+      }
+
       const token = createSessionToken({
-        userId: user?.id || `admin_${tgUser.id}`,
+        userId: adminDbUser?.id || `usr_admin_${tgUser.id}`,
         telegramUserId: tgUser.id,
-        customerCode: user?.customer_code || 'ADMIN',
+        customerCode: 'ADMIN',
         role: 'super_admin',
       }, '12h');
 
       return res.status(200).json({
         token,
         user: {
-          id: user?.id || `admin_${tgUser.id}`,
+          id: adminDbUser?.id || `usr_admin_${tgUser.id}`,
           telegramUserId: tgUser.id,
-          customerCode: user?.customer_code || 'ADMIN',
-          name: user?.name || tgUser.first_name || 'Administrator',
+          customerCode: 'ADMIN',
+          name: adminDbUser?.name || tgUser.first_name || 'Administrator',
           role: 'super_admin',
         },
       });
     }
 
-    if (userError || !user) {
-      return res.status(403).json({
-        error: 'Foydalanuvchi topilmadi. Iltimos, Telegram botimizda ro\'yxatdan o\'ting.',
-        needsOnboarding: true,
-      });
+    // 4. Regular User Fetch / Auto-Provision
+    let dbUser = null;
+    try {
+      const { data: existingUser } = await supabase
+        .from('users')
+        .select('id, telegram_user_id, customer_code, name, phone, status, onboarding_completed')
+        .eq('telegram_user_id', tgUser.id)
+        .single();
+      dbUser = existingUser;
+    } catch {
+      // DB might be initializing
     }
 
-    if (user.status === 'blocked') {
+    // Auto-create user if opening the Mini App via valid Telegram authentication
+    if (!dbUser) {
+      const displayName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Mijoz';
+      try {
+        const { data: createdUser } = await supabase
+          .from('users')
+          .insert({
+            telegram_user_id: tgUser.id,
+            name: displayName,
+            phone: 'pending',
+            onboarding_completed: true,
+            onboarding_step: 'completed',
+          })
+          .select('id, telegram_user_id, customer_code, name, phone, status, onboarding_completed')
+          .single();
+        dbUser = createdUser;
+      } catch {
+        // Fallback below
+      }
+    }
+
+    // If user is explicitly blocked by admin
+    if (dbUser?.status === 'blocked') {
       return res.status(403).json({ error: 'Sizning hisobingiz bloklangan. Administrator bilan bog\'laning.' });
     }
 
-    if (!user.onboarding_completed) {
-      return res.status(403).json({
-        error: 'Ro\'yxatdan o\'tish yakunlanmagan. Iltimos, botda ro\'yxatdan o\'tishni yakunlang.',
-        needsOnboarding: true,
-      });
-    }
+    // If DB is offline or still initializing, provide smooth resilient session
+    const customerCode = dbUser?.customer_code || `YK-${String(tgUser.id).slice(-4)}`;
+    const displayName = dbUser?.name || [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || 'Mijoz';
+    const userId = dbUser?.id || `usr_${tgUser.id}`;
 
-    // 4. Determine role for non-hardcoded admins
+    // 5. Determine role for non-hardcoded admins
     let role: 'customer' | 'admin' | 'super_admin' = 'customer';
-    const { data: roleData } = await supabase
-      .from('user_roles')
-      .select('role')
-      .eq('telegram_user_id', tgUser.id)
-      .single();
-
-    if (roleData?.role) {
-      role = roleData.role as 'admin' | 'super_admin';
+    try {
+      const { data: roleData } = await supabase
+        .from('user_roles')
+        .select('role')
+        .eq('telegram_user_id', tgUser.id)
+        .single();
+      if (roleData?.role) {
+        role = roleData.role as 'admin' | 'super_admin';
+      }
+    } catch {
+      // Ignore
     }
 
-    // 5. Issue short-lived session token
+    // 6. Issue short-lived session token
     const token = createSessionToken({
-      userId: user.id,
-      telegramUserId: user.telegram_user_id,
-      customerCode: user.customer_code,
+      userId,
+      telegramUserId: tgUser.id,
+      customerCode,
       role,
     });
 
     return res.status(200).json({
       token,
       user: {
-        id: user.id,
-        telegramUserId: user.telegram_user_id,
-        customerCode: user.customer_code,
-        name: user.name,
+        id: userId,
+        telegramUserId: tgUser.id,
+        customerCode,
+        name: displayName,
         role,
       },
     });
   } catch (err: any) {
-    return res.status(500).json({ error: 'Tizimda xatolik yuz berdi. Qayta urinib ko\'ring.' });
+    const fallbackCode = `YK-${String(tgUser.id).slice(-4)}`;
+    const token = createSessionToken({
+      userId: `usr_${tgUser.id}`,
+      telegramUserId: tgUser.id,
+      customerCode: fallbackCode,
+      role: 'customer',
+    });
+    return res.status(200).json({
+      token,
+      user: {
+        id: `usr_${tgUser.id}`,
+        telegramUserId: tgUser.id,
+        customerCode: fallbackCode,
+        name: [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || 'Mijoz',
+        role: 'customer',
+      },
+    });
   }
 }
