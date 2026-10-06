@@ -1,0 +1,10 @@
+{
+  "description": "Streamline your learning experience with a mobile-first video lesson platform that guides users through ordering products from China, ensuring progress tracking and lesson completion.",
+  "robots": {
+    "index": false
+  },
+  "accessibility": {
+    "addBypassLinks": false,
+    "ignoreReducedMotion": false
+  }
+}
