@@ -33,6 +33,7 @@ export interface LessonItem {
   durationSeconds: number; // in seconds
   status: "Faol" | "Tayyor" | "Qoralama" | "Yashirilgan";
   videoUrl?: string;
+  videoFormat?: "auto" | "standard" | "shorts";
   thumbnailUrl?: string;
   color?: string;
   viewers?: number;

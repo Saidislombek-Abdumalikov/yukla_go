@@ -441,17 +441,16 @@ const server = http.createServer(async (req, res) => {
       const lessonData = await parseBody(req);
       const courseId = Number(lessonData.courseId) || (db.courses[0]?.id || 1);
       const newLesson = {
-        id: Date.now(),
+        id: Date.now() + Math.floor(Math.random() * 1000),
         courseId,
         title: lessonData.title || "Yangi video dars",
         description: lessonData.description || "",
         duration: lessonData.duration || "10:00",
         durationSeconds: Number(lessonData.durationSeconds) || 600,
         videoUrl: lessonData.videoUrl || "",
+        videoFormat: lessonData.videoFormat || "auto",
         status: lessonData.status || "Faol",
-        thumbnailUrl:
-          lessonData.thumbnailUrl ||
-          "https://images.unsplash.com/photo-1575295126001-2b4a7190c57f?auto=format&fit=crop&w=480&q=80",
+        thumbnailUrl: typeof lessonData.thumbnailUrl === "string" ? lessonData.thumbnailUrl.trim() : "",
         color: "lesson-blue",
         viewers: 0,
         completion: 0,
@@ -479,16 +478,18 @@ const server = http.createServer(async (req, res) => {
   // 7.1 Update / Edit Lesson
   if (pathname === "/api/lessons/update" && req.method === "POST") {
     try {
-      const { id, title, duration, durationSeconds, videoUrl, description, status, courseId } =
+      const { id, title, duration, durationSeconds, videoUrl, videoFormat, thumbnailUrl, description, status, courseId } =
         await parseBody(req);
       db.lessons = db.lessons.map((l) => {
-        if (l.id === Number(id)) {
+        if (String(l.id) === String(id) || Number(l.id) === Number(id)) {
           return {
             ...l,
             title: title !== undefined ? title : l.title,
             duration: duration !== undefined ? duration : l.duration,
             durationSeconds: durationSeconds !== undefined ? Number(durationSeconds) : l.durationSeconds,
             videoUrl: videoUrl !== undefined ? videoUrl : (l.videoUrl || ""),
+            videoFormat: videoFormat !== undefined ? videoFormat : (l.videoFormat || "auto"),
+            thumbnailUrl: thumbnailUrl !== undefined ? thumbnailUrl.trim() : (l.thumbnailUrl || ""),
             description: description !== undefined ? description : l.description,
             status: status !== undefined ? status : l.status,
             courseId: courseId !== undefined ? Number(courseId) : l.courseId,

@@ -81,6 +81,14 @@
         "completed": false,
         "lastUpdated": 1791299623429
       }
+    },
+    "YK-100": {
+      "1": {
+        "current": 8,
+        "maxWatched": 8,
+        "completed": false,
+        "lastUpdated": 1791300046673
+      }
     }
   }
 }

@@ -285,6 +285,10 @@ function LessonCard({
 
   const totalSeconds = lesson.durationSeconds || 600;
 
+  const parsedYt = useMemo(() => parseYouTubeVideo(lesson.videoUrl), [lesson.videoUrl]);
+  const thumbnailSrc = lesson.thumbnailUrl || parsedYt.thumbnailUrl;
+  const isShort = lesson.videoFormat === "shorts" || parsedYt.isShort;
+
   return (
     <button
       className={`lesson-card ${state}`}
@@ -292,14 +296,15 @@ function LessonCard({
       onClick={isLocked ? undefined : onOpen}
     >
       <div className="lesson-thumbnail">
-        <img
-          alt={lesson.title}
-          src={
-            lesson.thumbnailUrl ||
-            "https://images.unsplash.com/photo-1575295126001-2b4a7190c57f?auto=format&fit=crop&w=480&q=80"
-          }
-        />
+        {thumbnailSrc ? (
+          <img alt={lesson.title} src={thumbnailSrc} />
+        ) : (
+          <div className="lesson-thumb-placeholder">
+            <Icon name="play" size={24} />
+          </div>
+        )}
         <span className="lesson-number">{String(index + 1).padStart(2, "0")}</span>
+        {isShort && <span className="shorts-badge">⚡ Shorts</span>}
         {isComplete && (
           <span className="thumb-status complete">
             <Icon name="check" size={15} />
@@ -323,6 +328,12 @@ function LessonCard({
           <span className="dot" />
           <Icon name="clock" size={14} />
           <span>{lesson.duration}</span>
+          {isShort && (
+            <>
+              <span className="dot" />
+              <span className="shorts-meta-tag">Shorts</span>
+            </>
+          )}
         </div>
         <div className="lesson-title">{lesson.title}</div>
 
@@ -415,13 +426,20 @@ function LessonsHome({
   onOpenProfile: () => void;
 }) {
   const allowedCourses = useMemo(() => {
-    return courses.filter((c) => user.coursesAccess?.[c.id] === "Faol");
+    return courses.filter(
+      (c) =>
+        !user.coursesAccess ||
+        Object.keys(user.coursesAccess).length === 0 ||
+        user.coursesAccess[c.id] === "Faol" ||
+        user.coursesAccess[String(c.id)] === "Faol"
+    );
   }, [courses, user]);
 
   const activeCourse = useMemo(() => {
     return (
-      allowedCourses.find((c) => c.id === activeCourseId) ||
+      allowedCourses.find((c) => String(c.id) === String(activeCourseId)) ||
       allowedCourses[0] ||
+      courses.find((c) => String(c.id) === String(activeCourseId)) ||
       courses[0] ||
       defaultCourse
     );
@@ -431,7 +449,7 @@ function LessonsHome({
     () =>
       lessons.filter(
         (l) =>
-          l.courseId === activeCourse.id &&
+          String(l.courseId) === String(activeCourse.id) &&
           l.status !== "Qoralama" &&
           l.status !== "Yashirilgan"
       ),
@@ -565,13 +583,39 @@ function VideoError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-function getYouTubeEmbedUrl(url?: string): string | null {
-  if (!url) return null;
-  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/);
-  if (match && match[1]) {
-    return `https://www.youtube-nocookie.com/embed/${match[1]}?rel=0&modestbranding=1&playsinline=1`;
+export function parseYouTubeVideo(url?: string): {
+  videoId: string | null;
+  isShort: boolean;
+  embedUrl: string | null;
+  thumbnailUrl: string | null;
+} {
+  if (!url || typeof url !== "string") {
+    return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
   }
-  return null;
+  const trimmed = url.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
+    const videoId = trimmed;
+    return {
+      videoId,
+      isShort: false,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1`,
+      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+    };
+  }
+  const isShort = trimmed.includes("/shorts/");
+  const match = trimmed.match(
+    /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|v\/|embed\/|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i
+  );
+  if (match && match[1]) {
+    const videoId = match[1];
+    return {
+      videoId,
+      isShort,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1`,
+      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
+    };
+  }
+  return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
 }
 
 function VideoPlayer({
@@ -599,14 +643,15 @@ function VideoPlayer({
   onNextLesson?: () => void;
   hasNextLesson: boolean;
 }) {
-  const youtubeEmbedUrl = useMemo(() => getYouTubeEmbedUrl(lesson.videoUrl), [lesson.videoUrl]);
+  const parsedYt = useMemo(() => parseYouTubeVideo(lesson.videoUrl), [lesson.videoUrl]);
+  const isShort = lesson.videoFormat === "shorts" || parsedYt.isShort;
+  const youtubeEmbedUrl = parsedYt.embedUrl;
   const isDirectVideo = useMemo(
     () => Boolean(lesson.videoUrl && !youtubeEmbedUrl && (lesson.videoUrl.endsWith(".mp4") || lesson.videoUrl.includes("video"))),
     [lesson.videoUrl, youtubeEmbedUrl]
   );
 
-  const total = lesson.durationSeconds || 730;
-  const [loading, setLoading] = useState(true);
+  const total = lesson.durationSeconds || 600;
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(initialPosition);
   const [maxWatched, setMaxWatched] = useState(Math.max(initialMaxWatched, initialPosition));
@@ -621,11 +666,6 @@ function VideoPlayer({
   currentRef.current = current;
   maxWatchedRef.current = maxWatched;
   completedRef.current = completed;
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => setLoading(false), 300);
-    return () => window.clearTimeout(timer);
-  }, []);
 
   // Save progress on unmount
   useEffect(() => {
@@ -693,27 +733,20 @@ function VideoPlayer({
     setCurrent(value);
   };
 
+  const handleFinishLesson = () => {
+    setCompleted(true);
+    onComplete(lesson.id);
+    if (hasNextLesson && onNextLesson) {
+      onNextLesson();
+    }
+  };
+
   const watermarkText = useMemo(() => {
     if (!settings.dynamicWatermark) return null;
     if (settings.watermarkFormat === "id") return user.id;
     if (settings.watermarkFormat === "full") return `${user.name} (${user.id}) • Yukla Go`;
     return `${user.id} • Yukla Go`;
   }, [settings, user]);
-
-  if (loading) {
-    return (
-      <main className="screen player-screen">
-        <div className="player-header">
-          <button aria-label="Orqaga" className="icon-button" onClick={onBack}>
-            <Icon name="arrow-left" />
-          </button>
-          <span>{lessonIndex + 1}-dars</span>
-          <span className="header-spacer" />
-        </div>
-        <VideoLoading />
-      </main>
-    );
-  }
 
   return (
     <main className="screen player-screen">
@@ -726,7 +759,7 @@ function VideoPlayer({
       </div>
 
       {youtubeEmbedUrl ? (
-        <div className="video-frame youtube-container">
+        <div className={`video-frame ${isShort ? "youtube-shorts-container" : "youtube-container"}`}>
           <iframe
             src={youtubeEmbedUrl}
             title={lesson.title}
@@ -751,90 +784,56 @@ function VideoPlayer({
           />
           {watermarkText && <span className="watermark floating-watermark">{watermarkText}</span>}
         </div>
-      ) : (
-        <div className="video-frame">
-          <img
-            alt={lesson.title}
-            src={
-              lesson.thumbnailUrl ||
-              "https://images.unsplash.com/photo-1563719544898-deea3078afa1?auto=format&fit=crop&w=480&q=80"
-            }
+      ) : lesson.videoUrl ? (
+        <div className="video-frame youtube-container">
+          <iframe
+            src={lesson.videoUrl}
+            title={lesson.title}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+            allowFullScreen
+            className="youtube-iframe"
           />
-          <div className="video-shade" />
-
-          {watermarkText && <span className="watermark">{watermarkText}</span>}
-
-          {notice && <span className="seek-notice">Bu qismni hali ko‘rmagansiz</span>}
-
-          <button
-            aria-label={playing ? "Pauza" : "Davom ettirish"}
-            className="center-play"
-            onClick={() => setPlaying((value) => !value)}
-          >
-            <Icon name={playing ? "pause" : "play"} size={24} />
-          </button>
-
-          <div className="controls">
-            <button
-              aria-label={playing ? "Pauza" : "Ijro etish"}
-              onClick={() => setPlaying((value) => !value)}
-            >
-              <Icon name={playing ? "pause" : "play"} size={18} />
-            </button>
-            <span>{formatTime(current)}</span>
-
-            <div className="video-timeline-shell">
-              <div className="timeline-unwatched" />
-              <div
-                className="timeline-watched"
-                style={{ width: `${(maxWatched / total) * 100}%` }}
-              />
-              <div
-                className="timeline-played"
-                style={{ width: `${(current / total) * 100}%` }}
-              />
-              <input
-                aria-label="Video vaqti"
-                max={total}
-                min={0}
-                onChange={(event) => seek(Number(event.target.value))}
-                type="range"
-                value={current}
-              />
-            </div>
-
-            <span>{formatTime(total)}</span>
-            <button aria-label="Ovoz">
-              <Icon name="volume" size={18} />
-            </button>
-            <button aria-label="To‘liq ekran">
-              <Icon name="expand" size={17} />
-            </button>
+          {watermarkText && <span className="watermark floating-watermark">{watermarkText}</span>}
+        </div>
+      ) : (
+        <div className="video-frame no-video-notice-box">
+          <div className="no-video-center">
+            <Icon name="play" size={36} />
+            <p>Ushbu dars uchun video havola biriktirilmagan</p>
           </div>
         </div>
       )}
 
       <section className="lesson-detail">
-        <p className="eyebrow">{lessonIndex + 1}-dars</p>
-        <h1>{lesson.title}</h1>
+        <div className="lesson-header-flex">
+          <div>
+            <p className="eyebrow">
+              {lessonIndex + 1}-dars {isShort && <span className="shorts-badge-small">⚡ Shorts</span>}
+            </p>
+            <h1>{lesson.title}</h1>
+          </div>
+        </div>
+
         <p className="lesson-description">
           {lesson.description ||
             "Xarid qilishdan oldin mahsulot sifati va ma’lumotlarini to‘g‘ri baholashni o‘rganing."}
         </p>
 
-        <div className="watch-progress">
-          <div className="watch-row">
-            <span>Ko‘rish jarayoni</span>
-            <strong>
-              {formatTime(current)} / {formatTime(total)}
-            </strong>
+        {!youtubeEmbedUrl && (
+          <div className="watch-progress">
+            <div className="watch-row">
+              <span>Ko‘rish jarayoni</span>
+              <strong>
+                {formatTime(current)} / {formatTime(total)}
+              </strong>
+            </div>
+            <ProgressBar max={total} value={current} />
+            <div className="watch-hint">
+              <span>Ko‘rilgan qismga qaytishingiz mumkin</span>
+              <span>{Math.round((maxWatched / total) * 100)}%</span>
+            </div>
           </div>
-          <ProgressBar max={total} value={current} />
-          <div className="watch-hint">
-            <span>Ko‘rilgan qismga qaytishingiz mumkin</span>
-            <span>{Math.round((maxWatched / total) * 100)}%</span>
-          </div>
-        </div>
+        )}
 
         {completed ? (
           <div className="completion-card">
@@ -852,8 +851,8 @@ function VideoPlayer({
               <Icon name="check" size={15} />
             </span>
             <div>
-              <strong>Jarayon avtomatik saqlanadi</strong>
-              <span>{formatTime(current)} dan davom ettirishingiz mumkin</span>
+              <strong>Darsni ko‘rib bo‘lgach tasdiqlang</strong>
+              <span>Keyingi darsga o‘tish uchun quyidagi tugmani bosing</span>
             </div>
           </div>
         )}
@@ -861,13 +860,12 @@ function VideoPlayer({
         <div className="player-actions">
           {completed && hasNextLesson ? (
             <PrimaryButton onClick={onNextLesson}>Keyingi dars</PrimaryButton>
-          ) : (
-            <PrimaryButton
-              icon={playing ? "pause" : "play"}
-              onClick={() => setPlaying((value) => !value)}
-            >
-              {playing ? "Pauza" : "Davom ettirish"}
+          ) : !completed ? (
+            <PrimaryButton icon="check" onClick={handleFinishLesson}>
+              Darsni tugatish va keyingisiga o‘tish
             </PrimaryButton>
+          ) : (
+            <PrimaryButton onClick={onBack}>Barcha darslarga qaytish</PrimaryButton>
           )}
           <SecondaryButton onClick={onBack}>Darslar ro‘yxatiga qaytish</SecondaryButton>
         </div>
@@ -1124,18 +1122,23 @@ export default function App() {
 
   // Compute lesson states based on user progress and admin rules
   const { lessonStates, publishedLessons } = useMemo(() => {
-    const published = lessons.filter(
+    let published = lessons.filter(
       (l) =>
-        l.courseId === activeCourseId &&
+        String(l.courseId) === String(activeCourseId) &&
         l.status !== "Qoralama" &&
         l.status !== "Yashirilgan"
     );
-    const states: Record<number, "complete" | "active" | "locked"> = {};
 
+    // Fallback: If no lessons match activeCourseId, use all non-draft lessons
+    if (published.length === 0 && lessons.length > 0) {
+      published = lessons.filter((l) => l.status !== "Qoralama" && l.status !== "Yashirilgan");
+    }
+
+    const states: Record<number, "complete" | "active" | "locked"> = {};
     let foundActive = false;
 
     published.forEach((l) => {
-      const prog = user ? userProgress[l.id] : undefined;
+      const prog = user ? userProgress[l.id] || userProgress[String(l.id)] : undefined;
       const isComplete = Boolean(prog?.completed);
 
       if (isComplete) {
@@ -1164,21 +1167,29 @@ export default function App() {
 
   const handleLessonComplete = (lessonId: number) => {
     if (!user) return;
-    const total = lessons.find((l) => l.id === lessonId)?.durationSeconds || 600;
-    store.saveLessonProgress(user.id, lessonId, total, total, true);
+    const lesson = lessons.find((l) => String(l.id) === String(lessonId));
+    const total = lesson?.durationSeconds || 600;
+    store.saveLessonProgress(user.id, Number(lessonId), total, total, true);
     setUserProgress(store.getUserProgress(user.id));
   };
 
   const activeLesson = useMemo(() => {
     if (activeLessonId !== null) {
-      return publishedLessons.find((l) => l.id === activeLessonId) || null;
+      return (
+        publishedLessons.find((l) => String(l.id) === String(activeLessonId)) ||
+        lessons.find((l) => String(l.id) === String(activeLessonId)) ||
+        publishedLessons[0] ||
+        lessons[0] ||
+        null
+      );
     }
-    return null;
-  }, [activeLessonId, publishedLessons]);
+    return publishedLessons[0] || lessons[0] || null;
+  }, [activeLessonId, publishedLessons, lessons]);
 
   const activeLessonIndex = useMemo(() => {
     if (!activeLesson) return 0;
-    return publishedLessons.findIndex((l) => l.id === activeLesson.id);
+    const idx = publishedLessons.findIndex((l) => String(l.id) === String(activeLesson.id));
+    return idx >= 0 ? idx : 0;
   }, [activeLesson, publishedLessons]);
 
   const handleOpenPlayer = (lesson: LessonItem) => {

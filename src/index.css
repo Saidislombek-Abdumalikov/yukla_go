@@ -1639,3 +1639,60 @@ p {
   backdrop-filter: blur(4px);
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7);
 }
+
+/* YouTube Shorts & Vertical Video Layout */
+.youtube-shorts-container {
+  position: relative;
+  width: 100%;
+  max-width: 360px;
+  aspect-ratio: 9 / 16;
+  margin: 0 auto;
+  border-radius: 20px;
+  overflow: hidden;
+  background: #000000;
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+}
+
+.youtube-shorts-container .youtube-iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+  border-radius: 20px;
+}
+
+/* Clean Modern Lesson Thumbnail Placeholder (When no preview is set) */
+.lesson-thumb-placeholder {
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #38bdf8;
+  border-radius: 12px;
+}
+
+.no-video-notice-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px 20px;
+  background: #0f172a;
+  color: #94a3b8;
+  border-radius: 16px;
+  text-align: center;
+  aspect-ratio: 16 / 9;
+}
+
+.no-video-notice-box svg {
+  color: #38bdf8;
+}
+
+.no-video-notice-box p {
+  font-size: 14px;
+  font-weight: 500;
+  color: #e2e8f0;
+}
+
