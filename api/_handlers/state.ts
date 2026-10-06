@@ -130,11 +130,6 @@ export default async function handler(req: any, res: any) {
               .slice(0, 2) || 'YG';
 
             const userCourseAccess: Record<string, 'Faol' | 'To‘xtatilgan'> = accessMap[u.id] || {};
-            courses.forEach((c) => {
-              if (!userCourseAccess[c.id]) {
-                userCourseAccess[c.id] = 'Faol';
-              }
-            });
 
             return {
               id: u.customer_code || u.id,

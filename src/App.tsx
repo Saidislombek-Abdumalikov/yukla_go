@@ -217,7 +217,11 @@ function ProfileModal({
   onLogout: () => void;
 }) {
   const allowedCourses = useMemo(() => {
-    return courses.filter((c) => user.coursesAccess?.[c.id] === "Faol");
+    return courses.filter(
+      (c) =>
+        user.coursesAccess?.[c.id] === "Faol" ||
+        user.coursesAccess?.[String(c.id)] === "Faol"
+    );
   }, [courses, user]);
 
   return (
@@ -440,23 +444,18 @@ function LessonsHome({
   const allowedCourses = useMemo(() => {
     return courses.filter(
       (c) =>
-        !user.coursesAccess ||
-        Object.keys(user.coursesAccess).length === 0 ||
-        user.coursesAccess[c.id] === "Faol" ||
-        user.coursesAccess[String(c.id)] === "Faol"
+        user.coursesAccess?.[c.id] === "Faol" ||
+        user.coursesAccess?.[String(c.id)] === "Faol"
     );
   }, [courses, user]);
 
   const activeCourse = useMemo(() => {
-    if (courses.length === 0) return null;
+    if (allowedCourses.length === 0) return null;
     return (
       allowedCourses.find((c) => String(c.id) === String(activeCourseId)) ||
-      allowedCourses[0] ||
-      courses.find((c) => String(c.id) === String(activeCourseId)) ||
-      courses[0] ||
-      null
+      allowedCourses[0]
     );
-  }, [allowedCourses, activeCourseId, courses]);
+  }, [allowedCourses, activeCourseId]);
 
   const publishedLessons = useMemo(() => {
     if (!activeCourse) return [];
@@ -479,7 +478,7 @@ function LessonsHome({
     return publishedLessons.find((l) => lessonStates[l.id] === "active");
   }, [publishedLessons, lessonStates]);
 
-  if (!activeCourse) {
+  if (courses.length === 0) {
     return (
       <main className="screen home-screen">
         <Header onOpenProfile={onOpenProfile} user={user} />
@@ -490,6 +489,22 @@ function LessonsHome({
         </section>
         <div className="empty-panel-msg">
           <p>Hozircha faol kurslar mavjud emas.</p>
+        </div>
+      </main>
+    );
+  }
+
+  if (allowedCourses.length === 0) {
+    return (
+      <main className="screen home-screen">
+        <Header onOpenProfile={onOpenProfile} user={user} />
+        <section className="intro">
+          <p className="eyebrow">Video darslar</p>
+          <h1>Kurslarga ruxsat kutilmoqda</h1>
+          <p className="subtitle">Administrator sizga darslarga kirish huquqini berganidan so‘ng darslar ochiladi.</p>
+        </section>
+        <div className="empty-panel-msg">
+          <p>⏳ Sizning akkauntingiz (<code>{user.id}</code>) ro‘yxatga olingan. Administrator tez orada sizga tegishli kurslarni faollashtiradi.</p>
         </div>
       </main>
     );

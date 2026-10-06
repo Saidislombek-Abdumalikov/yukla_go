@@ -308,23 +308,7 @@ async function completeRegistration(
         userId = userRow.id;
         if (userRow.customer_code) customerCode = userRow.customer_code;
 
-        // Auto grant access to all active courses
-        try {
-          const { data: courses } = await supabase.from('academy_courses').select('id').eq('active', true);
-          if (courses && courses.length > 0) {
-            for (const c of courses) {
-              await supabase.from('academy_access').upsert(
-                {
-                  user_id: userRow.id,
-                  course_id: c.id,
-                  status: 'granted',
-                  granted_at: new Date().toISOString(),
-                },
-                { onConflict: 'user_id,course_id' }
-              );
-            }
-          }
-        } catch {}
+
       }
     } catch (err) {
       console.error('Supabase user insert error:', err);

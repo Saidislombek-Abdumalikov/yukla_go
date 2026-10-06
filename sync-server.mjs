@@ -56,6 +56,28 @@ function loadDb() {
   }
 }
 
+// Push an event to all connected SSE clients
+const sseClients = new Set();
+function pushSseEvent(type, payload) {
+  const data = JSON.stringify({ type, payload, timestamp: Date.now() });
+  for (const client of sseClients) {
+    try {
+      client.write(`data: ${data}\n\n`);
+    } catch {
+      sseClients.delete(client);
+    }
+  }
+}
+
+async function broadcastEvent(type, payload) {
+  saveDb();
+  try {
+    await syncToSupabase();
+  } catch {}
+  pushSseEvent(type, payload);
+}
+
+// 1. Sync Courses & Lessons to Supabase
 async function syncToSupabase() {
   if (!supabase) return;
   try {
@@ -66,7 +88,11 @@ async function syncToSupabase() {
     if (remoteCourses) {
       for (const rc of remoteCourses) {
         if (!currentCourseIds.includes(String(rc.id))) {
-          await supabase.from("academy_courses").delete().eq("id", rc.id);
+          try {
+            await supabase.from("academy_access").delete().eq("course_id", rc.id);
+            await supabase.from("academy_lessons").delete().eq("course_id", rc.id);
+            await supabase.from("academy_courses").delete().eq("id", rc.id);
+          } catch {}
         }
       }
     }
@@ -91,7 +117,10 @@ async function syncToSupabase() {
     if (remoteLessons) {
       for (const rl of remoteLessons) {
         if (!currentLessonIds.includes(String(rl.id))) {
-          await supabase.from("academy_lessons").delete().eq("id", rl.id);
+          try {
+            await supabase.from("academy_user_progress").delete().eq("lesson_id", rl.id);
+            await supabase.from("academy_lessons").delete().eq("id", rl.id);
+          } catch {}
         }
       }
     }
@@ -118,6 +147,92 @@ async function syncToSupabase() {
   }
 }
 
+// 2. Real-time Sync Users from Supabase (Telegram bot registrations)
+async function syncUsersFromSupabase() {
+  if (!supabase) return;
+  try {
+    const { data: supaUsers, error: uErr } = await supabase
+      .from("users")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (uErr) {
+      console.warn("⚠️ Error fetching users from Supabase:", uErr.message);
+      return;
+    }
+
+    if (!supaUsers) return;
+
+    const { data: supaAccess } = await supabase.from("academy_access").select("*");
+    const { data: supaProgress } = await supabase.from("academy_user_progress").select("*");
+
+    const accessMap = {};
+    if (supaAccess) {
+      for (const a of supaAccess) {
+        if (!accessMap[a.user_id]) accessMap[a.user_id] = {};
+        accessMap[a.user_id][String(a.course_id)] = a.status === "granted" ? "Faol" : "To‘xtatilgan";
+      }
+    }
+
+    const progressMap = {};
+    if (supaProgress) {
+      for (const p of supaProgress) {
+        if (!progressMap[p.user_id]) progressMap[p.user_id] = {};
+        progressMap[p.user_id][String(p.lesson_id)] = {
+          completed: p.completed,
+          maxWatched: p.max_watched_seconds || 0,
+          current: p.last_position_seconds || 0,
+        };
+      }
+    }
+
+    const totalLessons = db.lessons.length;
+
+    const formattedUsers = supaUsers.map((u) => {
+      const initials = (u.name || "U")
+        .trim()
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "YG";
+
+      const userAccess = accessMap[u.id] || {};
+      const userProg = progressMap[u.id] || {};
+      const completedCount = Object.values(userProg).filter((pr) => pr.completed).length;
+      const percent = totalLessons > 0 ? Math.round((completedCount / totalLessons) * 100) : 0;
+
+      return {
+        id: u.customer_code || u.id,
+        supabaseId: u.id,
+        telegramId: u.telegram_user_id,
+        name: u.name || "Hurmatli talaba",
+        initials,
+        phone: u.phone || "",
+        registeredAt: u.created_at ? new Date(u.created_at).toLocaleDateString("uz-UZ") : "Hozirgina",
+        coursesAccess: userAccess,
+        access: u.status === "blocked" ? "To‘xtatilgan" : "Faol",
+        progress: percent,
+        done: `${completedCount} / ${totalLessons}`,
+        activity: "Faol",
+      };
+    });
+
+    const prevJson = JSON.stringify(db.users);
+    const nextJson = JSON.stringify(formattedUsers);
+
+    if (prevJson !== nextJson) {
+      db.users = formattedUsers;
+      try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+      } catch {}
+      pushSseEvent("UPDATE_USERS", db.users);
+    }
+  } catch (err) {
+    console.warn("⚠️ syncUsersFromSupabase error:", err.message);
+  }
+}
+
 function saveDb() {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
@@ -127,23 +242,15 @@ function saveDb() {
   }
 }
 
+// Initial bootstrap
 loadDb();
+syncUsersFromSupabase().catch(() => {});
 syncToSupabase().catch(() => {});
 
-// Server-Sent Events subscribers
-const sseClients = new Set();
-
-function broadcastEvent(type, payload) {
-  saveDb();
-  const data = JSON.stringify({ type, payload, timestamp: Date.now() });
-  for (const client of sseClients) {
-    try {
-      client.write(`data: ${data}\n\n`);
-    } catch {
-      sseClients.delete(client);
-    }
-  }
-}
+// Background polling every 2.5 seconds to detect new Telegram bot registrations in real time
+setInterval(() => {
+  syncUsersFromSupabase().catch(() => {});
+}, 2500);
 
 function parseBody(req) {
   return new Promise((resolve, reject) => {
@@ -203,8 +310,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // 2. Full State
+  // 2. Full State (admin or app fetch)
   if (pathname === "/api/state" && req.method === "GET") {
+    await syncUsersFromSupabase();
     return sendJson(res, 200, db);
   }
 
@@ -233,7 +341,7 @@ const server = http.createServer(async (req, res) => {
       (u) =>
         (tgId && (String(u.telegramId) === String(tgId) || String(u.telegram_user_id) === String(tgId))) ||
         (token && u.token === token) ||
-        (userId && u.id.toLowerCase() === userId.toLowerCase()) ||
+        (userId && (u.id.toLowerCase() === userId.toLowerCase() || (u.supabaseId && u.supabaseId.toLowerCase() === userId.toLowerCase()))) ||
         (code && u.id.toLowerCase() === code.toLowerCase())
     );
 
@@ -245,6 +353,7 @@ const server = http.createServer(async (req, res) => {
           .select("*")
           .eq("telegram_user_id", Number(tgId))
           .maybeSingle();
+
         if (supaUser && supaUser.onboarding_completed) {
           const initials = (supaUser.name || "U")
             .trim()
@@ -253,15 +362,31 @@ const server = http.createServer(async (req, res) => {
             .join("")
             .toUpperCase()
             .slice(0, 2) || "YG";
+
+          // Fetch user's access
+          const { data: dbAcc } = await supabase
+            .from("academy_access")
+            .select("course_id, status")
+            .eq("user_id", supaUser.id);
+
+          const coursesAccess = {};
+          if (dbAcc) {
+            for (const a of dbAcc) {
+              coursesAccess[String(a.course_id)] = a.status === "granted" ? "Faol" : "To‘xtatilgan";
+            }
+          }
+
           user = {
             id: supaUser.customer_code || supaUser.id,
+            supabaseId: supaUser.id,
+            telegramId: supaUser.telegram_user_id,
             name: supaUser.name || "Talaba",
             initials,
             phone: supaUser.phone || "",
             access: supaUser.status === "blocked" ? "To‘xtatilgan" : "Faol",
-            coursesAccess: { 1: "Faol", 2: "Faol" },
+            coursesAccess,
             progress: 0,
-            done: "0 / 8",
+            done: `0 / ${db.lessons.length}`,
             activity: "Hozirgina",
           };
         }
@@ -277,7 +402,7 @@ const server = http.createServer(async (req, res) => {
     return sendJson(res, 200, { success: true, user });
   }
 
-  // 5. Telegram Bot Register User
+  // 5. Telegram Bot Register User (Fallback endpoint)
   if (pathname === "/api/bot/register" && req.method === "POST") {
     try {
       const { name, phone, telegramId } = await parseBody(req);
@@ -285,7 +410,6 @@ const server = http.createServer(async (req, res) => {
         return sendJson(res, 400, { success: false, error: "Ism va telefon raqam talab qilinadi" });
       }
 
-      // Check if user with phone or telegramId already exists
       const cleanPhone = phone.replace(/[\s+]/g, "");
       let existing = db.users.find(
         (u) =>
@@ -294,7 +418,6 @@ const server = http.createServer(async (req, res) => {
       );
 
       if (existing) {
-        // Return existing user with their link
         return sendJson(res, 200, {
           success: true,
           isNew: false,
@@ -313,12 +436,6 @@ const server = http.createServer(async (req, res) => {
         .toUpperCase()
         .slice(0, 2) || "YG";
 
-      // By default grant access to course 1
-      const defaultCoursesAccess = {};
-      if (db.courses.length > 0) {
-        defaultCoursesAccess[db.courses[0].id] = "Faol";
-      }
-
       const newUser = {
         id,
         telegramId: telegramId || null,
@@ -327,25 +444,15 @@ const server = http.createServer(async (req, res) => {
         initials,
         phone,
         registeredAt: new Date().toLocaleDateString("uz-UZ"),
-        coursesAccess: defaultCoursesAccess, // e.g. { 1: "Faol" }
+        coursesAccess: {},
         access: "Faol",
         progress: 0,
-        done: "0 / 8",
+        done: `0 / ${db.lessons.length}`,
         activity: "Hozirgina",
       };
 
       db.users.unshift(newUser);
-
-      // Update courses user count
-      db.courses = db.courses.map((c) => {
-        if (defaultCoursesAccess[c.id] === "Faol") {
-          return { ...c, users: (c.users || 0) + 1 };
-        }
-        return c;
-      });
-
       broadcastEvent("UPDATE_USERS", db.users);
-      broadcastEvent("UPDATE_COURSES", db.courses);
 
       return sendJson(res, 201, {
         success: true,
@@ -365,7 +472,6 @@ const server = http.createServer(async (req, res) => {
       const { lessons, courseId } = await parseBody(req);
       if (Array.isArray(lessons)) {
         if (courseId) {
-          // Replace only lessons belonging to this course
           const otherLessons = db.lessons.filter((l) => l.courseId !== Number(courseId));
           db.lessons = [...otherLessons, ...lessons];
         } else {
@@ -403,7 +509,6 @@ const server = http.createServer(async (req, res) => {
 
       db.lessons.push(newLesson);
 
-      // Update course's lesson count
       db.courses = db.courses.map((c) => {
         if (c.id === courseId) {
           const count = db.lessons.filter((l) => l.courseId === courseId).length;
@@ -546,37 +651,93 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // 10. Per-course User Access Update
+  // 10. Per-course User Access Update (Synchronized with Supabase academy_access)
   if (pathname === "/api/users/access" && req.method === "POST") {
     try {
       const { userIds, courseId, access } = await parseBody(req);
       if (Array.isArray(userIds) && access) {
-        db.users = db.users.map((u) => {
-          if (userIds.includes(u.id)) {
-            const coursesAccess = { ...(u.coursesAccess || {}) };
+        const newSupaStatus = access === "Faol" ? "granted" : "revoked";
+
+        for (const id of userIds) {
+          const target = db.users.find(
+            (u) =>
+              u.id === id ||
+              u.supabaseId === id ||
+              (u.customer_code && u.customer_code === id) ||
+              (u.telegramId && String(u.telegramId) === String(id))
+          );
+          const supaUserId = target?.supabaseId || id;
+
+          // Update local memory
+          if (target) {
+            target.coursesAccess = target.coursesAccess || {};
             if (courseId) {
-              coursesAccess[courseId] = access;
+              target.coursesAccess[courseId] = access;
             } else {
-              // Set for all courses
               db.courses.forEach((c) => {
-                coursesAccess[c.id] = access;
+                target.coursesAccess[c.id] = access;
               });
             }
-            return {
-              ...u,
-              access: access,
-              coursesAccess,
-            };
           }
-          return u;
-        });
 
-        broadcastEvent("UPDATE_USERS", db.users);
-        broadcastEvent("UPDATE_USER_ACCESS", { userIds, courseId, access });
+          // Persist directly to Supabase academy_access
+          if (supabase) {
+            try {
+              if (access === "Faol") {
+                if (courseId) {
+                  await supabase.from("academy_access").upsert(
+                    {
+                      user_id: supaUserId,
+                      course_id: String(courseId),
+                      status: "granted",
+                      granted_at: new Date().toISOString(),
+                    },
+                    { onConflict: "user_id,course_id" }
+                  );
+                } else {
+                  for (const c of db.courses) {
+                    await supabase.from("academy_access").upsert(
+                      {
+                        user_id: supaUserId,
+                        course_id: String(c.id),
+                        status: "granted",
+                        granted_at: new Date().toISOString(),
+                      },
+                      { onConflict: "user_id,course_id" }
+                    );
+                  }
+                }
+              } else {
+                // Revoke access -> remove row from academy_access
+                if (courseId) {
+                  await supabase
+                    .from("academy_access")
+                    .delete()
+                    .eq("user_id", supaUserId)
+                    .eq("course_id", String(courseId));
+                } else {
+                  await supabase
+                    .from("academy_access")
+                    .delete()
+                    .eq("user_id", supaUserId);
+                }
+              }
+            } catch (err) {
+              console.warn("Supabase access update error:", err.message);
+            }
+          }
+        }
+
+        try {
+          fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+        } catch {}
+        pushSseEvent("UPDATE_USERS", db.users);
+        pushSseEvent("UPDATE_USER_ACCESS", { userIds, courseId, access });
         return sendJson(res, 200, { success: true, users: db.users });
       }
       return sendJson(res, 400, { error: "Invalid parameters" });
-    } catch {
+    } catch (err) {
+      console.error("User access update error:", err);
       return sendJson(res, 400, { error: "Bad request" });
     }
   }
@@ -605,10 +766,10 @@ const server = http.createServer(async (req, res) => {
         initials,
         phone: phone || "+998 90 000 00 00",
         registeredAt: new Date().toLocaleDateString("uz-UZ"),
-        coursesAccess: coursesAccess || { 1: "Faol" },
+        coursesAccess: coursesAccess || {},
         access: "Faol",
         progress: 0,
-        done: "0 / 8",
+        done: `0 / ${db.lessons.length}`,
         activity: "Hozirgina qo‘shildi",
       };
 
@@ -620,15 +781,39 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // 12. Delete User
+  // 12. Delete User (Synchronized with Supabase users, academy_access, academy_user_progress)
   if (pathname === "/api/users/delete" && req.method === "POST") {
     try {
       const { userId } = await parseBody(req);
-      db.users = db.users.filter((u) => u.id !== userId);
+      const target = db.users.find(
+        (u) =>
+          u.id === userId ||
+          u.supabaseId === userId ||
+          (u.customer_code && u.customer_code === userId) ||
+          (u.telegramId && String(u.telegramId) === String(userId))
+      );
+      const supaUserId = target?.supabaseId || userId;
+
+      if (supabase) {
+        try {
+          await supabase.from("academy_user_progress").delete().eq("user_id", supaUserId);
+          await supabase.from("academy_access").delete().eq("user_id", supaUserId);
+          await supabase.from("users").delete().eq("id", supaUserId);
+        } catch (sErr) {
+          console.warn("Error deleting user from Supabase:", sErr.message);
+        }
+      }
+
+      db.users = db.users.filter(
+        (u) => u.id !== userId && u.supabaseId !== userId && u.supabaseId !== supaUserId
+      );
       delete db.progress[userId];
-      broadcastEvent("UPDATE_USERS", db.users);
+      delete db.progress[supaUserId];
+      saveDb();
+      pushSseEvent("UPDATE_USERS", db.users);
       return sendJson(res, 200, { success: true });
-    } catch {
+    } catch (err) {
+      console.error("User delete error:", err);
       return sendJson(res, 400, { error: "Bad request" });
     }
   }
@@ -645,7 +830,7 @@ const server = http.createServer(async (req, res) => {
         }
         db.users = db.users.map((u) => {
           if (u.id === userId) {
-            return { ...u, progress: 0, done: "0 / 8" };
+            return { ...u, progress: 0, done: `0 / ${db.lessons.length}` };
           }
           return u;
         });
