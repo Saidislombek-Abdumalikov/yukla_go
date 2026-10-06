@@ -17,9 +17,9 @@ export interface SessionPayload {
 }
 
 /**
- * Verified Admin Telegram User IDs
+ * Verified Admin Telegram User IDs (Configured via ADMIN_TELEGRAM_IDS env variable)
  */
-const DEFAULT_ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
+const DEFAULT_ADMIN_TELEGRAM_IDS: number[] = [];
 
 function loadAdminIds(): number[] {
   const fromEnv = (process.env.ADMIN_TELEGRAM_IDS || '')

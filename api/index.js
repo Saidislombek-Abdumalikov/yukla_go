@@ -17,7 +17,7 @@ var getSupabase = () => {
 
 // api/_lib/auth.ts
 import jwt from "jsonwebtoken";
-var DEFAULT_ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
+var DEFAULT_ADMIN_TELEGRAM_IDS = [];
 function loadAdminIds() {
   const fromEnv = (process.env.ADMIN_TELEGRAM_IDS || "").split(",").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0);
   return Array.from(/* @__PURE__ */ new Set([...DEFAULT_ADMIN_TELEGRAM_IDS, ...fromEnv]));

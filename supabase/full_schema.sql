@@ -261,18 +261,6 @@ VALUES
     ('support_contact', '{"telegram_username": "nothing_related"}'::jsonb)
 ON CONFLICT (key) DO NOTHING;
 
--- 7.5 Pre-seed Administrators (Telegram IDs: 7232597769, 5059829001)
-INSERT INTO users (telegram_user_id, customer_code, name, phone, onboarding_completed, onboarding_step, status)
-VALUES 
-    (7232597769, 'ADMIN', 'Administrator', '+998900000000', TRUE, 'completed', 'active'),
-    (5059829001, 'ADMIN-2', 'Admin 2', '+998900000001', TRUE, 'completed', 'active')
-ON CONFLICT (telegram_user_id) DO NOTHING;
-
-INSERT INTO user_roles (telegram_user_id, role)
-VALUES 
-    (7232597769, 'super_admin'),
-    (5059829001, 'super_admin')
-ON CONFLICT (telegram_user_id) DO UPDATE SET role = 'super_admin';
 -- ==============================================================================
 -- YUKLA GO — SUPABASE / POSTGRES ACADEMY LMS SCHEMA MIGRATION
 -- ==============================================================================

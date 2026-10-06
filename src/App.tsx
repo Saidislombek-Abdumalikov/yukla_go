@@ -623,10 +623,18 @@ export function parseYouTubeVideo(url?: string): {
   const trimmed = url.trim();
   if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
     const videoId = trimmed;
+    const params = new URLSearchParams({
+      rel: "0",
+      modestbranding: "1",
+      playsinline: "1",
+      enablejsapi: "1",
+      disablekb: "1",
+      iv_load_policy: "3",
+    });
     return {
       videoId,
       isShort: false,
-      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`,
       thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
     };
   }
@@ -636,10 +644,18 @@ export function parseYouTubeVideo(url?: string): {
   );
   if (match && match[1]) {
     const videoId = match[1];
+    const params = new URLSearchParams({
+      rel: "0",
+      modestbranding: "1",
+      playsinline: "1",
+      enablejsapi: "1",
+      disablekb: "1",
+      iv_load_policy: "3",
+    });
     return {
       videoId,
       isShort,
-      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?rel=0&modestbranding=1&playsinline=1&enablejsapi=1`,
+      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`,
       thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
     };
   }
@@ -686,6 +702,17 @@ function VideoPlayer({
   const [notice, setNotice] = useState(false);
   const [completed, setCompleted] = useState(isAlreadyCompleted);
   const noticeTimer = useRef<number | undefined>(undefined);
+
+  const [watermarkPos, setWatermarkPos] = useState({ top: 16, left: 16 });
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setWatermarkPos({
+        top: Math.floor(10 + Math.random() * 65),
+        left: Math.floor(6 + Math.random() * 65),
+      });
+    }, 8000);
+    return () => clearInterval(timer);
+  }, []);
 
   const currentRef = useRef(current);
   const maxWatchedRef = useRef(maxWatched);
@@ -787,22 +814,42 @@ function VideoPlayer({
       </div>
 
       {youtubeEmbedUrl ? (
-        <div className={`video-frame ${isShort ? "youtube-shorts-container" : "youtube-container"}`}>
+        <div
+          className={`video-frame video-secure-wrapper ${isShort ? "youtube-shorts-container" : "youtube-container"}`}
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          {/* Security Shield 1: Top bar (Blocks clicking title & Share button) */}
+          <div className="video-shield-top" onClick={(e) => e.stopPropagation()} />
+
+          {/* Security Shield 2: Bottom-right corner (Blocks clicking YouTube logo) */}
+          <div className="video-shield-bottom-right" onClick={(e) => e.stopPropagation()} />
+
           <iframe
             src={youtubeEmbedUrl}
             title={lesson.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
+            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
             className="youtube-iframe"
           />
-          {watermarkText && <span className="watermark floating-watermark">{watermarkText}</span>}
+
+          {watermarkText && (
+            <div
+              className="dynamic-security-watermark"
+              style={{ top: `${watermarkPos.top}%`, left: `${watermarkPos.left}%` }}
+            >
+              <span>{watermarkText}</span>
+            </div>
+          )}
         </div>
       ) : isDirectVideo ? (
-        <div className="video-frame direct-video-container">
+        <div
+          className="video-frame video-secure-wrapper direct-video-container"
+          onContextMenu={(e) => e.preventDefault()}
+        >
           <video
             src={lesson.videoUrl}
             controls
-            controlsList="nodownload"
+            controlsList="nodownload noplaybackrate"
+            disablePictureInPicture
             onContextMenu={(e) => e.preventDefault()}
             className="native-video-elem"
             onEnded={() => {
@@ -810,18 +857,36 @@ function VideoPlayer({
               onComplete(lesson.id);
             }}
           />
-          {watermarkText && <span className="watermark floating-watermark">{watermarkText}</span>}
+          {watermarkText && (
+            <div
+              className="dynamic-security-watermark"
+              style={{ top: `${watermarkPos.top}%`, left: `${watermarkPos.left}%` }}
+            >
+              <span>{watermarkText}</span>
+            </div>
+          )}
         </div>
       ) : lesson.videoUrl ? (
-        <div className="video-frame youtube-container">
+        <div
+          className="video-frame video-secure-wrapper youtube-container"
+          onContextMenu={(e) => e.preventDefault()}
+        >
+          <div className="video-shield-top" onClick={(e) => e.stopPropagation()} />
+          <div className="video-shield-bottom-right" onClick={(e) => e.stopPropagation()} />
           <iframe
             src={lesson.videoUrl}
             title={lesson.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-            allowFullScreen
+            allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture"
             className="youtube-iframe"
           />
-          {watermarkText && <span className="watermark floating-watermark">{watermarkText}</span>}
+          {watermarkText && (
+            <div
+              className="dynamic-security-watermark"
+              style={{ top: `${watermarkPos.top}%`, left: `${watermarkPos.left}%` }}
+            >
+              <span>{watermarkText}</span>
+            </div>
+          )}
         </div>
       ) : (
         <div className="video-frame no-video-notice-box">

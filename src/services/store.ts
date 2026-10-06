@@ -19,17 +19,7 @@ export const STORAGE_KEYS = {
   PROGRESS: "yukla_go_progress",
 } as const;
 
-export const defaultCourse: CourseItem = {
-  id: 1,
-  title: "Xitoydan tovar olib kelish asoslari",
-  description: "Import jarayonini boshidan oxirigacha o‘rganing. Oddiy, ishonchli va bosqichma-bosqich.",
-  lessons: 8,
-  users: 0,
-  completion: 0,
-  status: "Faol",
-  updated: "Bugun, 10:24",
-  tone: "blue",
-};
+export const defaultCourse: CourseItem | null = null;
 
 export const defaultSettings: AdminSettings = {
   defaultCompletionPercent: 95,
@@ -39,96 +29,7 @@ export const defaultSettings: AdminSettings = {
   watermarkFormat: "id-brand",
 };
 
-export const defaultLessons: LessonItem[] = [
-  {
-    id: 1,
-    courseId: 1,
-    title: "Xitoydan buyurtma berish qanday ishlaydi?",
-    description: "Import asoslari, platformalar va dastlabki tayyorgarlik jarayoni.",
-    duration: "08:00",
-    durationSeconds: 480,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1575295126001-2b4a7190c57f?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-blue",
-  },
-  {
-    id: 2,
-    courseId: 1,
-    title: "Mahsulotni to‘g‘ri tanlash",
-    description: "Xarid qilishdan oldin mahsulot sifati va ma’lumotlarini to‘g‘ri baholashni o‘rganing.",
-    duration: "12:10",
-    durationSeconds: 730,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1563719544898-deea3078afa1?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-indigo",
-  },
-  {
-    id: 3,
-    courseId: 1,
-    title: "Sotuvchini tekshirish",
-    description: "Ishonchli sotuvchilarni tanlash, ularning reytingi va baholarini o‘rganish.",
-    duration: "09:00",
-    durationSeconds: 540,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1676093864425-ff2652ecf75e?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-cyan",
-  },
-  {
-    id: 4,
-    courseId: 1,
-    title: "Narx va sifatni solishtirish",
-    description: "Haqiqiy narxlarni bilish, chegirmalar va ommaviy xarid shartlari.",
-    duration: "11:00",
-    durationSeconds: 660,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1724709162875-fe100dd0e04b?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-slate",
-  },
-  {
-    id: 5,
-    courseId: 1,
-    title: "Buyurtmani to‘g‘ri rasmiylashtirish",
-    description: "Kargo manzili, qabul qiluvchi ma’lumotlari va buyurtma tasdiqlash.",
-    duration: "10:00",
-    durationSeconds: 600,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1575295126001-2b4a7190c57f?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-amber",
-  },
-  {
-    id: 6,
-    courseId: 1,
-    title: "Sotuvchi bilan muloqot",
-    description: "Xitoylik yetkazib beruvchilar bilan samarali suhbat qurish usullari.",
-    duration: "07:00",
-    durationSeconds: 420,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1563719544898-deea3078afa1?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-blue",
-  },
-  {
-    id: 7,
-    courseId: 1,
-    title: "Xavfsiz xarid qilish",
-    description: "To‘lov xavfsizligi, firibgarlikdan himoyalanish va kafolatlar.",
-    duration: "08:00",
-    durationSeconds: 480,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1676093864425-ff2652ecf75e?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-indigo",
-  },
-  {
-    id: 8,
-    courseId: 1,
-    title: "Yakuniy tavsiyalar",
-    description: "Tovarni kutib olish, bojxona va birinchi muvaffaqiyatli xarid xulosalari.",
-    duration: "06:00",
-    durationSeconds: 360,
-    status: "Faol",
-    thumbnailUrl: "https://images.unsplash.com/photo-1724709162875-fe100dd0e04b?auto=format&fit=crop&w=480&q=80",
-    color: "lesson-cyan",
-  },
-];
+export const defaultLessons: LessonItem[] = [];
 
 function safeGetItem<T>(key: string, fallback: T): T {
   try {
@@ -264,21 +165,7 @@ export const store = {
     // 3. Localhost Development Mode (for local development on PC)
     if (isLocalhost) {
       const stored = this.getAuthUser();
-      if (stored) return { user: stored };
-
-      const devUser: UserProfile = {
-        id: "DEV-100",
-        name: "Lokal Talaba",
-        initials: "LT",
-        phone: "+998901234567",
-        access: "Faol",
-        coursesAccess: { 1: "Faol", 2: "Faol" },
-        progress: 0,
-        done: "0 / 8",
-        activity: "Hozirgina",
-      };
-      this.setAuthUser(devUser);
-      return { user: devUser };
+      return { user: stored };
     }
 
     // 4. In Production on Web Browser (Outside Telegram Mini App):

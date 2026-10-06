@@ -1,35 +1,7 @@
 {
   "users": [],
-  "courses": [
-    {
-      "id": 1,
-      "title": "Xitoydan tovar olib kelish asoslari",
-      "description": "Import jarayonini boshidan oxirigacha o‘rganing. Oddiy, ishonchli va bosqichma-bosqich.",
-      "lessons": 1,
-      "users": 1,
-      "completion": 0,
-      "status": "Faol",
-      "updated": "Bugun, 10:24",
-      "tone": "blue"
-    }
-  ],
-  "lessons": [
-    {
-      "id": 1791299515806,
-      "courseId": 1,
-      "title": "a",
-      "description": "",
-      "duration": "10:00",
-      "durationSeconds": 600,
-      "videoUrl": "https://youtu.be/MgxUK3torgE?si=PnJDQZo6rKQN1q2p",
-      "status": "Faol",
-      "thumbnailUrl": "https://img.youtube.com/vi/MgxUK3torgE/hqdefault.jpg",
-      "color": "lesson-blue",
-      "viewers": 0,
-      "completion": 0,
-      "videoFormat": "auto"
-    }
-  ],
+  "courses": [],
+  "lessons": [],
   "settings": {
     "adminPassword": "admin123",
     "defaultCompletionPercent": 95,
@@ -38,64 +10,5 @@
     "dynamicWatermark": true,
     "watermarkFormat": "id-brand"
   },
-  "progress": {
-    "YK-087": {
-      "2": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791297636959
-      },
-      "3": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791297616584
-      },
-      "4": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791299282364
-      },
-      "7": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791299482497
-      },
-      "8": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791297655430
-      },
-      "1791299498448": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791299503883
-      },
-      "1791299515806": {
-        "current": 0,
-        "maxWatched": 0,
-        "completed": false,
-        "lastUpdated": 1791300940253
-      }
-    },
-    "YK-100": {
-      "1": {
-        "current": 8,
-        "maxWatched": 8,
-        "completed": false,
-        "lastUpdated": 1791300046673
-      },
-      "1791299515806": {
-        "current": 0,
-        "maxWatched": 600,
-        "completed": true,
-        "lastUpdated": 1791302732483
-      }
-    }
-  }
+  "progress": {}
 }
