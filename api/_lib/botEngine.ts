@@ -37,6 +37,13 @@ export function getInMemoryBotUsers(): BotUser[] {
   return Array.from(inMemoryUsers.values());
 }
 
+export function getTelegramName(from: any): string {
+  const parts = [from?.first_name, from?.last_name].filter(Boolean);
+  if (parts.length > 0) return parts.join(' ').trim();
+  if (from?.username) return `@${from.username}`;
+  return 'Hurmatli talaba';
+}
+
 export function formatPhoneNumber(raw: string): string {
   const digits = raw.replace(/\D/g, '');
   if (digits.length === 9) {
@@ -68,14 +75,24 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     await answerTelegramCallbackQuery(callbackQuery.id);
 
     if (data === 'accept_oferta') {
-      userSessions.set(telegramUserId, { step: 'name' });
+      userSessions.set(telegramUserId, { step: 'phone' });
 
       await sendTelegramMessage(
         chatId,
         '✅ <b>Oferta shartlari qabul qilindi.</b>\n\n' +
-          'Iltimos, to‘liq <b>ism va familiyangizni</b> kiriting:\n' +
-          '<i>(Masalan: Saidislom Karimov)</i>',
-        { remove_keyboard: true }
+          '📱 Ro‘yxatdan o‘tishni yakunlash uchun pastdagi <b>«Telefon raqamni yuborish»</b> tugmasini bosing:',
+        {
+          keyboard: [
+            [
+              {
+                text: '📱 Telefon raqamni yuborish',
+                request_contact: true,
+              },
+            ],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        }
       );
       return true;
     }
@@ -83,19 +100,17 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     return true;
   }
 
-  // 2. Handle Contact Share
+  // 2. Handle Contact Share (Native Telegram Button)
   if (message?.contact) {
     const contact = message.contact;
     const phone = contact.phone_number.startsWith('+') ? contact.phone_number : `+${contact.phone_number}`;
-    const session = userSessions.get(telegramUserId) || { step: 'name' };
-    const userName = session.name || from.first_name || 'Hurmatli talaba';
+    const userName = getTelegramName(from);
 
     return await completeRegistration(chatId, telegramUserId, from, userName, phone, supabase);
   }
 
   // 3. Handle Text Messages
   const rawText = message?.text?.trim() || '';
-  const session = userSessions.get(telegramUserId);
 
   // Check /start command
   if (rawText.startsWith('/start')) {
@@ -129,7 +144,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
 
       await sendTelegramMessage(
         chatId,
-        `👋 <b>Assalomu alaykum, ${existingUser.name || from.first_name}!</b>\n\n` +
+        `👋 <b>Assalomu alaykum, ${existingUser.name || getTelegramName(from)}!</b>\n\n` +
           `Siz Yukla Go ta’lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tgansiz.\n\n` +
           `👤 <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
           `📞 <b>Telefon:</b> <code>${existingUser.phone || 'Kiritilgan'}</code>\n\n` +
@@ -148,70 +163,41 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
       return true;
     }
 
-    // New User -> Show Oferta
-    userSessions.set(telegramUserId, { step: 'oferta' });
+    // New User -> Show Oferta with Contact Sharing Button immediately
+    userSessions.set(telegramUserId, { step: 'phone' });
 
+    const userName = getTelegramName(from);
     const welcomeText =
-      `👋 <b>Assalomu alaykum, ${from.first_name || 'Hurmatli talaba'}!</b>\n\n` +
+      `👋 <b>Assalomu alaykum, ${userName}!</b>\n\n` +
       `Yukla Go yopiq video ta’lim platformasiga xush kelibsiz.\n\n` +
       `Platformamiz orqali Xitoydan tovar olib kelish, 1688, Taobao va xavfsiz import sirlarini bosqichma-bosqich o‘rganasiz.\n\n` +
       `Kursni boshlashdan oldin ommaviy oferta (foydalanish shartlari) bilan tanishib chiqing:\n` +
       `📄 <a href="https://telegra.ph/Yukla-Go-Ommaviy-Oferta-01-01">Ommaviy Oferta shartlarini o‘qish</a>\n\n` +
-      `Davom etish uchun quyidagi tugmani bosing:`;
+      `📱 Ro‘yxatdan o‘tish va darslarga kirish uchun pastdagi <b>«Telefon raqamni yuborish»</b> tugmasini bosing:`;
 
     await sendTelegramMessage(
       chatId,
       welcomeText,
       {
-        inline_keyboard: [
+        keyboard: [
           [
             {
-              text: '✅ Ofertani qabul qilaman va roziman',
-              callback_data: 'accept_oferta',
+              text: '📱 Telefon raqamni yuborish',
+              request_contact: true,
             },
           ],
         ],
+        resize_keyboard: true,
+        one_time_keyboard: true,
       }
     );
     return true;
   }
 
-  // Handle Step: Name
-  if (session && session.step === 'name') {
-    if (rawText.length < 2) {
-      await sendTelegramMessage(
-        chatId,
-        '⚠️ Iltimos, ism va familiyangizni to‘liq kiriting (kamida 2 ta belgi):',
-        { remove_keyboard: true }
-      );
-      return true;
-    }
-
-    userSessions.set(telegramUserId, { step: 'phone', name: rawText });
-
-    await sendTelegramMessage(
-      chatId,
-      `👍 Rahmat, <b>${rawText}</b>!\n\n` +
-        `Endi <b>telefon raqamingizni</b> yozib yuboring:\n` +
-        `<i>(Masalan: +998901234567)</i>`,
-      { remove_keyboard: true }
-    );
-    return true;
-  }
-
-  // Handle Step: Phone
-  if (session && session.step === 'phone') {
-    const formattedPhone = formatPhoneNumber(rawText);
-    if (formattedPhone.replace(/\D/g, '').length < 7) {
-      await sendTelegramMessage(
-        chatId,
-        '⚠️ Telefon raqam noto‘g‘ri kiritildi. Iltimos, to‘g‘ri raqam kiriting:\n<i>(Masalan: +998901234567)</i>',
-        { remove_keyboard: true }
-      );
-      return true;
-    }
-
-    const userName = session.name || from.first_name || 'Talaba';
+  // If user typed phone number manually as text (fallback)
+  const formattedPhone = formatPhoneNumber(rawText);
+  if (formattedPhone.replace(/\D/g, '').length >= 7) {
+    const userName = getTelegramName(from);
     return await completeRegistration(chatId, telegramUserId, from, userName, formattedPhone, supabase);
   }
 
@@ -257,11 +243,22 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
     return true;
   }
 
-  // If not registered, prompt /start
+  // If not registered, prompt to send contact button
   await sendTelegramMessage(
     chatId,
-    'Ro‘yxatdan o‘tish va darslarga kirish uchun /start buyrug‘ini bosing.',
-    { remove_keyboard: true }
+    'Ro‘yxatdan o‘tish uchun pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing:',
+    {
+      keyboard: [
+        [
+          {
+            text: '📱 Telefon raqamni yuborish',
+            request_contact: true,
+          },
+        ],
+      ],
+      resize_keyboard: true,
+      one_time_keyboard: true,
+    }
   );
   return true;
 }
