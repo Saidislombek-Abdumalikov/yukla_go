@@ -5,6 +5,7 @@ import {
   getCourseLessonsForUser,
   hasUserCourseAccess,
   getUserCourseAccessStatus,
+  ensureAcademyAccessLoaded,
 } from '../_lib/academyData.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
@@ -12,16 +13,21 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  await ensureAcademyAccessLoaded();
+
   const session = verifySessionToken(req.headers.authorization);
   const userId = session?.userId || (session?.telegramUserId ? String(session.telegramUserId) : 'guest_user');
-  const isAdmin = session?.role === 'admin' || session?.role === 'super_admin' || (session?.telegramUserId && [7232597769, 5059829001].includes(session.telegramUserId));
+  const tgId = session?.telegramUserId;
+  const customerCode = session?.customerCode;
+  const isAdmin = session?.role === 'admin' || session?.role === 'super_admin' || (tgId && [7232597769, 5059829001].includes(tgId));
 
   const { courseId } = req.query;
 
   if (courseId) {
     const cId = String(courseId);
-    const hasAccess = isAdmin || hasUserCourseAccess(userId, cId);
-    const accessStatus = isAdmin ? 'granted' : getUserCourseAccessStatus(userId, cId);
+    const context = { telegramUserId: tgId, customerCode };
+    const hasAccess = isAdmin || hasUserCourseAccess(userId, cId, context);
+    const accessStatus = isAdmin ? 'granted' : getUserCourseAccessStatus(userId, cId, context);
 
     if (!hasAccess) {
       return res.status(200).json({

@@ -127,8 +127,8 @@ async function runAcademyTests() {
   const newStudentId = 'usr_new_test_guest';
 
   // 1. Setup test permissions
-  grantCourseAccess(studentYK100, courseId);
-  requestCourseAccess(studentYK101, courseId, { name: 'Bobur', customerCode: 'YK-101' });
+  await grantCourseAccess(studentYK100, courseId);
+  await requestCourseAccess(studentYK101, courseId, { name: 'Bobur', customerCode: 'YK-101' });
 
   assert.strictEqual(hasUserCourseAccess(studentYK100, courseId), true, 'YK-100 must have granted access');
   assert.strictEqual(getUserCourseAccessStatus(studentYK100, courseId), 'granted');
@@ -137,7 +137,7 @@ async function runAcademyTests() {
 
   // 2. Unregistered user requests access
   assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), false);
-  const reqRes = requestCourseAccess(newStudentId, courseId, {
+  const reqRes = await requestCourseAccess(newStudentId, courseId, {
     customerCode: 'YK-777',
     name: 'New Guest Student',
   });
@@ -145,14 +145,14 @@ async function runAcademyTests() {
   assert.strictEqual(getUserCourseAccessStatus(newStudentId, courseId), 'pending');
 
   // 3. Admin grants access to user by customer code YK-777
-  const grantRes = grantCourseAccess('YK-777', courseId);
+  const grantRes = await grantCourseAccess('YK-777', courseId);
   assert.strictEqual(grantRes.success, true);
   assert.strictEqual(grantRes.item?.status, 'granted');
   assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), true, 'User should now have granted access');
   assert.strictEqual(getUserCourseAccessStatus(newStudentId, courseId), 'granted');
 
   // 4. Admin revokes access
-  const revokeRes = revokeCourseAccess('YK-777', courseId);
+  const revokeRes = await revokeCourseAccess('YK-777', courseId);
   assert.strictEqual(revokeRes.success, true);
   assert.strictEqual(revokeRes.item?.status, 'none');
   assert.strictEqual(hasUserCourseAccess(newStudentId, courseId), false, 'Revoked user must have access removed');
@@ -163,7 +163,7 @@ async function runAcademyTests() {
   console.log('[TEST 8] Full Wipe Academy User Progress and Access');
   const wipeStudentId = 'usr_wipe_test_' + Date.now();
   recordUserLessonProgress(wipeStudentId, initialLessons[0].id, 100, false);
-  grantCourseAccess(wipeStudentId, courseId);
+  await grantCourseAccess(wipeStudentId, courseId);
   assert.strictEqual(hasUserCourseAccess(wipeStudentId, courseId), true);
 
   const wipeRes = wipeAcademyUser(wipeStudentId);

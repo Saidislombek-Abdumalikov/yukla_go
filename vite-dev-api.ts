@@ -790,7 +790,7 @@ export function devApiPlugin(): Plugin {
 
               if (body.action === 'grant_access') {
                 const target = body.identifier || body.userId || body.customerCode;
-                const result = grantCourseAccess(target, body.courseId || courseId);
+                const result = await grantCourseAccess(target, body.courseId || courseId);
                 return sendJson(res, 200, {
                   success: true,
                   message: `${result.item?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
@@ -800,7 +800,7 @@ export function devApiPlugin(): Plugin {
 
               if (body.action === 'revoke_access') {
                 const target = body.identifier || body.userId || body.customerCode;
-                const result = revokeCourseAccess(target, body.courseId || courseId);
+                const result = await revokeCourseAccess(target, body.courseId || courseId);
                 return sendJson(res, 200, {
                   success: true,
                   message: 'Ruxsat bekor qilindi',
@@ -866,7 +866,7 @@ export function devApiPlugin(): Plugin {
 
         if (path === '/api/academy/request-access' && req.method === 'POST') {
           const body = await readBody(req);
-          const item = requestCourseAccess(devUser.id, body.courseId || 'course_cargo_101', {
+          const item = await requestCourseAccess(devUser.id, body.courseId || 'course_cargo_101', {
             name: devUser.name,
             customerCode: devUser.customerCode,
             telegramUserId: devUser.telegramUserId,

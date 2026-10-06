@@ -123,7 +123,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         default_branch:default_delivery_branch_id (provider, branch_name, region, address)
       `)
       .eq('telegram_user_id', telegramUserId)
-      .single();
+      .maybeSingle();
     dbUser = data;
 
     if (dbUser?.status === 'blocked') {
@@ -325,7 +325,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         `🎉 <b>Tabriklaymiz, ro'yxatdan o'tish muvaffaqiyatli yakunlandi!</b>\n\n` +
         `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
         `Xitoy saytlarida (Taobao, 1688, Pinduoduo) xarid qilish uchun ombor manzilingiz:`,
-        getMainInlineKeyboard()
+        getMainInlineKeyboard(customerCode, dbUser?.name || localUser.name)
       );
 
       await sendWarehouseAddress(chatId, customerCode, supabase);

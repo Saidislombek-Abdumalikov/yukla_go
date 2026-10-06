@@ -11,31 +11,33 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
   const { courseId, name, customerCode, telegramUserId } = req.body || {};
   const userId = session?.userId || (session?.telegramUserId ? String(session.telegramUserId) : (telegramUserId ? String(telegramUserId) : 'guest_user'));
+  const effectiveCode = session?.customerCode || customerCode;
+  const effectiveTgId = session?.telegramUserId || (telegramUserId ? Number(telegramUserId) : undefined);
+
   if (!courseId) {
     return res.status(400).json({ error: 'courseId talab qilinadi' });
   }
 
-  const item = requestCourseAccess(userId, String(courseId), {
+  const item = await requestCourseAccess(userId, String(courseId), {
     name,
-    customerCode,
-    telegramUserId: telegramUserId ? Number(telegramUserId) : undefined,
+    customerCode: effectiveCode,
+    telegramUserId: effectiveTgId,
   });
 
   const course = INITIAL_COURSES.find(c => c.id === courseId);
   const courseTitle = course?.title || courseId;
 
-  // Notify admin if configured (e.g. admin chat ID or handle)
+  // Notify verified admins
   try {
-    // If admin chat id is available via env or send notification
-    const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID;
-    if (adminChatId) {
+    const adminIds = [7232597769, 5059829001];
+    for (const admId of adminIds) {
       await sendTelegramMessage(
-        adminChatId,
+        admId,
         `🔔 <b>Yangi darslik so'rovi!</b>\n\n` +
         `👤 Talaba: <b>${item.name}</b> (<code>${item.customerCode}</code>)\n` +
         `📚 Kurs: <b>${courseTitle}</b>\n\n` +
-        `<i>Admin panel orqali ruxsat berishingiz mumkin.</i>`
-      );
+        `<i>Admin panel orqali "Ruxsat berish" tugmasini bosib tasdiqlashingiz mumkin.</i>`
+      ).catch(() => {});
     }
   } catch {}
 

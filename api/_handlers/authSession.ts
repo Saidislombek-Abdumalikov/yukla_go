@@ -139,34 +139,45 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     // 4. Regular User Fetch / Auto-Provision
-    let dbUser = null;
+    let dbUser: any = null;
     try {
       const { data: existingUser } = await supabase
         .from('users')
         .select('id, telegram_user_id, customer_code, name, phone, status, onboarding_completed')
         .eq('telegram_user_id', tgUser.id)
-        .single();
+        .maybeSingle();
       dbUser = existingUser;
     } catch {
-      // DB might be initializing
+      // DB query issue
     }
 
-    // Auto-create user if opening the Mini App via valid Telegram authentication
+    // Auto-create or ensure user exists in DB
     if (!dbUser) {
       const displayName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Mijoz';
       try {
         const { data: createdUser } = await supabase
           .from('users')
-          .insert({
+          .upsert({
             telegram_user_id: tgUser.id,
             name: displayName,
             phone: 'pending',
             onboarding_completed: true,
             onboarding_step: 'completed',
-          })
+          }, { onConflict: 'telegram_user_id' })
           .select('id, telegram_user_id, customer_code, name, phone, status, onboarding_completed')
-          .single();
-        dbUser = createdUser;
+          .maybeSingle();
+
+        if (createdUser) {
+          dbUser = createdUser;
+        } else {
+          // Re-fetch in case upsert returned empty on conflict
+          const { data: recheck } = await supabase
+            .from('users')
+            .select('id, telegram_user_id, customer_code, name, phone, status, onboarding_completed')
+            .eq('telegram_user_id', tgUser.id)
+            .maybeSingle();
+          dbUser = recheck;
+        }
       } catch {
         // Fallback below
       }
@@ -177,7 +188,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return res.status(403).json({ error: 'Sizning hisobingiz bloklangan. Administrator bilan bog\'laning.' });
     }
 
-    // If DB is offline or still initializing, provide smooth resilient session
+    // Determine consistent customer code
     const customerCode = dbUser?.customer_code || `YK-${String(tgUser.id).slice(-4)}`;
     const displayName = dbUser?.name || [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || 'Mijoz';
     const userId = dbUser?.id || `usr_${tgUser.id}`;
@@ -189,7 +200,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         .from('user_roles')
         .select('role')
         .eq('telegram_user_id', tgUser.id)
-        .single();
+        .maybeSingle();
       if (roleData?.role) {
         role = roleData.role as 'admin' | 'super_admin';
       }
@@ -197,13 +208,13 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       // Ignore
     }
 
-    // 6. Issue short-lived session token
+    // 6. Issue persistent 30-day session token
     const token = createSessionToken({
       userId,
       telegramUserId: tgUser.id,
       customerCode,
       role,
-    });
+    }, '30d');
 
     return res.status(200).json({
       token,
@@ -212,6 +223,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         telegramUserId: tgUser.id,
         customerCode,
         name: displayName,
+        phone: dbUser?.phone || '',
+        status: dbUser?.status || 'active',
         role,
       },
     });
@@ -222,7 +235,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       telegramUserId: tgUser.id,
       customerCode: fallbackCode,
       role: 'customer',
-    });
+    }, '30d');
     return res.status(200).json({
       token,
       user: {

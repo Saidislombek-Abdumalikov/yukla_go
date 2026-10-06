@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import type { Course, Lesson, UserProfile, CourseAccessStatus } from '../../types';
 import LessonPlayer from './LessonPlayer';
-import { api } from '../../services/api';
+import { api, adminFetch } from '../../services/api';
 
 interface AcademyAppProps {
   onBackToCargo?: () => void;
@@ -30,7 +30,7 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
   const loadCourses = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/academy/courses').then(r => r.json()).catch(() => []);
+      const res = await adminFetch('/api/academy/courses').then(r => r.json()).catch(() => []);
       const courseList = Array.isArray(res) ? res : [];
       setCourses(courseList);
 
@@ -48,7 +48,7 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
     setLoading(true);
     setRequestSent(false);
     try {
-      const res = await fetch(`/api/academy/courses?courseId=${course.id}`).then(r => r.json()).catch(() => ({}));
+      const res = await adminFetch(`/api/academy/courses?courseId=${course.id}`).then(r => r.json()).catch(() => ({}));
       
       // Check if access is denied
       if (res && res.hasAccess === false) {
@@ -80,7 +80,7 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
     if (!selectedCourse) return;
     setRequestLoading(true);
     try {
-      await fetch('/api/academy/request-access', {
+      await adminFetch('/api/academy/request-access', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -110,7 +110,7 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
 
     // Refresh lessons lock/unlock state from server
     if (selectedCourse) {
-      fetch(`/api/academy/courses?courseId=${selectedCourse.id}`)
+      adminFetch(`/api/academy/courses?courseId=${selectedCourse.id}`)
         .then(r => r.json())
         .then(data => {
           const list = Array.isArray(data) ? data : (data?.lessons || []);
@@ -122,7 +122,7 @@ const AcademyApp: React.FC<AcademyAppProps> = ({ onBackToCargo }) => {
     }
 
     // Refresh courses completion count
-    fetch('/api/academy/courses')
+    adminFetch('/api/academy/courses')
       .then(r => r.json())
       .then(data => {
         if (Array.isArray(data)) setCourses(data);

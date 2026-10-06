@@ -1,5 +1,5 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
-import { verifySessionToken } from '../_lib/auth.ts';
+import { verifySessionToken, ADMIN_TELEGRAM_IDS } from '../_lib/auth.ts';
 import { getSupabase } from '../_lib/supabase.ts';
 import { wipeBotUser } from '../_lib/botEngine.ts';
 import { wipeAcademyUser } from '../_lib/academyData.ts';
@@ -45,17 +45,26 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         return res.status(500).json({ error: 'Foydalanuvchilarni yuklashda xatolik' });
       }
 
-      return res.status(200).json(users || []);
+      // Attach roles from user_roles
+      const { data: allRoles } = await supabase.from('user_roles').select('telegram_user_id, role');
+      const roleMap = new Map((allRoles || []).map(r => [r.telegram_user_id, r.role]));
+
+      const enriched = (users || []).map(u => ({
+        ...u,
+        role: roleMap.get(u.telegram_user_id) || (ADMIN_TELEGRAM_IDS.includes(Number(u.telegram_user_id)) ? 'super_admin' : 'customer'),
+      }));
+
+      return res.status(200).json(enriched);
     } catch (err) {
       return res.status(500).json({ error: 'Xatolik' });
     }
   }
 
-  // 2. PATCH: Toggle user status (active / blocked)
+  // 2. PATCH: Toggle user status (active / blocked) or update role (admin / customer)
   if (req.method === 'PATCH') {
-    const { userId, status } = req.body || {};
-    if (!userId || !['active', 'blocked'].includes(status)) {
-      return res.status(400).json({ error: 'userId va status (active/blocked) talab qilinadi' });
+    const { userId, status, role, telegramUserId } = req.body || {};
+    if (!userId && !telegramUserId) {
+      return res.status(400).json({ error: 'userId yoki telegramUserId talab qilinadi' });
     }
 
     if (!supabase) {
@@ -63,17 +72,44 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
 
     try {
-      await supabase.from('users').update({ status }).eq('id', userId);
+      let tgId = telegramUserId;
+      if (!tgId && userId) {
+        const { data: u } = await supabase.from('users').select('telegram_user_id').eq('id', userId).maybeSingle();
+        tgId = u?.telegram_user_id;
+      }
 
-      await supabase.from('admin_audit_logs').insert({
-        admin_telegram_id: session.telegramUserId,
-        action: `USER_STATUS_${status.toUpperCase()}`,
-        entity_type: 'users',
-        entity_id: userId,
-        details: { status },
-      });
+      // Update status if passed
+      if (status && ['active', 'blocked'].includes(status)) {
+        await supabase.from('users').update({ status }).eq('id', userId);
+        await supabase.from('admin_audit_logs').insert({
+          admin_telegram_id: session.telegramUserId,
+          action: `USER_STATUS_${status.toUpperCase()}`,
+          entity_type: 'users',
+          entity_id: userId,
+          details: { status },
+        });
+      }
 
-      return res.status(200).json({ success: true, message: `Foydalanuvchi holati: ${status}` });
+      // Update role if passed
+      if (role && ['admin', 'super_admin', 'customer', 'operator'].includes(role) && tgId) {
+        if (role === 'customer') {
+          await supabase.from('user_roles').delete().eq('telegram_user_id', tgId);
+        } else {
+          await supabase.from('user_roles').upsert({
+            telegram_user_id: tgId,
+            role,
+          }, { onConflict: 'telegram_user_id' });
+        }
+        await supabase.from('admin_audit_logs').insert({
+          admin_telegram_id: session.telegramUserId,
+          action: `USER_ROLE_${role.toUpperCase()}`,
+          entity_type: 'users',
+          entity_id: userId || String(tgId),
+          details: { role, telegramUserId: tgId },
+        });
+      }
+
+      return res.status(200).json({ success: true, message: 'Foydalanuvchi ma\'lumotlari yangilandi' });
     } catch (err) {
       return res.status(500).json({ error: 'Xatolik' });
     }

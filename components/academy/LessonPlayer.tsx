@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import type { Lesson, UserProfile } from '../../types';
+import { adminFetch } from '../../services/api';
 
 interface LessonPlayerProps {
   lesson: Lesson;
@@ -487,7 +488,7 @@ const LessonPlayer: React.FC<LessonPlayerProps> = ({
 
   const syncProgressToServer = async (watchedSec: number, completedState: boolean) => {
     try {
-      await fetch('/api/academy/progress', {
+      await adminFetch('/api/academy/progress', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -38,7 +38,7 @@ export function isTelegramAdmin(telegramUserId: number | string | undefined | nu
  */
 export function validateTelegramInitData(
   initData: string,
-  maxAgeSeconds = 600,
+  maxAgeSeconds = 86400 * 30,
   tokenOverride?: string
 ): { valid: boolean; user?: TelegramUser; error?: string } {
   if (!initData) {
@@ -64,7 +64,7 @@ export function validateTelegramInitData(
     }
     const authDate = parseInt(authDateStr, 10);
     const now = Math.floor(Date.now() / 1000);
-    if (isNaN(authDate) || now - authDate > maxAgeSeconds || authDate > now + 60) {
+    if (isNaN(authDate) || (maxAgeSeconds > 0 && now - authDate > maxAgeSeconds) || authDate > now + 300) {
       return { valid: false, error: 'Expired or invalid auth_date' };
     }
 
@@ -109,9 +109,9 @@ export function validateTelegramInitData(
 }
 
 /**
- * Creates a short-lived JWT session (15-30 minutes).
+ * Creates a persistent JWT session for Mini App (defaults to 30 days).
  */
-export function createSessionToken(payload: SessionPayload, expiresIn: string | number = '25m'): string {
+export function createSessionToken(payload: SessionPayload, expiresIn: string | number = '30d'): string {
   const secret = process.env.JWT_SECRET || 'yukla_go_dev_secret_replace_in_prod';
   return jwt.sign(payload, secret, { expiresIn: expiresIn as any });
 }

@@ -7,7 +7,7 @@ function isTelegramAdmin(telegramUserId) {
   const numId = Number(telegramUserId);
   return ADMIN_TELEGRAM_IDS.includes(numId);
 }
-function validateTelegramInitData(initData, maxAgeSeconds = 600, tokenOverride) {
+function validateTelegramInitData(initData, maxAgeSeconds = 86400 * 30, tokenOverride) {
   if (!initData) {
     return { valid: false, error: "initData is required" };
   }
@@ -27,7 +27,7 @@ function validateTelegramInitData(initData, maxAgeSeconds = 600, tokenOverride) 
     }
     const authDate = parseInt(authDateStr, 10);
     const now = Math.floor(Date.now() / 1e3);
-    if (isNaN(authDate) || now - authDate > maxAgeSeconds || authDate > now + 60) {
+    if (isNaN(authDate) || maxAgeSeconds > 0 && now - authDate > maxAgeSeconds || authDate > now + 300) {
       return { valid: false, error: "Expired or invalid auth_date" };
     }
     params.delete("hash");
@@ -50,7 +50,7 @@ function validateTelegramInitData(initData, maxAgeSeconds = 600, tokenOverride) 
     return { valid: false, error: err?.message || "Verification exception" };
   }
 }
-function createSessionToken(payload, expiresIn = "25m") {
+function createSessionToken(payload, expiresIn = "30d") {
   const secret = process.env.JWT_SECRET || "yukla_go_dev_secret_replace_in_prod";
   return jwt.sign(payload, secret, { expiresIn });
 }
@@ -67,6 +67,25 @@ function verifySessionToken(authHeader) {
     return null;
   }
 }
+
+// api/_lib/supabase.ts
+import { createClient } from "@supabase/supabase-js";
+var supabaseUrl = process.env.SUPABASE_URL || "";
+var supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+var clientInstance = null;
+var getSupabase2 = () => {
+  if (clientInstance) return clientInstance;
+  if (supabaseUrl && supabaseServiceKey) {
+    clientInstance = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false
+      }
+    });
+    return clientInstance;
+  }
+  return null;
+};
 
 // api/_lib/academyData.ts
 var INITIAL_COURSES = [
@@ -317,19 +336,88 @@ function deleteLesson(lessonId) {
 var DEMO_ACADEMY_USERS = [];
 var courseAccessStore = /* @__PURE__ */ new Map();
 var ADMIN_TELEGRAM_IDS2 = [7232597769, 5059829001];
-function hasUserCourseAccess(userId, courseId) {
-  const numericId = Number(userId);
-  if (!isNaN(numericId) && ADMIN_TELEGRAM_IDS2.includes(numericId)) {
+var isAccessStoreLoaded = false;
+async function ensureAcademyAccessLoaded(forceRefresh = false) {
+  const supabase = getSupabase2();
+  if (!supabase) return;
+  if (isAccessStoreLoaded && !forceRefresh) return;
+  try {
+    const { data } = await supabase.from("app_settings").select("value").eq("key", "academy_access_records").maybeSingle();
+    if (data?.value?.records && Array.isArray(data.value.records)) {
+      for (const item of data.value.records) {
+        courseAccessStore.set(`${item.userId}:${item.courseId}`, item);
+        if (!DEMO_ACADEMY_USERS.some((u) => u.id === item.userId)) {
+          DEMO_ACADEMY_USERS.push({
+            id: item.userId,
+            name: item.name || "Mijoz",
+            customerCode: item.customerCode || "YK-???",
+            telegramUserId: item.telegramUserId || 0
+          });
+        }
+      }
+    }
+    isAccessStoreLoaded = true;
+  } catch {
+  }
+}
+async function saveCourseAccessToSupabase() {
+  const supabase = getSupabase2();
+  if (!supabase) return;
+  try {
+    const allRecords = Array.from(courseAccessStore.values());
+    await supabase.from("app_settings").upsert({
+      key: "academy_access_records",
+      value: { records: allRecords },
+      updated_at: (/* @__PURE__ */ new Date()).toISOString()
+    }, { onConflict: "key" });
+  } catch (err) {
+    console.error("Failed to persist academy access records:", err);
+  }
+}
+function hasUserCourseAccess(userId, courseId, context) {
+  const numericId = Number(userId) || (context?.telegramUserId ? Number(context.telegramUserId) : 0);
+  if (numericId && ADMIN_TELEGRAM_IDS2.includes(numericId)) {
     return true;
   }
-  const record = courseAccessStore.get(`${userId}:${courseId}`);
-  return record?.status === "granted";
+  const directRecord = courseAccessStore.get(`${userId}:${courseId}`);
+  if (directRecord?.status === "granted") {
+    return true;
+  }
+  const cleanCode = context?.customerCode?.trim().toUpperCase();
+  const tgId = context?.telegramUserId;
+  for (const item of courseAccessStore.values()) {
+    if (item.courseId === courseId && item.status === "granted") {
+      if (item.userId === userId) return true;
+      if (cleanCode && item.customerCode?.trim().toUpperCase() === cleanCode) return true;
+      if (tgId && item.telegramUserId === tgId) return true;
+      if (numericId && item.telegramUserId === numericId) return true;
+    }
+  }
+  return false;
 }
-function getUserCourseAccessStatus(userId, courseId) {
-  const record = courseAccessStore.get(`${userId}:${courseId}`);
-  return record?.status || "none";
+function getUserCourseAccessStatus(userId, courseId, context) {
+  const numericId = Number(userId) || (context?.telegramUserId ? Number(context.telegramUserId) : 0);
+  if (numericId && ADMIN_TELEGRAM_IDS2.includes(numericId)) {
+    return "granted";
+  }
+  const directRecord = courseAccessStore.get(`${userId}:${courseId}`);
+  if (directRecord?.status) {
+    return directRecord.status;
+  }
+  const cleanCode = context?.customerCode?.trim().toUpperCase();
+  const tgId = context?.telegramUserId;
+  for (const item of courseAccessStore.values()) {
+    if (item.courseId === courseId) {
+      if (item.userId === userId) return item.status;
+      if (cleanCode && item.customerCode?.trim().toUpperCase() === cleanCode) return item.status;
+      if (tgId && item.telegramUserId === tgId) return item.status;
+      if (numericId && item.telegramUserId === numericId) return item.status;
+    }
+  }
+  return "none";
 }
-function requestCourseAccess(userId, courseId, userMeta) {
+async function requestCourseAccess(userId, courseId, userMeta) {
+  await ensureAcademyAccessLoaded(true);
   const existingUser = DEMO_ACADEMY_USERS.find((u) => u.id === userId);
   const key = `${userId}:${courseId}`;
   const record = {
@@ -350,31 +438,32 @@ function requestCourseAccess(userId, courseId, userMeta) {
       telegramUserId: record.telegramUserId || 0
     });
   }
+  await saveCourseAccessToSupabase();
   return record;
 }
-function grantCourseAccess(identifier, courseId) {
+async function grantCourseAccess(identifier, courseId, userMeta) {
+  await ensureAcademyAccessLoaded(true);
   const clean = identifier.trim().toUpperCase();
+  const numericId = !isNaN(Number(clean)) ? Number(clean) : 0;
   let targetUser = DEMO_ACADEMY_USERS.find(
     (u) => u.id === identifier || u.customerCode.toUpperCase() === clean || String(u.telegramUserId) === clean || u.name.toUpperCase().includes(clean)
   );
   let existingItem;
-  if (!targetUser) {
-    for (const item of courseAccessStore.values()) {
-      if (item.customerCode.toUpperCase() === clean || String(item.telegramUserId) === clean || item.userId === identifier || item.name.toUpperCase().includes(clean)) {
-        existingItem = item;
-        break;
-      }
+  for (const item of courseAccessStore.values()) {
+    if (item.customerCode.toUpperCase() === clean || String(item.telegramUserId) === clean || item.userId === identifier || item.name && item.name.toUpperCase().includes(clean)) {
+      existingItem = item;
+      break;
     }
   }
-  const userId = targetUser ? targetUser.id : existingItem ? existingItem.userId : identifier;
+  const userId = userMeta?.id || (targetUser ? targetUser.id : existingItem ? existingItem.userId : identifier);
   const key = `${userId}:${courseId}`;
   const existing = existingItem || courseAccessStore.get(key);
   const updated = {
     userId,
     courseId,
-    name: targetUser?.name || existing?.name || `Foydalanuvchi (${identifier})`,
-    customerCode: targetUser?.customerCode || existing?.customerCode || identifier,
-    telegramUserId: targetUser?.telegramUserId || existing?.telegramUserId,
+    name: userMeta?.name || targetUser?.name || existing?.name || `Foydalanuvchi (${identifier})`,
+    customerCode: userMeta?.customerCode || targetUser?.customerCode || existing?.customerCode || (clean.startsWith("YK-") ? clean : identifier),
+    telegramUserId: userMeta?.telegramUserId || targetUser?.telegramUserId || existing?.telegramUserId || (numericId > 1e5 ? numericId : void 0),
     status: "granted",
     grantedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
@@ -387,20 +476,20 @@ function grantCourseAccess(identifier, courseId) {
       telegramUserId: updated.telegramUserId || 0
     });
   }
-  return { success: true, item: updated, user: targetUser };
+  await saveCourseAccessToSupabase();
+  return { success: true, item: updated, user: targetUser || { name: updated.name, telegramUserId: updated.telegramUserId } };
 }
-function revokeCourseAccess(identifier, courseId) {
+async function revokeCourseAccess(identifier, courseId) {
+  await ensureAcademyAccessLoaded(true);
   const clean = identifier.trim().toUpperCase();
   let targetUser = DEMO_ACADEMY_USERS.find(
     (u) => u.id === identifier || u.customerCode.toUpperCase() === clean || String(u.telegramUserId) === clean
   );
   let existingItem;
-  if (!targetUser) {
-    for (const item of courseAccessStore.values()) {
-      if (item.customerCode.toUpperCase() === clean || String(item.telegramUserId) === clean || item.userId === identifier) {
-        existingItem = item;
-        break;
-      }
+  for (const item of courseAccessStore.values()) {
+    if (item.customerCode.toUpperCase() === clean || String(item.telegramUserId) === clean || item.userId === identifier) {
+      existingItem = item;
+      break;
     }
   }
   const userId = targetUser ? targetUser.id : existingItem ? existingItem.userId : identifier;
@@ -409,6 +498,7 @@ function revokeCourseAccess(identifier, courseId) {
   if (existing) {
     existing.status = "none";
     existing.grantedAt = void 0;
+    await saveCourseAccessToSupabase();
     return { success: true, item: existing };
   }
   const updated = {
@@ -419,13 +509,44 @@ function revokeCourseAccess(identifier, courseId) {
     status: "none"
   };
   courseAccessStore.set(key, updated);
+  await saveCourseAccessToSupabase();
   return { success: true, item: updated };
 }
-function getCourseAccessList(courseId) {
-  return DEMO_ACADEMY_USERS.map((u) => {
+async function getCourseAccessList(courseId) {
+  await ensureAcademyAccessLoaded();
+  const supabase = getSupabase2();
+  const userList = [...DEMO_ACADEMY_USERS];
+  if (supabase) {
+    try {
+      const { data: dbUsers } = await supabase.from("users").select("id, name, customer_code, telegram_user_id").order("created_at", { ascending: false });
+      if (dbUsers && Array.isArray(dbUsers)) {
+        for (const du of dbUsers) {
+          if (!userList.some((u) => u.id === du.id || u.customerCode === du.customer_code)) {
+            userList.push({
+              id: du.id,
+              name: du.name || "Mijoz",
+              customerCode: du.customer_code || "YK-???",
+              telegramUserId: du.telegram_user_id
+            });
+          }
+        }
+      }
+    } catch {
+    }
+  }
+  const result = [];
+  for (const u of userList) {
     const key = `${u.id}:${courseId}`;
-    const rec = courseAccessStore.get(key);
-    return {
+    let rec = courseAccessStore.get(key);
+    if (!rec) {
+      for (const item of courseAccessStore.values()) {
+        if (item.courseId === courseId && (item.customerCode?.toUpperCase() === u.customerCode.toUpperCase() || u.telegramUserId && item.telegramUserId === u.telegramUserId)) {
+          rec = item;
+          break;
+        }
+      }
+    }
+    result.push({
       userId: u.id,
       customerCode: u.customerCode,
       name: u.name,
@@ -434,8 +555,14 @@ function getCourseAccessList(courseId) {
       status: rec?.status || "none",
       grantedAt: rec?.grantedAt,
       requestedAt: rec?.requestedAt
-    };
-  });
+    });
+  }
+  for (const item of courseAccessStore.values()) {
+    if (item.courseId === courseId && !result.some((r) => r.userId === item.userId || r.customerCode === item.customerCode)) {
+      result.push(item);
+    }
+  }
+  return result;
 }
 function wipeAcademyUser(userIdOrCode) {
   const clean = userIdOrCode.trim().toUpperCase();
@@ -471,14 +598,18 @@ async function handler(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
+  await ensureAcademyAccessLoaded();
   const session = verifySessionToken(req.headers.authorization);
   const userId = session?.userId || (session?.telegramUserId ? String(session.telegramUserId) : "guest_user");
-  const isAdmin = session?.role === "admin" || session?.role === "super_admin" || session?.telegramUserId && [7232597769, 5059829001].includes(session.telegramUserId);
+  const tgId = session?.telegramUserId;
+  const customerCode = session?.customerCode;
+  const isAdmin = session?.role === "admin" || session?.role === "super_admin" || tgId && [7232597769, 5059829001].includes(tgId);
   const { courseId } = req.query;
   if (courseId) {
     const cId = String(courseId);
-    const hasAccess = isAdmin || hasUserCourseAccess(userId, cId);
-    const accessStatus = isAdmin ? "granted" : getUserCourseAccessStatus(userId, cId);
+    const context = { telegramUserId: tgId, customerCode };
+    const hasAccess = isAdmin || hasUserCourseAccess(userId, cId, context);
+    const accessStatus = isAdmin ? "granted" : getUserCourseAccessStatus(userId, cId, context);
     if (!hasAccess) {
       return res.status(200).json({
         hasAccess: false,
@@ -629,28 +760,31 @@ async function handler3(req, res) {
   const session = verifySessionToken(req.headers.authorization);
   const { courseId, name, customerCode, telegramUserId } = req.body || {};
   const userId = session?.userId || (session?.telegramUserId ? String(session.telegramUserId) : telegramUserId ? String(telegramUserId) : "guest_user");
+  const effectiveCode = session?.customerCode || customerCode;
+  const effectiveTgId = session?.telegramUserId || (telegramUserId ? Number(telegramUserId) : void 0);
   if (!courseId) {
     return res.status(400).json({ error: "courseId talab qilinadi" });
   }
-  const item = requestCourseAccess(userId, String(courseId), {
+  const item = await requestCourseAccess(userId, String(courseId), {
     name,
-    customerCode,
-    telegramUserId: telegramUserId ? Number(telegramUserId) : void 0
+    customerCode: effectiveCode,
+    telegramUserId: effectiveTgId
   });
   const course = INITIAL_COURSES.find((c) => c.id === courseId);
   const courseTitle = course?.title || courseId;
   try {
-    const adminChatId = process.env.ADMIN_TELEGRAM_CHAT_ID;
-    if (adminChatId) {
+    const adminIds = [7232597769, 5059829001];
+    for (const admId of adminIds) {
       await sendTelegramMessage(
-        adminChatId,
+        admId,
         `\u{1F514} <b>Yangi darslik so'rovi!</b>
 
 \u{1F464} Talaba: <b>${item.name}</b> (<code>${item.customerCode}</code>)
 \u{1F4DA} Kurs: <b>${courseTitle}</b>
 
-<i>Admin panel orqali ruxsat berishingiz mumkin.</i>`
-      );
+<i>Admin panel orqali "Ruxsat berish" tugmasini bosib tasdiqlashingiz mumkin.</i>`
+      ).catch(() => {
+      });
     }
   } catch {
   }
@@ -660,25 +794,6 @@ async function handler3(req, res) {
     item
   });
 }
-
-// api/_lib/supabase.ts
-import { createClient } from "@supabase/supabase-js";
-var supabaseUrl = process.env.SUPABASE_URL || "";
-var supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-var clientInstance = null;
-var getSupabase = () => {
-  if (clientInstance) return clientInstance;
-  if (supabaseUrl && supabaseServiceKey) {
-    clientInstance = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false
-      }
-    });
-    return clientInstance;
-  }
-  return null;
-};
 
 // api/_lib/branchesData.ts
 var REGIONS_LIST = [
@@ -795,7 +910,7 @@ var inMemoryOferta = {
   updatedAt: (/* @__PURE__ */ new Date()).toISOString()
 };
 async function getOfertaText() {
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (supabase) {
     try {
       const { data } = await supabase.from("oferta_versions").select("title, content").eq("is_active", true).order("version", { ascending: false }).limit(1).single();
@@ -820,7 +935,7 @@ async function updateOfertaText(content, title) {
     content: cleanContent,
     updatedAt: (/* @__PURE__ */ new Date()).toISOString()
   };
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (supabase) {
     try {
       await supabase.from("oferta_versions").upsert({
@@ -891,7 +1006,7 @@ async function processTelegramUpdate(update) {
   const chatId = message?.chat?.id || callbackQuery?.message?.chat?.id;
   if (!from || !chatId) return false;
   const telegramUserId = from.id;
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   let dbUser = null;
   if (supabase) {
     const { data } = await supabase.from("users").select(`
@@ -905,7 +1020,7 @@ async function processTelegramUpdate(update) {
         status,
         default_delivery_branch_id,
         default_branch:default_delivery_branch_id (provider, branch_name, region, address)
-      `).eq("telegram_user_id", telegramUserId).single();
+      `).eq("telegram_user_id", telegramUserId).maybeSingle();
     dbUser = data;
     if (dbUser?.status === "blocked") {
       await sendTelegramMessage(chatId, "\u274C Sizning hisobingiz bloklangan. Iltimos, admin bilan bog'laning: @nothing_related");
@@ -1055,7 +1170,7 @@ async function processTelegramUpdate(update) {
 \u{1F464} Sizning mijoz kodingiz: <code>${customerCode}</code>
 
 Xitoy saytlarida (Taobao, 1688, Pinduoduo) xarid qilish uchun ombor manzilingiz:`,
-        getMainInlineKeyboard()
+        getMainInlineKeyboard(customerCode, dbUser?.name || localUser.name)
       );
       await sendWarehouseAddress(chatId, customerCode, supabase);
       return true;
@@ -1591,7 +1706,7 @@ async function handler4(req, res) {
   const { action, courseId = "course_cargo_101" } = req.query;
   if (req.method === "GET") {
     if (action === "access") {
-      const accessList = getCourseAccessList(String(courseId));
+      const accessList = await getCourseAccessList(String(courseId));
       return res.status(200).json(accessList);
     }
     if (action === "students") {
@@ -1625,15 +1740,45 @@ async function handler4(req, res) {
       const { identifier, userId, customerCode, courseId: targetCourseId = "course_cargo_101" } = body;
       const target = identifier || userId || customerCode;
       if (!target) return res.status(400).json({ error: "Foydalanuvchi identifikatori (ID yoki mijoz kodi) talab qilinadi" });
-      const result = grantCourseAccess(target, String(targetCourseId));
-      if (result.user?.telegramUserId) {
+      let userMeta = void 0;
+      const supabase = getSupabase();
+      if (supabase) {
+        try {
+          const clean = String(target).trim();
+          const num = Number(clean);
+          let q = supabase.from("users").select("id, name, customer_code, telegram_user_id");
+          if (!isNaN(num) && num > 1e5) {
+            q = q.eq("telegram_user_id", num);
+          } else if (clean.toUpperCase().startsWith("YK-")) {
+            q = q.ilike("customer_code", clean);
+          } else if (/^[0-9a-f-]{36}$/i.test(clean)) {
+            q = q.eq("id", clean);
+          } else {
+            q = q.or(`customer_code.ilike.%${clean}%,name.ilike.%${clean}%`);
+          }
+          const { data: found } = await q.maybeSingle();
+          if (found) {
+            userMeta = {
+              id: found.id,
+              name: found.name,
+              customerCode: found.customer_code,
+              telegramUserId: found.telegram_user_id
+            };
+          }
+        } catch {
+        }
+      }
+      const effectiveTarget = userMeta?.id || target;
+      const result = await grantCourseAccess(effectiveTarget, String(targetCourseId), userMeta);
+      const tgUserId = result.user?.telegramUserId || userMeta?.telegramUserId;
+      if (tgUserId) {
         try {
           const course = STORED_COURSES.find((c) => c.id === String(targetCourseId));
           const appUrl = process.env.MINI_APP_URL || "https://yuklago.vercel.app";
           const academyUrl = appUrl.includes("?") ? `${appUrl}&app=academy` : `${appUrl}?app=academy`;
           await sendTelegramMessage(
-            result.user.telegramUserId,
-            `\u{1F389} <b>Tabriklaymiz, ${result.user.name}!</b>
+            tgUserId,
+            `\u{1F389} <b>Tabriklaymiz, ${result.user?.name || userMeta?.name || "Mijoz"}!</b>
 
 Sizga <b>${course?.title || "Video darslar"}</b> kursini tomosha qilish uchun ruxsat berildi!
 
@@ -1649,7 +1794,7 @@ Quyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin:`,
       }
       return res.status(200).json({
         success: true,
-        message: `${result.item?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
+        message: `${result.item?.name || userMeta?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
         item: result.item
       });
     }
@@ -1657,7 +1802,7 @@ Quyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin:`,
       const { identifier, userId, customerCode, courseId: targetCourseId = "course_cargo_101" } = body;
       const target = identifier || userId || customerCode;
       if (!target) return res.status(400).json({ error: "Foydalanuvchi identifikatori talab qilinadi" });
-      const result = revokeCourseAccess(target, String(targetCourseId));
+      const result = await revokeCourseAccess(target, String(targetCourseId));
       return res.status(200).json({
         success: true,
         message: "Ruxsat bekor qilindi",
@@ -1734,7 +1879,7 @@ async function handler5(req, res) {
   if (!session || session.role !== "admin" && session.role !== "super_admin") {
     return res.status(403).json({ error: "Ruxsat berilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (req.method === "GET") {
     if (!supabase) {
       return res.status(200).json([
@@ -1808,7 +1953,7 @@ async function handler6(req, res) {
   if (!session || session.role !== "admin" && session.role !== "super_admin") {
     return res.status(403).json({ error: "Ruxsat berilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (req.method === "GET") {
     if (!supabase) {
       return res.status(200).json([]);
@@ -1886,7 +2031,7 @@ async function handler7(req, res) {
   if (!session || session.role !== "admin" && session.role !== "super_admin") {
     return res.status(403).json({ error: "Ruxsat berilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (req.method === "GET") {
     if (!supabase) {
       return res.status(200).json([]);
@@ -2055,7 +2200,7 @@ async function handler8(req, res) {
   if (!session || session.role !== "admin" && session.role !== "super_admin") {
     return res.status(403).json({ error: "Ruxsat berilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   const oferta = await getOfertaText();
   if (req.method === "GET") {
     if (!supabase) {
@@ -2142,7 +2287,7 @@ async function handler9(req, res) {
   if (!session || session.role !== "admin" && session.role !== "super_admin") {
     return res.status(403).json({ error: "Ruxsat berilmagan: Faqat administratorlar uchun" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     const memUsers = getInMemoryBotUsers();
     return res.status(200).json({
@@ -2185,7 +2330,7 @@ async function handler10(req, res) {
   if (!session || session.role !== "admin" && session.role !== "super_admin") {
     return res.status(403).json({ error: "Ruxsat berilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (req.method === "GET") {
     if (!supabase) {
       return res.status(200).json([]);
@@ -2211,29 +2356,59 @@ async function handler10(req, res) {
       if (error) {
         return res.status(500).json({ error: "Foydalanuvchilarni yuklashda xatolik" });
       }
-      return res.status(200).json(users || []);
+      const { data: allRoles } = await supabase.from("user_roles").select("telegram_user_id, role");
+      const roleMap = new Map((allRoles || []).map((r) => [r.telegram_user_id, r.role]));
+      const enriched = (users || []).map((u) => ({
+        ...u,
+        role: roleMap.get(u.telegram_user_id) || (ADMIN_TELEGRAM_IDS.includes(Number(u.telegram_user_id)) ? "super_admin" : "customer")
+      }));
+      return res.status(200).json(enriched);
     } catch (err) {
       return res.status(500).json({ error: "Xatolik" });
     }
   }
   if (req.method === "PATCH") {
-    const { userId, status } = req.body || {};
-    if (!userId || !["active", "blocked"].includes(status)) {
-      return res.status(400).json({ error: "userId va status (active/blocked) talab qilinadi" });
+    const { userId, status, role, telegramUserId } = req.body || {};
+    if (!userId && !telegramUserId) {
+      return res.status(400).json({ error: "userId yoki telegramUserId talab qilinadi" });
     }
     if (!supabase) {
       return res.status(200).json({ success: true });
     }
     try {
-      await supabase.from("users").update({ status }).eq("id", userId);
-      await supabase.from("admin_audit_logs").insert({
-        admin_telegram_id: session.telegramUserId,
-        action: `USER_STATUS_${status.toUpperCase()}`,
-        entity_type: "users",
-        entity_id: userId,
-        details: { status }
-      });
-      return res.status(200).json({ success: true, message: `Foydalanuvchi holati: ${status}` });
+      let tgId = telegramUserId;
+      if (!tgId && userId) {
+        const { data: u } = await supabase.from("users").select("telegram_user_id").eq("id", userId).maybeSingle();
+        tgId = u?.telegram_user_id;
+      }
+      if (status && ["active", "blocked"].includes(status)) {
+        await supabase.from("users").update({ status }).eq("id", userId);
+        await supabase.from("admin_audit_logs").insert({
+          admin_telegram_id: session.telegramUserId,
+          action: `USER_STATUS_${status.toUpperCase()}`,
+          entity_type: "users",
+          entity_id: userId,
+          details: { status }
+        });
+      }
+      if (role && ["admin", "super_admin", "customer", "operator"].includes(role) && tgId) {
+        if (role === "customer") {
+          await supabase.from("user_roles").delete().eq("telegram_user_id", tgId);
+        } else {
+          await supabase.from("user_roles").upsert({
+            telegram_user_id: tgId,
+            role
+          }, { onConflict: "telegram_user_id" });
+        }
+        await supabase.from("admin_audit_logs").insert({
+          admin_telegram_id: session.telegramUserId,
+          action: `USER_ROLE_${role.toUpperCase()}`,
+          entity_type: "users",
+          entity_id: userId || String(tgId),
+          details: { role, telegramUserId: tgId }
+        });
+      }
+      return res.status(200).json({ success: true, message: "Foydalanuvchi ma'lumotlari yangilandi" });
     } catch (err) {
       return res.status(500).json({ error: "Xatolik" });
     }
@@ -2388,7 +2563,7 @@ async function handler11(req, res) {
   }
   const tgUser = validation.user;
   const isAdm = isTelegramAdmin(tgUser.id);
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     const derivedCode = isAdm ? "ADMIN" : `YK-${String(tgUser.id).slice(-4)}`;
     const sessionToken = createSessionToken({
@@ -2447,21 +2622,26 @@ async function handler11(req, res) {
     }
     let dbUser = null;
     try {
-      const { data: existingUser } = await supabase.from("users").select("id, telegram_user_id, customer_code, name, phone, status, onboarding_completed").eq("telegram_user_id", tgUser.id).single();
+      const { data: existingUser } = await supabase.from("users").select("id, telegram_user_id, customer_code, name, phone, status, onboarding_completed").eq("telegram_user_id", tgUser.id).maybeSingle();
       dbUser = existingUser;
     } catch {
     }
     if (!dbUser) {
       const displayName2 = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(" ") || tgUser.username || "Mijoz";
       try {
-        const { data: createdUser } = await supabase.from("users").insert({
+        const { data: createdUser } = await supabase.from("users").upsert({
           telegram_user_id: tgUser.id,
           name: displayName2,
           phone: "pending",
           onboarding_completed: true,
           onboarding_step: "completed"
-        }).select("id, telegram_user_id, customer_code, name, phone, status, onboarding_completed").single();
-        dbUser = createdUser;
+        }, { onConflict: "telegram_user_id" }).select("id, telegram_user_id, customer_code, name, phone, status, onboarding_completed").maybeSingle();
+        if (createdUser) {
+          dbUser = createdUser;
+        } else {
+          const { data: recheck } = await supabase.from("users").select("id, telegram_user_id, customer_code, name, phone, status, onboarding_completed").eq("telegram_user_id", tgUser.id).maybeSingle();
+          dbUser = recheck;
+        }
       } catch {
       }
     }
@@ -2473,7 +2653,7 @@ async function handler11(req, res) {
     const userId = dbUser?.id || `usr_${tgUser.id}`;
     let role = "customer";
     try {
-      const { data: roleData } = await supabase.from("user_roles").select("role").eq("telegram_user_id", tgUser.id).single();
+      const { data: roleData } = await supabase.from("user_roles").select("role").eq("telegram_user_id", tgUser.id).maybeSingle();
       if (roleData?.role) {
         role = roleData.role;
       }
@@ -2484,7 +2664,7 @@ async function handler11(req, res) {
       telegramUserId: tgUser.id,
       customerCode,
       role
-    });
+    }, "30d");
     return res.status(200).json({
       token,
       user: {
@@ -2492,6 +2672,8 @@ async function handler11(req, res) {
         telegramUserId: tgUser.id,
         customerCode,
         name: displayName,
+        phone: dbUser?.phone || "",
+        status: dbUser?.status || "active",
         role
       }
     });
@@ -2502,7 +2684,7 @@ async function handler11(req, res) {
       telegramUserId: tgUser.id,
       customerCode: fallbackCode,
       role: "customer"
-    });
+    }, "30d");
     return res.status(200).json({
       token,
       user: {
@@ -2546,7 +2728,7 @@ async function handler13(req, res) {
     return res.status(405).json({ error: "Method not allowed" });
   }
   const { provider, region } = req.query;
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     const list = getBranches(
       provider ? String(provider) : void 0,
@@ -2594,7 +2776,7 @@ async function handler14(req, res) {
   if (req.method !== "GET") {
     return res.status(405).json({ error: "Method not allowed" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     return res.status(200).json({
       pricePerKg: 9.5,
@@ -2634,7 +2816,7 @@ async function handler15(req, res) {
   if (!session) {
     return res.status(401).json({ error: "Avtorizatsiyadan o'tilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     return res.status(200).json({
       receiver: `Yukla Go (${session.customerCode})`,
@@ -2669,7 +2851,7 @@ async function handler16(req, res) {
   if (!session) {
     return res.status(401).json({ error: "Avtorizatsiyadan o'tilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (req.method === "GET") {
     if (!supabase) {
       return res.status(200).json([]);
@@ -2830,7 +3012,7 @@ async function handler17(req, res) {
     return res.status(400).json({ error: parsed.error.issues[0]?.message || "Noto'g'ri ma'lumot" });
   }
   const { requestedBranchId } = parsed.data;
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     return res.status(200).json({ success: true, message: "So'rov yuborildi (Dev Mode)" });
   }
@@ -2868,7 +3050,7 @@ async function handler18(req, res) {
   if (!session) {
     return res.status(401).json({ error: "Avtorizatsiyadan o'tilmagan" });
   }
-  const supabase = getSupabase();
+  const supabase = getSupabase2();
   if (!supabase) {
     return res.status(200).json({
       id: session.userId,
@@ -2911,8 +3093,8 @@ async function handler18(req, res) {
     } else {
       query = query.eq("customer_code", session.customerCode);
     }
-    const { data: user, error } = await query.single();
-    if (error || !user) {
+    const { data: user } = await query.maybeSingle();
+    if (!user) {
       return res.status(200).json({
         id: session.userId,
         telegramUserId: session.telegramUserId,

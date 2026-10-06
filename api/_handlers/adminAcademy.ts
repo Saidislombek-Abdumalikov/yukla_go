@@ -28,7 +28,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   // 1. GET: Students progress list, access permissions, or courses/lessons
   if (req.method === 'GET') {
     if (action === 'access') {
-      const accessList = getCourseAccessList(String(courseId));
+      const accessList = await getCourseAccessList(String(courseId));
       return res.status(200).json(accessList);
     }
 
@@ -69,17 +69,49 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const target = identifier || userId || customerCode;
       if (!target) return res.status(400).json({ error: 'Foydalanuvchi identifikatori (ID yoki mijoz kodi) talab qilinadi' });
 
-      const result = grantCourseAccess(target, String(targetCourseId));
+      let userMeta: any = undefined;
+      const supabase = getSupabase();
+      if (supabase) {
+        try {
+          const clean = String(target).trim();
+          const num = Number(clean);
+          let q = supabase.from('users').select('id, name, customer_code, telegram_user_id');
+          if (!isNaN(num) && num > 100000) {
+            q = q.eq('telegram_user_id', num);
+          } else if (clean.toUpperCase().startsWith('YK-')) {
+            q = q.ilike('customer_code', clean);
+          } else if (/^[0-9a-f-]{36}$/i.test(clean)) {
+            q = q.eq('id', clean);
+          } else {
+            q = q.or(`customer_code.ilike.%${clean}%,name.ilike.%${clean}%`);
+          }
+          const { data: found } = await q.maybeSingle();
+          if (found) {
+            userMeta = {
+              id: found.id,
+              name: found.name,
+              customerCode: found.customer_code,
+              telegramUserId: found.telegram_user_id,
+            };
+          }
+        } catch {
+          // Ignore
+        }
+      }
+
+      const effectiveTarget = userMeta?.id || target;
+      const result = await grantCourseAccess(effectiveTarget, String(targetCourseId), userMeta);
 
       // Send bot notification if user has telegramUserId
-      if (result.user?.telegramUserId) {
+      const tgUserId = result.user?.telegramUserId || userMeta?.telegramUserId;
+      if (tgUserId) {
         try {
           const course = STORED_COURSES.find(c => c.id === String(targetCourseId));
           const appUrl = process.env.MINI_APP_URL || 'https://yuklago.vercel.app';
           const academyUrl = appUrl.includes('?') ? `${appUrl}&app=academy` : `${appUrl}?app=academy`;
           await sendTelegramMessage(
-            result.user.telegramUserId,
-            `🎉 <b>Tabriklaymiz, ${result.user.name}!</b>\n\n` +
+            tgUserId,
+            `🎉 <b>Tabriklaymiz, ${result.user?.name || userMeta?.name || 'Mijoz'}!</b>\n\n` +
             `Sizga <b>${course?.title || 'Video darslar'}</b> kursini tomosha qilish uchun ruxsat berildi!\n\n` +
             `Quyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin:`,
             {
@@ -93,7 +125,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       return res.status(200).json({
         success: true,
-        message: `${result.item?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
+        message: `${result.item?.name || userMeta?.name || target} ga darslarni ko'rish uchun ruxsat berildi!`,
         item: result.item,
       });
     }
@@ -103,7 +135,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const target = identifier || userId || customerCode;
       if (!target) return res.status(400).json({ error: 'Foydalanuvchi identifikatori talab qilinadi' });
 
-      const result = revokeCourseAccess(target, String(targetCourseId));
+      const result = await revokeCourseAccess(target, String(targetCourseId));
       return res.status(200).json({
         success: true,
         message: 'Ruxsat bekor qilindi',

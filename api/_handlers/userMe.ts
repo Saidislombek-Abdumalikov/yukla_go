@@ -61,9 +61,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       query = query.eq('customer_code', session.customerCode);
     }
 
-    const { data: user, error } = await query.single();
+    const { data: user } = await query.maybeSingle();
 
-    if (error || !user) {
+    if (!user) {
       // Gracefully return session profile instead of error
       return res.status(200).json({
         id: session.userId,

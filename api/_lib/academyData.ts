@@ -7,6 +7,7 @@
  */
 
 import type { Course, Lesson, UserLessonProgress, StudentProgressSummary, CourseAccessItem, CourseAccessStatus } from '../../types';
+import { getSupabase } from './supabase.ts';
 
 export interface StoredLesson {
   id: string;
@@ -378,6 +379,8 @@ export function deleteLesson(lessonId: string): boolean {
 // -----------------------------------------------------------------------------
 // Course Access & Permissions Management
 // -----------------------------------------------------------------------------
+// Course Access & Permissions Management
+// -----------------------------------------------------------------------------
 export const DEMO_ACADEMY_USERS: Array<{
   id: string;
   name: string;
@@ -389,28 +392,126 @@ const courseAccessStore = new Map<string, CourseAccessItem>();
 
 const ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
 
-export function hasUserCourseAccess(userId: string, courseId: string): boolean {
+let isAccessStoreLoaded = false;
+
+export async function ensureAcademyAccessLoaded(forceRefresh: boolean = false): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  if (isAccessStoreLoaded && !forceRefresh) return;
+
+  try {
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'academy_access_records')
+      .maybeSingle();
+
+    if (data?.value?.records && Array.isArray(data.value.records)) {
+      for (const item of data.value.records) {
+        courseAccessStore.set(`${item.userId}:${item.courseId}`, item);
+        if (!DEMO_ACADEMY_USERS.some(u => u.id === item.userId)) {
+          DEMO_ACADEMY_USERS.push({
+            id: item.userId,
+            name: item.name || 'Mijoz',
+            customerCode: item.customerCode || 'YK-???',
+            telegramUserId: item.telegramUserId || 0,
+          });
+        }
+      }
+    }
+    isAccessStoreLoaded = true;
+  } catch {
+    // Ignore
+  }
+}
+
+export async function saveCourseAccessToSupabase(): Promise<void> {
+  const supabase = getSupabase();
+  if (!supabase) return;
+
+  try {
+    const allRecords = Array.from(courseAccessStore.values());
+    await supabase.from('app_settings').upsert({
+      key: 'academy_access_records',
+      value: { records: allRecords },
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'key' });
+  } catch (err) {
+    console.error('Failed to persist academy access records:', err);
+  }
+}
+
+export function hasUserCourseAccess(
+  userId: string,
+  courseId: string,
+  context?: { telegramUserId?: number; customerCode?: string }
+): boolean {
   // Administrators always have full access to all courses
-  const numericId = Number(userId);
-  if (!isNaN(numericId) && ADMIN_TELEGRAM_IDS.includes(numericId)) {
+  const numericId = Number(userId) || (context?.telegramUserId ? Number(context.telegramUserId) : 0);
+  if (numericId && ADMIN_TELEGRAM_IDS.includes(numericId)) {
     return true;
   }
 
-  // Regular users require explicit permission granted by admin
-  const record = courseAccessStore.get(`${userId}:${courseId}`);
-  return record?.status === 'granted';
+  // Check 1: direct key match
+  const directRecord = courseAccessStore.get(`${userId}:${courseId}`);
+  if (directRecord?.status === 'granted') {
+    return true;
+  }
+
+  // Check 2: scan courseAccessStore by alternative identifiers
+  const cleanCode = context?.customerCode?.trim().toUpperCase();
+  const tgId = context?.telegramUserId;
+
+  for (const item of courseAccessStore.values()) {
+    if (item.courseId === courseId && item.status === 'granted') {
+      if (item.userId === userId) return true;
+      if (cleanCode && item.customerCode?.trim().toUpperCase() === cleanCode) return true;
+      if (tgId && item.telegramUserId === tgId) return true;
+      if (numericId && item.telegramUserId === numericId) return true;
+    }
+  }
+
+  return false;
 }
 
-export function getUserCourseAccessStatus(userId: string, courseId: string): CourseAccessStatus {
-  const record = courseAccessStore.get(`${userId}:${courseId}`);
-  return record?.status || 'none';
+export function getUserCourseAccessStatus(
+  userId: string,
+  courseId: string,
+  context?: { telegramUserId?: number; customerCode?: string }
+): CourseAccessStatus {
+  const numericId = Number(userId) || (context?.telegramUserId ? Number(context.telegramUserId) : 0);
+  if (numericId && ADMIN_TELEGRAM_IDS.includes(numericId)) {
+    return 'granted';
+  }
+
+  const directRecord = courseAccessStore.get(`${userId}:${courseId}`);
+  if (directRecord?.status) {
+    return directRecord.status;
+  }
+
+  const cleanCode = context?.customerCode?.trim().toUpperCase();
+  const tgId = context?.telegramUserId;
+
+  for (const item of courseAccessStore.values()) {
+    if (item.courseId === courseId) {
+      if (item.userId === userId) return item.status;
+      if (cleanCode && item.customerCode?.trim().toUpperCase() === cleanCode) return item.status;
+      if (tgId && item.telegramUserId === tgId) return item.status;
+      if (numericId && item.telegramUserId === numericId) return item.status;
+    }
+  }
+
+  return 'none';
 }
 
-export function requestCourseAccess(
+export async function requestCourseAccess(
   userId: string,
   courseId: string,
   userMeta?: { name?: string; customerCode?: string; telegramUserId?: number }
-): CourseAccessItem {
+): Promise<CourseAccessItem> {
+  await ensureAcademyAccessLoaded(true);
+
   const existingUser = DEMO_ACADEMY_USERS.find(u => u.id === userId);
   const key = `${userId}:${courseId}`;
   const record: CourseAccessItem = {
@@ -433,14 +534,21 @@ export function requestCourseAccess(
     });
   }
 
+  await saveCourseAccessToSupabase();
+
   return record;
 }
 
-export function grantCourseAccess(
+export async function grantCourseAccess(
   identifier: string,
-  courseId: string
-): { success: boolean; item?: CourseAccessItem; user?: any } {
+  courseId: string,
+  userMeta?: { name?: string; customerCode?: string; telegramUserId?: number; id?: string }
+): Promise<{ success: boolean; item?: CourseAccessItem; user?: any }> {
+  await ensureAcademyAccessLoaded(true);
+
   const clean = identifier.trim().toUpperCase();
+  const numericId = !isNaN(Number(clean)) ? Number(clean) : 0;
+
   // Find in demo users or matching ID
   let targetUser = DEMO_ACADEMY_USERS.find(
     u => u.id === identifier ||
@@ -451,37 +559,34 @@ export function grantCourseAccess(
 
   // Also check existing requests in courseAccessStore
   let existingItem: CourseAccessItem | undefined;
-  if (!targetUser) {
-    for (const item of courseAccessStore.values()) {
-      if (
-        item.customerCode.toUpperCase() === clean ||
-        String(item.telegramUserId) === clean ||
-        item.userId === identifier ||
-        item.name.toUpperCase().includes(clean)
-      ) {
-        existingItem = item;
-        break;
-      }
+  for (const item of courseAccessStore.values()) {
+    if (
+      item.customerCode.toUpperCase() === clean ||
+      String(item.telegramUserId) === clean ||
+      item.userId === identifier ||
+      (item.name && item.name.toUpperCase().includes(clean))
+    ) {
+      existingItem = item;
+      break;
     }
   }
 
-  const userId = targetUser ? targetUser.id : (existingItem ? existingItem.userId : identifier);
+  const userId = userMeta?.id || (targetUser ? targetUser.id : (existingItem ? existingItem.userId : identifier));
   const key = `${userId}:${courseId}`;
   const existing = existingItem || courseAccessStore.get(key);
 
   const updated: CourseAccessItem = {
     userId,
     courseId,
-    name: targetUser?.name || existing?.name || `Foydalanuvchi (${identifier})`,
-    customerCode: targetUser?.customerCode || existing?.customerCode || identifier,
-    telegramUserId: targetUser?.telegramUserId || existing?.telegramUserId,
+    name: userMeta?.name || targetUser?.name || existing?.name || `Foydalanuvchi (${identifier})`,
+    customerCode: userMeta?.customerCode || targetUser?.customerCode || existing?.customerCode || (clean.startsWith('YK-') ? clean : identifier),
+    telegramUserId: userMeta?.telegramUserId || targetUser?.telegramUserId || existing?.telegramUserId || (numericId > 100000 ? numericId : undefined),
     status: 'granted',
     grantedAt: new Date().toISOString(),
   };
 
   courseAccessStore.set(key, updated);
 
-  // If user is not yet in DEMO_ACADEMY_USERS, add them
   if (!DEMO_ACADEMY_USERS.some(u => u.id === userId)) {
     DEMO_ACADEMY_USERS.push({
       id: userId,
@@ -491,29 +596,33 @@ export function grantCourseAccess(
     });
   }
 
-  return { success: true, item: updated, user: targetUser };
+  await saveCourseAccessToSupabase();
+
+  return { success: true, item: updated, user: targetUser || { name: updated.name, telegramUserId: updated.telegramUserId } };
 }
 
-export function revokeCourseAccess(
+export async function revokeCourseAccess(
   identifier: string,
   courseId: string
-): { success: boolean; item?: CourseAccessItem } {
+): Promise<{ success: boolean; item?: CourseAccessItem }> {
+  await ensureAcademyAccessLoaded(true);
+
   const clean = identifier.trim().toUpperCase();
   let targetUser = DEMO_ACADEMY_USERS.find(
-    u => u.id === identifier || u.customerCode.toUpperCase() === clean || String(u.telegramUserId) === clean
+    u => u.id === identifier ||
+         u.customerCode.toUpperCase() === clean ||
+         String(u.telegramUserId) === clean
   );
 
   let existingItem: CourseAccessItem | undefined;
-  if (!targetUser) {
-    for (const item of courseAccessStore.values()) {
-      if (
-        item.customerCode.toUpperCase() === clean ||
-        String(item.telegramUserId) === clean ||
-        item.userId === identifier
-      ) {
-        existingItem = item;
-        break;
-      }
+  for (const item of courseAccessStore.values()) {
+    if (
+      item.customerCode.toUpperCase() === clean ||
+      String(item.telegramUserId) === clean ||
+      item.userId === identifier
+    ) {
+      existingItem = item;
+      break;
     }
   }
 
@@ -524,6 +633,7 @@ export function revokeCourseAccess(
   if (existing) {
     existing.status = 'none';
     existing.grantedAt = undefined;
+    await saveCourseAccessToSupabase();
     return { success: true, item: existing };
   }
 
@@ -535,14 +645,58 @@ export function revokeCourseAccess(
     status: 'none',
   };
   courseAccessStore.set(key, updated);
+  await saveCourseAccessToSupabase();
   return { success: true, item: updated };
 }
 
-export function getCourseAccessList(courseId: string): CourseAccessItem[] {
-  return DEMO_ACADEMY_USERS.map(u => {
+export async function getCourseAccessList(courseId: string): Promise<CourseAccessItem[]> {
+  await ensureAcademyAccessLoaded();
+  const supabase = getSupabase();
+
+  const userList: Array<{ id: string; name: string; customerCode: string; telegramUserId?: number }> = [...DEMO_ACADEMY_USERS];
+
+  if (supabase) {
+    try {
+      const { data: dbUsers } = await supabase
+        .from('users')
+        .select('id, name, customer_code, telegram_user_id')
+        .order('created_at', { ascending: false });
+
+      if (dbUsers && Array.isArray(dbUsers)) {
+        for (const du of dbUsers) {
+          if (!userList.some(u => u.id === du.id || u.customerCode === du.customer_code)) {
+            userList.push({
+              id: du.id,
+              name: du.name || 'Mijoz',
+              customerCode: du.customer_code || 'YK-???',
+              telegramUserId: du.telegram_user_id,
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  const result: CourseAccessItem[] = [];
+  for (const u of userList) {
     const key = `${u.id}:${courseId}`;
-    const rec = courseAccessStore.get(key);
-    return {
+    let rec = courseAccessStore.get(key);
+    if (!rec) {
+      for (const item of courseAccessStore.values()) {
+        if (
+          item.courseId === courseId &&
+          (item.customerCode?.toUpperCase() === u.customerCode.toUpperCase() ||
+           (u.telegramUserId && item.telegramUserId === u.telegramUserId))
+        ) {
+          rec = item;
+          break;
+        }
+      }
+    }
+
+    result.push({
       userId: u.id,
       customerCode: u.customerCode,
       name: u.name,
@@ -551,8 +705,16 @@ export function getCourseAccessList(courseId: string): CourseAccessItem[] {
       status: rec?.status || 'none',
       grantedAt: rec?.grantedAt,
       requestedAt: rec?.requestedAt,
-    };
-  });
+    });
+  }
+
+  for (const item of courseAccessStore.values()) {
+    if (item.courseId === courseId && !result.some(r => r.userId === item.userId || r.customerCode === item.customerCode)) {
+      result.push(item);
+    }
+  }
+
+  return result;
 }
 
 /**

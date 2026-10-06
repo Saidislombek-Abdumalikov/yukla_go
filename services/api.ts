@@ -77,47 +77,54 @@ function saveStoredParcels(parcels: Parcel[]) {
 }
 
 export function getStoredProfile(): UserProfile {
+  let stored: UserProfile | null = null;
   try {
     const raw = localStorage.getItem('yukla_profile');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.customerCode) return parsed;
+      if (parsed && parsed.customerCode) stored = parsed;
     }
   } catch {
     // Ignore
   }
 
-  // Derive personalized profile from URL params and Telegram environment
-  let derivedName = 'Mijoz';
-  let derivedCode = 'YK-001';
-  let telegramUserId = 0;
+  // Check URL params and Telegram WebApp environment
+  let urlCode: string | null = null;
+  let urlName: string | null = null;
+  let tgUser: any = null;
 
   if (typeof window !== 'undefined') {
     try {
       const params = new URLSearchParams(window.location.search);
-      const urlCode = params.get('code');
-      const urlName = params.get('name');
-      const tgUser = (window as any).Telegram?.WebApp?.initDataUnsafe?.user;
-
-      if (urlName) {
-        derivedName = urlName;
-      } else if (tgUser) {
-        derivedName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Mijoz';
-      }
-
-      if (urlCode) {
-        derivedCode = urlCode;
-      } else if (tgUser?.id) {
-        derivedCode = `YK-${String(tgUser.id).slice(-4)}`;
-      }
-
-      if (tgUser?.id) {
-        telegramUserId = tgUser.id;
-      }
+      urlCode = params.get('code');
+      urlName = params.get('name');
+      tgUser = (window as any).Telegram?.WebApp?.initDataUnsafe?.user;
     } catch {
       // Ignore
     }
   }
+
+  // If a profile was already saved and is valid, return it (updating with URL params if explicitly passed)
+  if (stored) {
+    let modified = false;
+    if (urlCode && urlCode.toUpperCase() !== stored.customerCode.toUpperCase()) {
+      stored.customerCode = urlCode;
+      modified = true;
+    }
+    if (urlName && urlName !== stored.name) {
+      stored.name = urlName;
+      modified = true;
+    }
+    if (modified) {
+      saveStoredProfile(stored);
+    }
+    return stored;
+  }
+
+  // Initial derivation only when nothing exists in storage yet
+  let derivedName = urlName || (tgUser ? ([tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Mijoz') : 'Mijoz');
+  let derivedCode = urlCode || 'YK-001';
+  let telegramUserId = tgUser?.id || 0;
 
   return {
     id: `usr_${telegramUserId || 'guest'}`,

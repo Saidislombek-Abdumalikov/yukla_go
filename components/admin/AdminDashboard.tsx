@@ -165,6 +165,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
     } catch {}
   };
 
+  const handleToggleUserRole = async (user: any) => {
+    const isCurrentlyAdmin = user.role === 'admin' || user.role === 'super_admin';
+    const nextRole = isCurrentlyAdmin ? 'customer' : 'admin';
+    const confirmMsg = isCurrentlyAdmin
+      ? `${user.name || user.customerCode} ning administrator huquqini bekor qilmoqchimisiz?`
+      : `${user.name || user.customerCode} ga Administrator (boshqaruv) huquqini bermoqchimisiz?`;
+    if (!window.confirm(confirmMsg)) return;
+
+    try {
+      const res = await adminFetch('/api/admin/users', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: user.id, telegramUserId: user.telegramUserId, role: nextRole }),
+      }).then(r => r.json());
+
+      if (res.success) {
+        setSaveFeedback(`Foydalanuvchi roli yangilandi: ${nextRole === 'admin' ? '👑 Admin' : '👤 Mijoz'}`);
+        setTimeout(() => setSaveFeedback(null), 2500);
+        loadTabData();
+      } else {
+        alert(res.error || 'Xatolik yuz berdi');
+      }
+    } catch (e: any) {
+      alert(e.message || 'Xatolik yuz berdi');
+    }
+  };
+
   useEffect(() => {
     if (isAdminAuthenticated) {
       loadTabData();
@@ -1683,6 +1710,11 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                             }`}>
                               {isBlocked ? '⛔ Bloklangan' : '✅ Faol'}
                             </span>
+                            {u.role === 'admin' || u.role === 'super_admin' ? (
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                                👑 Admin
+                              </span>
+                            ) : null}
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-500">
@@ -1698,11 +1730,33 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
                           </div>
                         </div>
 
-                        {/* User Actions: Block & Full Wipe */}
-                        <div className="flex items-center gap-2 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                        {/* User Actions: Role, Course Access, Block & Full Wipe */}
+                        <div className="flex flex-wrap items-center gap-1.5 shrink-0 pt-2 sm:pt-0 border-t sm:border-t-0 border-gray-100">
+                          <button
+                            onClick={() => handleToggleUserRole(u)}
+                            className={`px-2.5 py-1.5 rounded-xl font-bold text-[11px] transition-colors border ${
+                              u.role === 'admin' || u.role === 'super_admin'
+                                ? 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100'
+                                : 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100'
+                            }`}
+                            title="Foydalanuvchiga administrator huquqini berish yoki bekor qilish"
+                          >
+                            {u.role === 'admin' || u.role === 'super_admin' ? '👑 Adminlikni olish' : '⭐ Admin qilish'}
+                          </button>
+
+                          <button
+                            onClick={async () => {
+                              await handleGrantAccess(u.customerCode || String(u.telegramUserId) || u.id);
+                            }}
+                            className="px-2.5 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 rounded-xl font-bold text-[11px] transition-colors flex items-center gap-1"
+                            title="Mijozga video darslarni ko'rish uchun ruxsat berish"
+                          >
+                            <span>🎓 Darsga ruxsat</span>
+                          </button>
+
                           <button
                             onClick={() => handleToggleUserStatus(u)}
-                            className={`px-3 py-1.5 rounded-xl font-bold text-[11px] transition-colors border ${
+                            className={`px-2.5 py-1.5 rounded-xl font-bold text-[11px] transition-colors border ${
                               isBlocked
                                 ? 'bg-green-50 text-green-700 border-green-200 hover:bg-green-100'
                                 : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'
@@ -1713,10 +1767,10 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
 
                           <button
                             onClick={() => setWipeTargetUser(u)}
-                            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-black text-[11px] transition-colors flex items-center gap-1 active:scale-95 shadow-sm"
+                            className="px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 rounded-xl font-black text-[11px] transition-colors flex items-center gap-1 active:scale-95 shadow-sm"
                             title="Foydalanuvchi bot tarixi, yuklari va barcha ma'lumotlarini to'liq o'chirish"
                           >
-                            <span>🗑 Butunlay o'chirish</span>
+                            <span>🗑 O'chirish</span>
                           </button>
                         </div>
                       </div>
