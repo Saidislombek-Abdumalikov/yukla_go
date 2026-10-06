@@ -34,6 +34,11 @@ export default async function handler(req: any, res: any) {
     const urlObj = new URL(rawUrl, 'http://localhost');
     let pathname = urlObj.pathname.replace(/\/$/, '');
 
+    if (!req.query) req.query = {};
+    for (const [key, value] of urlObj.searchParams.entries()) {
+      req.query[key] = value;
+    }
+
     const pathParam = req.query?.__path || urlObj.searchParams.get('__path');
     const normalizedPath = (pathname === '/api' || pathname === '') && pathParam
       ? `/api/${String(pathParam).replace(/^\//, '').split('?')[0]}`

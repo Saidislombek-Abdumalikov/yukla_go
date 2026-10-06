@@ -1,21 +1,26 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { getSupabase } from '../_lib/supabase.ts';
 import { verifySessionToken } from '../_lib/auth.ts';
+import { sendSafeJson } from '../_router.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return sendSafeJson(res, 200, { ok: true });
   }
 
-  const { token, code, u, tg_id } = req.query;
+  // Parse query params safely
+  const rawUrl = req.url || '';
+  const urlObj = new URL(rawUrl, 'http://localhost');
+  const query = req.query || {};
+
+  const token = query.token || urlObj.searchParams.get('token');
+  const code = query.code || urlObj.searchParams.get('code');
+  const u = query.u || urlObj.searchParams.get('u');
+  const tg_id = query.tg_id || urlObj.searchParams.get('tg_id');
   const supabase = getSupabase();
 
   if (!token && !code && !u && !tg_id) {
-    return res.status(400).json({ error: 'Foydalanuvchi parametri kiritilmagan' });
+    return sendSafeJson(res, 400, { error: 'Foydalanuvchi parametri kiritilmagan' });
   }
 
   let customerCode = code ? String(code).trim() : null;
@@ -49,7 +54,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
       if (userRow) {
         if (!userRow.onboarding_completed) {
-          return res.status(403).json({
+          return sendSafeJson(res, 403, {
             success: false,
             notRegistered: true,
             error: 'Ro‘yxatdan o‘tish yakunlanmagan. Iltimos, botda ro‘yxatdan o‘tishni yakunlang.',
@@ -77,7 +82,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           }
         }
 
-        return res.status(200).json({
+        return sendSafeJson(res, 200, {
           success: true,
           user: {
             id: userRow.customer_code || userRow.id,
@@ -99,7 +104,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  return res.status(404).json({
+  return sendSafeJson(res, 404, {
     success: false,
     notRegistered: true,
     error: 'Foydalanuvchi topilmadi. Iltimos, @yuklakargobot orqali ro‘yxatdan o‘ting.',

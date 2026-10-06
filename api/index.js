@@ -583,16 +583,19 @@ async function handler2(req, res) {
 
 // api/_handlers/user.ts
 async function handler3(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
   if (req.method === "OPTIONS") {
-    return res.status(200).end();
+    return sendSafeJson(res, 200, { ok: true });
   }
-  const { token, code, u, tg_id } = req.query;
+  const rawUrl = req.url || "";
+  const urlObj = new URL(rawUrl, "http://localhost");
+  const query = req.query || {};
+  const token = query.token || urlObj.searchParams.get("token");
+  const code = query.code || urlObj.searchParams.get("code");
+  const u = query.u || urlObj.searchParams.get("u");
+  const tg_id = query.tg_id || urlObj.searchParams.get("tg_id");
   const supabase = getSupabase();
   if (!token && !code && !u && !tg_id) {
-    return res.status(400).json({ error: "Foydalanuvchi parametri kiritilmagan" });
+    return sendSafeJson(res, 400, { error: "Foydalanuvchi parametri kiritilmagan" });
   }
   let customerCode = code ? String(code).trim() : null;
   let userId = u ? String(u).trim() : null;
@@ -610,18 +613,18 @@ async function handler3(req, res) {
   }
   if (supabase) {
     try {
-      let query = supabase.from("users").select("*");
+      let query2 = supabase.from("users").select("*");
       if (telegramUserId && !isNaN(telegramUserId)) {
-        query = query.eq("telegram_user_id", telegramUserId);
+        query2 = query2.eq("telegram_user_id", telegramUserId);
       } else if (customerCode) {
-        query = query.eq("customer_code", customerCode);
+        query2 = query2.eq("customer_code", customerCode);
       } else if (userId) {
-        query = query.eq("id", userId);
+        query2 = query2.eq("id", userId);
       }
-      const { data: userRow } = await query.maybeSingle();
+      const { data: userRow } = await query2.maybeSingle();
       if (userRow) {
         if (!userRow.onboarding_completed) {
-          return res.status(403).json({
+          return sendSafeJson(res, 403, {
             success: false,
             notRegistered: true,
             error: "Ro\u2018yxatdan o\u2018tish yakunlanmagan. Iltimos, botda ro\u2018yxatdan o\u2018tishni yakunlang."
@@ -635,7 +638,7 @@ async function handler3(req, res) {
             coursesAccess[String(a.course_id)] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
           }
         }
-        return res.status(200).json({
+        return sendSafeJson(res, 200, {
           success: true,
           user: {
             id: userRow.customer_code || userRow.id,
@@ -656,7 +659,7 @@ async function handler3(req, res) {
       console.error("Supabase user lookup error:", err);
     }
   }
-  return res.status(404).json({
+  return sendSafeJson(res, 404, {
     success: false,
     notRegistered: true,
     error: "Foydalanuvchi topilmadi. Iltimos, @yuklakargobot orqali ro\u2018yxatdan o\u2018ting."
@@ -693,6 +696,10 @@ async function handler4(req, res) {
     const rawUrl = req.url || "";
     const urlObj = new URL(rawUrl, "http://localhost");
     let pathname = urlObj.pathname.replace(/\/$/, "");
+    if (!req.query) req.query = {};
+    for (const [key, value] of urlObj.searchParams.entries()) {
+      req.query[key] = value;
+    }
     const pathParam = req.query?.__path || urlObj.searchParams.get("__path");
     const normalizedPath = (pathname === "/api" || pathname === "") && pathParam ? `/api/${String(pathParam).replace(/^\//, "").split("?")[0]}` : pathname;
     switch (normalizedPath) {
