@@ -436,25 +436,25 @@ function LessonsHome({
   }, [courses, user]);
 
   const activeCourse = useMemo(() => {
+    if (courses.length === 0) return null;
     return (
       allowedCourses.find((c) => String(c.id) === String(activeCourseId)) ||
       allowedCourses[0] ||
       courses.find((c) => String(c.id) === String(activeCourseId)) ||
       courses[0] ||
-      defaultCourse
+      null
     );
   }, [allowedCourses, activeCourseId, courses]);
 
-  const publishedLessons = useMemo(
-    () =>
-      lessons.filter(
-        (l) =>
-          String(l.courseId) === String(activeCourse.id) &&
-          l.status !== "Qoralama" &&
-          l.status !== "Yashirilgan"
-      ),
-    [lessons, activeCourse]
-  );
+  const publishedLessons = useMemo(() => {
+    if (!activeCourse) return [];
+    return lessons.filter(
+      (l) =>
+        String(l.courseId) === String(activeCourse.id) &&
+        l.status !== "Qoralama" &&
+        l.status !== "Yashirilgan"
+    );
+  }, [lessons, activeCourse]);
 
   const completedCount = useMemo(() => {
     return publishedLessons.filter((l) => lessonStates[l.id] === "complete").length;
@@ -466,6 +466,22 @@ function LessonsHome({
   const nextLesson = useMemo(() => {
     return publishedLessons.find((l) => lessonStates[l.id] === "active");
   }, [publishedLessons, lessonStates]);
+
+  if (!activeCourse) {
+    return (
+      <main className="screen home-screen">
+        <Header onOpenProfile={onOpenProfile} user={user} />
+        <section className="intro">
+          <p className="eyebrow">Video darslar</p>
+          <h1>Kurslar mavjud emas</h1>
+          <p className="subtitle">Administrator tomonidan yangi darslar tez kunda yuklanadi.</p>
+        </section>
+        <div className="empty-panel-msg">
+          <p>Hozircha faol kurslar mavjud emas.</p>
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="screen home-screen">
@@ -1070,6 +1086,20 @@ export default function App() {
         setUserProgress(store.getUserProgress(loadedUser.id));
       }
     });
+
+    const doSync = () => {
+      store.syncStateFromServer().then((data) => {
+        if (data) {
+          if (Array.isArray(data.courses)) setCourses(data.courses);
+          if (Array.isArray(data.lessons)) setLessons(data.lessons);
+          if (data.settings) setSettings(data.settings);
+        }
+      });
+    };
+
+    doSync();
+    const interval = setInterval(doSync, 4000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleLogout = () => {

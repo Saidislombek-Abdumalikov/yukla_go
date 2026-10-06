@@ -12,6 +12,8 @@ import handleAdminStats from './_handlers/adminStats.ts';
 import handleAdminUsers from './_handlers/adminUsers.ts';
 import handleAuthSession from './_handlers/authSession.ts';
 import handleBotWebhook from './_handlers/botWebhook.ts';
+import handleState from './_handlers/state.ts';
+import handleUser from './_handlers/user.ts';
 import handleBranches from './_handlers/branches.ts';
 import handleConfigRates from './_handlers/configRates.ts';
 import handleConfigWarehouse from './_handlers/configWarehouse.ts';
@@ -32,6 +34,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   switch (normalizedPath) {
     case '/api/bot/webhook':
       return handleBotWebhook(req, res);
+
+    case '/api/state':
+      return handleState(req, res);
+
+    case '/api/user':
+      return handleUser(req, res);
 
     case '/api/auth/session':
       return handleAuthSession(req, res);

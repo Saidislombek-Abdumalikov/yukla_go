@@ -23,10 +23,11 @@
       "durationSeconds": 600,
       "videoUrl": "https://youtu.be/MgxUK3torgE?si=PnJDQZo6rKQN1q2p",
       "status": "Faol",
-      "thumbnailUrl": "https://images.unsplash.com/photo-1575295126001-2b4a7190c57f?auto=format&fit=crop&w=480&q=80",
+      "thumbnailUrl": "https://img.youtube.com/vi/MgxUK3torgE/hqdefault.jpg",
       "color": "lesson-blue",
       "viewers": 0,
-      "completion": 0
+      "completion": 0,
+      "videoFormat": "auto"
     }
   ],
   "settings": {
@@ -79,7 +80,7 @@
         "current": 0,
         "maxWatched": 0,
         "completed": false,
-        "lastUpdated": 1791299623429
+        "lastUpdated": 1791300940253
       }
     },
     "YK-100": {
@@ -88,6 +89,12 @@
         "maxWatched": 8,
         "completed": false,
         "lastUpdated": 1791300046673
+      },
+      "1791299515806": {
+        "current": 0,
+        "maxWatched": 600,
+        "completed": true,
+        "lastUpdated": 1791301263258
       }
     }
   }

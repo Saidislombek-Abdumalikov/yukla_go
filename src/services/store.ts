@@ -253,8 +253,31 @@ export const store = {
   },
 
   // --- Data Accessors ---
+  async syncStateFromServer(): Promise<{ courses: CourseItem[]; lessons: LessonItem[]; settings: AdminSettings } | null> {
+    try {
+      const baseUrl = typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" ? "" : API_BASE;
+      const res = await fetch(`${baseUrl}/api/state`);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data.courses)) {
+          this.setCourses(data.courses);
+        }
+        if (Array.isArray(data.lessons)) {
+          this.setLessons(data.lessons);
+        }
+        if (data.settings) {
+          this.setSettings(data.settings);
+        }
+        return data;
+      }
+    } catch (err) {
+      console.warn("Could not sync state from server:", err);
+    }
+    return null;
+  },
+
   getCourses(): CourseItem[] {
-    return safeGetItem<CourseItem[]>(STORAGE_KEYS.COURSES, [defaultCourse]);
+    return safeGetItem<CourseItem[]>(STORAGE_KEYS.COURSES, []);
   },
 
   setCourses(courses: CourseItem[]) {
@@ -270,8 +293,9 @@ export const store = {
     safeSetItem(STORAGE_KEYS.ACTIVE_COURSE_ID, id);
   },
 
-  getCourse(): CourseItem {
-    return safeGetItem<CourseItem>(STORAGE_KEYS.COURSE, defaultCourse);
+  getCourse(): CourseItem | null {
+    const list = this.getCourses();
+    return list[0] || null;
   },
 
   setCourse(course: CourseItem) {
@@ -280,7 +304,7 @@ export const store = {
   },
 
   getLessons(): LessonItem[] {
-    return safeGetItem<LessonItem[]>(STORAGE_KEYS.LESSONS, defaultLessons);
+    return safeGetItem<LessonItem[]>(STORAGE_KEYS.LESSONS, []);
   },
 
   setLessons(lessons: LessonItem[]) {

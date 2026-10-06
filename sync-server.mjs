@@ -3,11 +3,22 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { fileURLToPath } from "node:url";
+import { createClient } from "@supabase/supabase-js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, "database.json");
 const PORT = 5000;
+
+const SUPABASE_URL = "https://dajlwaqoqcnwrrhyvmtw.supabase.co";
+const SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhamx3YXFvcWNud3JyaHl2bXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTIwOTk4NSwiZXhwIjoyMTA2Nzg1OTg1fQ.12KfEAK7aU17B2bidfcxeag8P0yLlKJq8QAhoq5mhAs";
+
+let supabase = null;
+try {
+  supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+} catch (e) {
+  console.warn("Could not init Supabase in sync-server:", e.message);
+}
 
 const defaultState = {
   users: [],
@@ -210,15 +221,79 @@ function loadDb() {
   }
 }
 
+async function syncToSupabase() {
+  if (!supabase) return;
+  try {
+    // 1. Sync Courses
+    const { data: remoteCourses } = await supabase.from("academy_courses").select("id");
+    const currentCourseIds = db.courses.map((c) => String(c.id));
+
+    if (remoteCourses) {
+      for (const rc of remoteCourses) {
+        if (!currentCourseIds.includes(String(rc.id))) {
+          await supabase.from("academy_courses").delete().eq("id", rc.id);
+        }
+      }
+    }
+
+    for (let i = 0; i < db.courses.length; i++) {
+      const c = db.courses[i];
+      await supabase.from("academy_courses").upsert({
+        id: String(c.id),
+        title: c.title,
+        description: c.description || "",
+        category: c.status || "Faol",
+        icon: c.tone || "blue",
+        order: i + 1,
+        active: c.status === "Faol",
+      });
+    }
+
+    // 2. Sync Lessons
+    const { data: remoteLessons } = await supabase.from("academy_lessons").select("id");
+    const currentLessonIds = db.lessons.map((l) => String(l.id));
+
+    if (remoteLessons) {
+      for (const rl of remoteLessons) {
+        if (!currentLessonIds.includes(String(rl.id))) {
+          await supabase.from("academy_lessons").delete().eq("id", rl.id);
+        }
+      }
+    }
+
+    for (let i = 0; i < db.lessons.length; i++) {
+      const l = db.lessons[i];
+      const videoMeta = JSON.stringify({
+        url: l.videoUrl || "",
+        format: l.videoFormat || "auto",
+        thumb: l.thumbnailUrl || "",
+      });
+      await supabase.from("academy_lessons").upsert({
+        id: String(l.id),
+        course_id: String(l.courseId),
+        title: l.title,
+        description: l.description || "",
+        youtube_video_id: videoMeta,
+        duration_seconds: l.durationSeconds || 600,
+        order: i + 1,
+      });
+    }
+  } catch (err) {
+    console.warn("⚠️ Supabase sync error:", err.message);
+  }
+}
+
 function saveDb() {
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2), "utf-8");
+    syncToSupabase().catch(() => {});
   } catch (err) {
     console.error("Error writing database:", err);
   }
 }
 
 loadDb();
+syncToSupabase().catch(() => {});
 
 // Server-Sent Events subscribers
 const sseClients = new Set();

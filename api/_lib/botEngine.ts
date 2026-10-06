@@ -1,8 +1,6 @@
 import { getSupabase } from './supabase.ts';
-import { ADMIN_TELEGRAM_IDS as AUTH_ADMIN_IDS, createSessionToken, isTelegramAdmin } from './auth.ts';
-import { STATUS_MESSAGES, sendTelegramMessage } from './botNotifications.ts';
-import { ALL_BRANCHES, REGIONS_LIST, getBranches, getRegionsForProvider, findBranchById } from './branchesData.ts';
-import { getOfertaText } from './ofertaData.ts';
+import { createSessionToken, isTelegramAdmin } from './auth.ts';
+import { sendTelegramMessage, answerTelegramCallbackQuery } from './botNotifications.ts';
 
 const MINI_APP_URL = process.env.MINI_APP_URL || 'https://yuklago.vercel.app';
 
@@ -13,94 +11,45 @@ export interface BotUser {
   name: string;
   phone: string;
   onboardingCompleted: boolean;
-  onboardingStep: 'oferta' | 'phone' | 'name' | 'provider' | 'region' | 'branch' | 'completed';
-  selectedProvider?: string;
-  selectedRegion?: string;
-  defaultBranch?: {
-    provider: string;
-    branchName: string;
-    region: string;
-    address: string;
-  };
+  onboardingStep: 'oferta' | 'name' | 'phone' | 'completed';
 }
 
-// In-memory user state for dev fallback or when database is connecting
+// In-memory conversation sessions
+interface UserSession {
+  step: 'oferta' | 'name' | 'phone' | 'completed';
+  name?: string;
+}
+
+const userSessions = new Map<number, UserSession>();
 const inMemoryUsers = new Map<number, BotUser>();
-let nextCustomerCodeNum = 100;
 
-/**
- * Wipes all bot history, session, and state for a Telegram user so they start 100% fresh
- */
-export function wipeBotUser(identifier: string | number): { success: boolean; wipedUser?: BotUser } {
+export function wipeBotUser(identifier: string | number): { success: boolean } {
   const numericId = typeof identifier === 'number' ? identifier : Number(identifier);
-  let wipedUser: BotUser | undefined;
-
-  if (!isNaN(numericId) && inMemoryUsers.has(numericId)) {
-    wipedUser = inMemoryUsers.get(numericId);
+  if (!isNaN(numericId)) {
+    userSessions.delete(numericId);
     inMemoryUsers.delete(numericId);
-    return { success: true, wipedUser };
+    return { success: true };
   }
-
-  const clean = String(identifier).trim().toUpperCase();
-  for (const [tgId, user] of inMemoryUsers.entries()) {
-    if (
-      user.id === identifier ||
-      user.customerCode.toUpperCase() === clean ||
-      String(user.telegramUserId) === clean ||
-      (user.name && user.name.toUpperCase().includes(clean))
-    ) {
-      wipedUser = user;
-      inMemoryUsers.delete(tgId);
-      return { success: true, wipedUser };
-    }
-  }
-
   return { success: false };
 }
 
-/**
- * Get all active in-memory bot users
- */
 export function getInMemoryBotUsers(): BotUser[] {
   return Array.from(inMemoryUsers.values());
 }
 
-export const ADMIN_TELEGRAM_IDS: number[] = AUTH_ADMIN_IDS;
-
-export const getMainInlineKeyboard = (
-  customerCode?: string,
-  name?: string,
-  telegramUserId?: number,
-  userId?: string
-) => {
-  let tokenParam = '';
-  if (telegramUserId) {
-    try {
-      const token = createSessionToken({
-        userId: userId || `usr_${telegramUserId}`,
-        telegramUserId,
-        customerCode: customerCode || 'YK-100',
-        role: isTelegramAdmin(telegramUserId) ? 'admin' : 'customer',
-      }, '30d');
-      tokenParam = `&token=${encodeURIComponent(token)}`;
-    } catch {}
+export function formatPhoneNumber(raw: string): string {
+  const digits = raw.replace(/\D/g, '');
+  if (digits.length === 9) {
+    return `+998${digits}`;
   }
-
-  const query = customerCode
-    ? `?code=${encodeURIComponent(customerCode)}${name ? `&name=${encodeURIComponent(name)}` : ''}${userId ? `&u=${encodeURIComponent(userId)}` : ''}${tokenParam}`
-    : '';
-  const personalAppUrl = `${MINI_APP_URL}${query}`;
-
-  return {
-    inline_keyboard: [
-      [{ text: '🚀 Platformaga kirish', url: personalAppUrl }],
-    ],
-  };
-};
-
-export const getAdminInlineKeyboard = (customerCode?: string, name?: string, telegramUserId?: number, userId?: string) => {
-  return getMainInlineKeyboard(customerCode, name, telegramUserId, userId);
-};
+  if (digits.length === 12 && digits.startsWith('998')) {
+    return `+${digits}`;
+  }
+  if (digits.length >= 7) {
+    return `+${digits}`;
+  }
+  return raw.trim();
+}
 
 export async function processTelegramUpdate(update: any): Promise<boolean> {
   const message = update.message;
@@ -113,779 +62,316 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
   const telegramUserId = from.id;
   const supabase = getSupabase();
 
-  // If Supabase is connected, load user from DB
-  let dbUser: any = null;
-  if (supabase) {
-    const { data } = await supabase
-      .from('users')
-      .select(`
-        id,
-        telegram_user_id,
-        customer_code,
-        name,
-        phone,
-        onboarding_completed,
-        onboarding_step,
-        status,
-        default_delivery_branch_id,
-        default_branch:default_delivery_branch_id (provider, branch_name, region, address)
-      `)
-      .eq('telegram_user_id', telegramUserId)
-      .maybeSingle();
-    dbUser = data;
-
-    if (dbUser?.status === 'blocked') {
-      await sendTelegramMessage(chatId, '❌ Sizning hisobingiz bloklangan. Iltimos, admin bilan bog\'laning: @nothing_related');
-      return true;
-    }
-  }
-
-  // Get or initialize in-memory fallback user
-  let localUser = inMemoryUsers.get(telegramUserId);
-  if (!localUser) {
-    localUser = {
-      id: `usr_mem_${telegramUserId}`,
-      telegramUserId,
-      customerCode: `YK-${nextCustomerCodeNum++}`,
-      name: from.first_name || 'Mijoz',
-      phone: '',
-      onboardingCompleted: false,
-      onboardingStep: 'oferta',
-    };
-    inMemoryUsers.set(telegramUserId, localUser);
-  }
-
-  const isCompleted = dbUser ? dbUser.onboarding_completed : localUser.onboardingCompleted;
-  const customerCode = dbUser ? dbUser.customer_code : localUser.customerCode;
-  const userName = dbUser ? dbUser.name : localUser.name;
-  const userBranch = dbUser ? (dbUser as any).default_branch : localUser.defaultBranch;
-  const isAdmin = ADMIN_TELEGRAM_IDS.includes(Number(telegramUserId));
-
-  // ---------------------------------------------------------------------------
-  // 1. Handle Callback Queries (Buttons)
-  // ---------------------------------------------------------------------------
+  // 1. Handle Callback Query (Oferta acceptance)
   if (callbackQuery) {
     const data = callbackQuery.data;
+    await answerTelegramCallbackQuery(callbackQuery.id);
 
-    // Oferta Accept
-    if (data === 'oferta_accept') {
-      localUser.onboardingStep = 'phone';
-      if (supabase) {
-        const { data: activeOferta } = await supabase
-          .from('oferta_versions')
-          .select('id')
-          .eq('is_active', true)
-          .single();
-
-        if (!dbUser) {
-          const { data: created } = await supabase
-            .from('users')
-            .insert({
-              telegram_user_id: telegramUserId,
-              name: from.first_name || 'Mijoz',
-              phone: 'pending',
-              onboarding_step: 'phone',
-            })
-            .select()
-            .single();
-          dbUser = created;
-        } else {
-          await supabase.from('users').update({ onboarding_step: 'phone' }).eq('id', dbUser.id);
-        }
-
-        if (dbUser && activeOferta) {
-          await supabase.from('oferta_acceptances').insert({
-            user_id: dbUser.id,
-            telegram_user_id: telegramUserId,
-            oferta_version_id: activeOferta.id,
-          });
-        }
-      }
+    if (data === 'accept_oferta') {
+      userSessions.set(telegramUserId, { step: 'name' });
 
       await sendTelegramMessage(
         chatId,
-        '✅ Oferta shartlarini qabul qildingiz.\n\n' +
-        'Iltimos, telefon raqamingizni yozib yuboring:\n<i>(Masalan: +998901234567)</i>',
+        '✅ <b>Oferta shartlari qabul qilindi.</b>\n\n' +
+          'Iltimos, to‘liq <b>ism va familiyangizni</b> kiriting:\n' +
+          '<i>(Masalan: Saidislom Karimov)</i>',
         { remove_keyboard: true }
       );
       return true;
     }
 
-    if (data === 'oferta_decline') {
-      await sendTelegramMessage(chatId, '❌ Siz ofertani qabul qilmadingiz. Yukla Go xizmatidan foydalanish uchun ofertaga rozilik berish zarur.');
-      return true;
-    }
-
-    // Provider selection
-    if (data?.startsWith('provider_')) {
-      const provider = data.replace('provider_', '');
-      localUser.selectedProvider = provider;
-      localUser.onboardingStep = 'region';
-
-      let regions: string[] = [];
-      if (supabase) {
-        await supabase.from('users').update({ onboarding_step: 'region' }).eq('id', dbUser?.id);
-        const { data: branches } = await supabase
-          .from('delivery_branches')
-          .select('region')
-          .eq('provider', provider)
-          .eq('active', true);
-        regions = Array.from(new Set(branches?.map(b => b.region) || []));
-      }
-      if (regions.length === 0) {
-        regions = getRegionsForProvider(provider);
-      }
-
-      // 2-column inline keyboard layout for mobile Telegram
-      const buttons: any[][] = [];
-      for (let i = 0; i < regions.length; i += 2) {
-        const row: any[] = [{ text: regions[i], callback_data: `reg_${provider}_${i}` }];
-        if (regions[i + 1]) {
-          row.push({ text: regions[i + 1], callback_data: `reg_${provider}_${i + 1}` });
-        }
-        buttons.push(row);
-      }
-
-      await sendTelegramMessage(chatId, `📍 <b>${provider}</b> uchun viloyatingizni tanlang:`, { inline_keyboard: buttons });
-      return true;
-    }
-
-    // Region selection
-    if (data?.startsWith('reg_') || data?.startsWith('region_')) {
-      let provider = '';
-      let region = '';
-
-      if (data.startsWith('reg_')) {
-        const parts = data.split('_');
-        provider = parts[1];
-        const idx = parseInt(parts[2], 10);
-        const provRegions = getRegionsForProvider(provider);
-        region = provRegions[idx] || REGIONS_LIST[idx] || parts.slice(2).join('_');
-      } else {
-        const parts = data.split('_');
-        provider = parts[1];
-        region = parts.slice(2).join('_');
-      }
-
-      localUser.selectedRegion = region;
-      localUser.onboardingStep = 'branch';
-
-      let branchesList: any[] = [];
-      if (supabase) {
-        await supabase.from('users').update({ onboarding_step: 'branch' }).eq('id', dbUser?.id);
-        const { data: branches } = await supabase
-          .from('delivery_branches')
-          .select('id, branch_name')
-          .eq('provider', provider)
-          .eq('region', region)
-          .eq('active', true);
-        branchesList = branches || [];
-      }
-      if (branchesList.length === 0) {
-        branchesList = getBranches(provider, region).map(b => ({
-          id: b.id,
-          branch_name: b.branchName,
-        }));
-      }
-
-      const buttons = branchesList.map(b => [{ text: b.branch_name, callback_data: `branch_${b.id}` }]);
-      await sendTelegramMessage(chatId, `🏢 <b>${region}</b> bo'yicha filialni tanlang:`, { inline_keyboard: buttons });
-      return true;
-    }
-
-    // Branch selection -> Complete Onboarding!
-    if (data?.startsWith('branch_')) {
-      const branchId = data.replace('branch_', '');
-      let chosenBranch: any = findBranchById(branchId) || ALL_BRANCHES[0];
-
-      if (supabase && dbUser) {
-        const { data: updated } = await supabase
-          .from('users')
-          .update({
-            default_delivery_branch_id: branchId,
-            onboarding_completed: true,
-            onboarding_step: 'completed',
-          })
-          .eq('id', dbUser.id)
-          .select(`
-            customer_code,
-            name,
-            default_branch:default_delivery_branch_id (provider, branch_name, region, address)
-          `)
-          .single();
-        if (updated) {
-          dbUser = updated;
-          chosenBranch = (updated as any).default_branch;
-        }
-      }
-
-      localUser.onboardingCompleted = true;
-      localUser.onboardingStep = 'completed';
-      localUser.defaultBranch = {
-        provider: chosenBranch.provider,
-        branchName: chosenBranch.branch_name || chosenBranch.branchName,
-        region: chosenBranch.region,
-        address: chosenBranch.address,
-      };
-
-      await sendTelegramMessage(
-        chatId,
-        `🎉 <b>Tabriklaymiz, ro'yxatdan o'tish muvaffaqiyatli yakunlandi!</b>\n\n` +
-        `👤 Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Xitoy saytlarida (Taobao, 1688, Pinduoduo) xarid qilish uchun ombor manzilingiz:`,
-        getMainInlineKeyboard(customerCode, dbUser?.name || localUser.name)
-      );
-
-      await sendWarehouseAddress(chatId, customerCode, supabase);
-      return true;
-    }
-
-    // Quick add track
-    if (data?.startsWith('add_track_')) {
-      const trackToAdd = data.replace('add_track_', '').toUpperCase();
-      let success = true;
-      if (supabase && dbUser) {
-        success = await addParcelToDatabase(dbUser, trackToAdd, supabase);
-      }
-      if (success) {
-        await sendTelegramMessage(chatId, `✅ <code>${trackToAdd}</code> trek raqami hisobingizga muvaffaqiyatli qo'shildi!`);
-      } else {
-        await sendTelegramMessage(chatId, `⚠️ Ushbu trek raqam allaqachon ro'yxatdan o'tgan.`);
-      }
-      return true;
-    }
-
-    // Inline menu callback: Profile
-    if (data === 'cmd_profile') {
-      const phoneDisplay = dbUser?.phone || localUser.phone || 'Kiritilmagan';
-      const personalUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}`;
-      await sendTelegramMessage(
-        chatId,
-        `👤 <b>Mening Profilim:</b>\n\n` +
-        `Mijoz kodi: <code>${customerCode}</code>\n` +
-        `F.I.SH: <b>${userName}</b>\n` +
-        `Telefon: <code>${phoneDisplay}</code>\n\n` +
-        `📦 <i>Tovarlaringiz O'zbekistonga yetib kelgach, administrator shaxsan sizga yetkazib beradi.</i>`,
-        {
-          inline_keyboard: [
-            [{ text: `📱 Shaxsiy hisobim (${customerCode})`, web_app: { url: personalUrl } }],
-            [{ text: '🎓 Video darslar', web_app: { url: `${personalUrl}&app=academy` } }],
-          ],
-        }
-      );
-      return true;
-    }
-
-    // Inline menu callback: China warehouse address
-    if (data === 'cmd_address') {
-      await sendWarehouseAddress(chatId, customerCode, supabase);
-      return true;
-    }
-
-    // Inline menu callback: Help
-    if (data === 'cmd_help') {
-      const personalUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}`;
-      await sendTelegramMessage(
-        chatId,
-        `❓ <b>Qanday foydalaniladi?</b>\n\n` +
-        `1️⃣ <b>Xitoy manzilini oling:</b> Ombor manzilini "🇨🇳 Xitoy manzili" tugmasi orqali ko'ring.\n` +
-        `2️⃣ <b>Xarid qiling:</b> Taobao, 1688 yoki Pinduoduo ilovalarida manzilga o'z kodingizni (<code>${customerCode}</code>) kiriting.\n` +
-        `3️⃣ <b>Trekni kiriting:</b> Buyurtma jo'natilgach, berilgan trek kodini botga yuboring yoki ilovaga qo'shing.\n` +
-        `4️⃣ <b>Kuzatib boring:</b> Yukingiz O'zbekistonga yetib kelguncha bot orqali avtomatik bildirishnoma olasiz.\n\n` +
-        `Savollaringiz bormi? Admin: @nothing_related`,
-        {
-          inline_keyboard: [
-            [{ text: '☎️ Admin bilan bog\'lanish', url: 'https://t.me/nothing_related' }],
-            [{ text: `📱 Shaxsiy hisobim (${customerCode})`, web_app: { url: personalUrl } }],
-          ],
-        }
-      );
-      return true;
-    }
+    return true;
   }
 
-  // ---------------------------------------------------------------------------
-  // 2. Handle Incoming Messages
-  // ---------------------------------------------------------------------------
-  const rawText = message?.text?.trim() || '';
-  const textLower = rawText.toLowerCase();
-
-  // Contact Sharing
+  // 2. Handle Contact Share
   if (message?.contact) {
     const contact = message.contact;
+    const phone = contact.phone_number.startsWith('+') ? contact.phone_number : `+${contact.phone_number}`;
+    const session = userSessions.get(telegramUserId) || { step: 'name' };
+    const userName = session.name || from.first_name || 'Hurmatli talaba';
 
-    // Strict Anti-Spoofing Check
-    if (contact.user_id && contact.user_id !== telegramUserId) {
-      await sendTelegramMessage(
-        chatId,
-        '⚠️ <b>Xavfsizlik ogohlantirishi:</b>\nIltimos, faqat o\'zingizning shaxsiy telefon raqamingizni yuboring!'
-      );
-      return true;
-    }
-
-    let phone = contact.phone_number;
-    if (!phone.startsWith('+')) phone = '+' + phone;
-
-    localUser.phone = phone;
-    localUser.onboardingStep = 'name';
-
-    if (supabase && dbUser) {
-      await supabase.from('users').update({
-        phone,
-        phone_verified_at: new Date().toISOString(),
-        onboarding_step: 'name',
-      }).eq('id', dbUser.id);
-    }
-
-    await sendTelegramMessage(
-      chatId,
-      `✅ Telefon raqamingiz qabul qilindi: <b>${phone}</b>\n\n` +
-      `Endi to'liq ism va familiyangizni kiriting:\n<i>(Masalan: Saidislombek Abdumalikov)</i>`,
-      { remove_keyboard: true }
-    );
-    return true;
+    return await completeRegistration(chatId, telegramUserId, from, userName, phone, supabase);
   }
 
-  const currentStep = dbUser ? dbUser.onboarding_step : localUser.onboardingStep;
+  // 3. Handle Text Messages
+  const rawText = message?.text?.trim() || '';
+  const session = userSessions.get(telegramUserId);
 
-  // Phone Input Step (typed as text message)
-  if (currentStep === 'phone' && rawText && !rawText.startsWith('/')) {
-    const cleanedDigits = rawText.replace(/\D/g, '');
-    let formattedPhone = '';
-    if (cleanedDigits.length === 9) {
-      formattedPhone = `+998${cleanedDigits}`;
-    } else if (cleanedDigits.length === 12 && cleanedDigits.startsWith('998')) {
-      formattedPhone = `+${cleanedDigits}`;
-    } else if (cleanedDigits.length >= 7 && cleanedDigits.length <= 15) {
-      formattedPhone = `+${cleanedDigits}`;
-    }
-
-    if (!formattedPhone) {
-      await sendTelegramMessage(
-        chatId,
-        '⚠️ <b>Telefon raqam noto\'g\'ri kiritildi:</b>\nIltimos, raqamingizni to\'liq yozib yuboring:\n<i>(Masalan: +998901234567)</i>',
-        { remove_keyboard: true }
-      );
-      return true;
-    }
-
-    localUser.phone = formattedPhone;
-    localUser.onboardingStep = 'name';
-
-    if (supabase && dbUser) {
-      await supabase.from('users').update({
-        phone: formattedPhone,
-        phone_verified_at: new Date().toISOString(),
-        onboarding_step: 'name',
-      }).eq('id', dbUser.id);
-    }
-
-    await sendTelegramMessage(
-      chatId,
-      `✅ Telefon raqamingiz qabul qilindi: <b>${formattedPhone}</b>\n\n` +
-      `Endi to'liq ism va familiyangizni kiriting:\n<i>(Masalan: Saidislombek Abdumalikov)</i>`,
-      { remove_keyboard: true }
-    );
-    return true;
-  }
-
-  // Name Input Step -> Immediately Complete without location hurdles!
-  if (currentStep === 'name' && rawText && !rawText.startsWith('/')) {
-    if (rawText.length < 3 || rawText.length > 60) {
-      await sendTelegramMessage(chatId, 'Iltimos, to\'liq ismingizni kiriting (3 tadan 60 tagacha belgi):');
-      return true;
-    }
-
-    localUser.name = rawText;
-    localUser.onboardingCompleted = true;
-    localUser.onboardingStep = 'completed';
-
-    if (supabase && dbUser) {
-      await supabase.from('users').update({
-        name: rawText,
-        onboarding_completed: true,
-        onboarding_step: 'completed',
-      }).eq('id', dbUser.id);
-    }
-
-    await sendTelegramMessage(
-      chatId,
-      `🎉 <b>Tabriklaymiz, ${rawText}!</b>\n\n` +
-      `Siz Yukla Go tizimidan muvaffaqiyatli ro'yxatdan o'tdingiz!\n` +
-      `👤 Sizning shaxsiy mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-      `Quyidagi havola tugmasi orqali shaxsiy o‘quv kabinetingizga kiring:`,
-      getMainInlineKeyboard(customerCode, rawText, telegramUserId, dbUser?.id)
-    );
-    return true;
-  }
-
-  // New User /start flow -> Oferta -> Phone -> Name -> Link Button
-  if (!isCompleted) {
-    if (rawText === '/start') {
-      if (isAdmin) {
-        localUser.onboardingCompleted = true;
-        localUser.onboardingStep = 'completed';
-        if (supabase && dbUser) {
-          await supabase.from('users').update({
-            onboarding_completed: true,
-            onboarding_step: 'completed',
-          }).eq('id', dbUser.id);
-        }
-
-        await sendTelegramMessage(
-          chatId,
-          `Assalomu alaykum!\n\n` +
-          `Sizning mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-          `Shaxsiy hisobingizga kirish uchun quyidagi havola tugmasini bosing:`,
-          getMainInlineKeyboard(customerCode, 'Administrator', telegramUserId, dbUser?.id)
-        );
-        return true;
-      }
-
-      // Regular new user: Step 1 is Oferta!
-      localUser.onboardingStep = 'oferta';
-      const oferta = await getOfertaText();
-
-      await sendTelegramMessage(
-        chatId,
-        `📜 <b>${oferta.title}</b>\n\n` +
-        `${oferta.content}\n\n` +
-        `<i>Xizmatdan foydalanish va ro'yxatdan o'tish uchun quyidagi tugma orqali oferta shartlarini qabul qiling:</i>`,
-        {
-          inline_keyboard: [
-            [
-              { text: '✅ Qabul qilaman', callback_data: 'oferta_accept' },
-              { text: '❌ Rad etaman', callback_data: 'oferta_decline' },
-            ],
-          ],
-        }
-      );
-      return true;
-    }
-
-    if (currentStep === 'oferta') {
-      const oferta = await getOfertaText();
-      await sendTelegramMessage(
-        chatId,
-        `Iltimos, avval oferta shartlarini qabul qiling:\n\n📜 <b>${oferta.title}</b>`,
-        {
-          inline_keyboard: [
-            [
-              { text: '✅ Qabul qilaman', callback_data: 'oferta_accept' },
-              { text: '❌ Rad etaman', callback_data: 'oferta_decline' },
-            ],
-          ],
-        }
-      );
-      return true;
-    }
-
-    if (currentStep === 'phone') {
-      await sendTelegramMessage(
-        chatId,
-        'Iltimos, telefon raqamingizni yozib yuboring:\n<i>(Masalan: +998901234567)</i>',
-        { remove_keyboard: true }
-      );
-      return true;
-    }
-
-    // If user is not completed and types academy or other commands, guide them to complete registration
-    if (textLower === '/academy' || textLower === '/kurs' || textLower === '/darslar' || textLower === '🎓 video darslar') {
-      await sendTelegramMessage(
-        chatId,
-        '⚠️ <b>Video darslarni ko\'rish uchun avval ro\'yxatdan o\'ting!</b>\n\nIltimos, /start buyrug\'ini yuboring va ro\'yxatdan o\'tishni yakunlang.'
-      );
-      return true;
-    }
-  }
-
-  // ---------------------------------------------------------------------------
-  // 3. Completed User Commands & Navigation
-  // ---------------------------------------------------------------------------
-  if (isCompleted) {
-    // /start
-    if (rawText === '/start') {
-      if (isAdmin) {
-        await sendTelegramMessage(
-          chatId,
-          `👑 <b>Assalomu alaykum, Administrator!</b>\n\n` +
-          `Siz tizimga administrator sifatida kirdingiz.\n` +
-          `👤 ID: <code>${telegramUserId}</code> | Mijoz kodi: <code>${customerCode}</code>\n\n` +
-          `Quyidagi menyu orqali kerakli bo'limni ochishingiz mumkin:\n` +
-          `1️⃣ <b>⚙️ Admin Dashboard</b> — Tizim va foydalanuvchilar boshqaruvi\n` +
-          `2️⃣ <b>🎓 Video darslar</b> — Foydalanuvchi interfeysi`,
-          getAdminInlineKeyboard()
-        );
-        return true;
-      }
-
-      await sendTelegramMessage(
-        chatId,
-        `Assalomu alaykum, <b>${userName}</b>!\n\n` +
-        `👤 Sizning shaxsiy mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Shaxsiy o‘quv kabinetingizga kirish uchun quyidagi havola tugmasini bosing:`,
-        getMainInlineKeyboard(customerCode, userName, telegramUserId, dbUser?.id)
-      );
-      return true;
-    }
-
-    // Academy & Video Lessons command
-    if (textLower === '/academy' || textLower === '/kurs' || textLower === '/darslar' || textLower === '🎓 video darslar') {
-      await sendTelegramMessage(
-        chatId,
-        `🎓 <b>Yukla Go — Video Darslar</b>\n\n` +
-        `👤 Shaxsiy mijoz kodingiz: <code>${customerCode}</code>\n\n` +
-        `Quyidagi havola orqali darslarni davom ettiring:`,
-        getMainInlineKeyboard(customerCode, userName, telegramUserId, dbUser?.id)
-      );
-      return true;
-    }
-
-    // Profile & ID
-    if (textLower === '/myid' || textLower === '/id' || textLower === '/kod') {
-      const phoneDisplay = dbUser?.phone || localUser.phone || 'Kiritilmagan';
-      const personalUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}`;
-
-      await sendTelegramMessage(
-        chatId,
-        `👤 <b>Mening Profilim:</b>\n\n` +
-        `Mijoz kodi: <code>${customerCode}</code>\n` +
-        `F.I.SH: <b>${userName}</b>\n` +
-        `Telefon: <code>${phoneDisplay}</code>\n\n` +
-        `Shaxsiy kabinetingizga kirish uchun quyidagi havola tugmasini bosing:`,
-        {
-          inline_keyboard: [
-            [{ text: '🚀 Kabinetga kirish', url: personalUrl }],
-          ],
-        }
-      );
-      return true;
-    }
-
-    // Rate Calculator
-    if (textLower === '/calculator' || textLower === '/kalkulyator') {
-      await sendTelegramMessage(
-        chatId,
-        `🧮 <b>Yetkazib berish narxini hisoblash:</b>\n\n` +
-        `✈️ Aviatarif: <b>$9.5 / kg</b>\n` +
-        `💵 Amaldagi kurs: <b>1 USD = 12,850 UZS</b>\n\n` +
-        `Aniq hisob-kitob qilish uchun Yukla Go ilovasidagi kalkulyatordan foydalaning:`,
-        {
-          inline_keyboard: [
-            [{ text: '🧮 Kalkulyatorni ochish', web_app: { url: MINI_APP_URL } }],
-          ],
-        }
-      );
-      return true;
-    }
-
-    // Help
-    if (textLower === '/help' || textLower === '/yordam' || textLower === '☎️ yordam') {
-      await sendTelegramMessage(
-        chatId,
-        `❓ <b>Qanday foydalaniladi?</b>\n\n` +
-        `1️⃣ <b>Xitoy manzilini oling:</b> <code>/address</code> orqali ombor manzilini ko'ring.\n` +
-        `2️⃣ <b>Xarid qiling:</b> Taobao, 1688 yoki Pinduoduo ilovalarida manzilga o'z kodingizni (<code>${customerCode}</code>) kiriting.\n` +
-        `3️⃣ <b>Trekni kiriting:</b> Buyurtma jo'natilgach, berilgan trek kodini botga yuboring yoki ilovaga qo'shing.\n` +
-        `4️⃣ <b>Kuzatib boring:</b> Yukingiz O'zbekistonga yetib kelguncha bot orqali avtomatik bildirishnoma olasiz.\n\n` +
-        `Savollaringiz bormi? Admin: @nothing_related`,
-        {
-          inline_keyboard: [
-            [{ text: '☎️ Admin bilan bog\'lanish', url: 'https://t.me/nothing_related' }],
-            [{ text: '📦 Ilovani ochish', web_app: { url: MINI_APP_URL } }],
-          ],
-        }
-      );
-      return true;
-    }
-
-    // Search Tracking Input
-    if (textLower === '🔍 trek tekshirish') {
-      await sendTelegramMessage(chatId, `🔍 Trek raqamini tekshirish uchun uni botga yuboring:\n<i>(Masalan: YT882910291CN)</i>`);
-      return true;
-    }
-
-    let trackingInput = rawText;
-    if (trackingInput.startsWith('/track')) {
-      trackingInput = trackingInput.replace('/track', '').trim();
-    }
-
-    if (trackingInput && /^[a-zA-Z0-9]{8,35}$/.test(trackingInput)) {
-      const cleanTrack = trackingInput.toUpperCase();
-
-      let foundParcel: any = null;
-      if (supabase) {
+  // Check /start command
+  if (rawText.startsWith('/start')) {
+    // Check if user is already registered in Supabase
+    let existingUser: any = null;
+    if (supabase) {
+      try {
         const { data } = await supabase
-          .from('parcels')
-          .select('id, tracking_number, status, payment_status, amount, weight_kg, delivery_address_snapshot')
-          .eq('tracking_number', cleanTrack)
-          .single();
-        foundParcel = data;
+          .from('users')
+          .select('*')
+          .eq('telegram_user_id', telegramUserId)
+          .maybeSingle();
+        existingUser = data;
+      } catch (err) {
+        console.warn('Error checking existing user:', err);
       }
+    }
 
-      if (foundParcel) {
-        const statusInfo = STATUS_MESSAGES[foundParcel.status] || { title: foundParcel.status, desc: '' };
-        const weight = foundParcel.weight_kg ? `${foundParcel.weight_kg} kg` : 'Kutilmoqda';
-        const amount = foundParcel.amount ? `$${Number(foundParcel.amount).toFixed(2)}` : 'Aniqlanmoqda';
-        const branchSnap = foundParcel.delivery_address_snapshot;
+    if (existingUser && existingUser.onboarding_completed) {
+      const customerCode = existingUser.customer_code || 'YK-100';
+      const userId = existingUser.id;
+      let token = '';
+      try {
+        token = createSessionToken({
+          userId,
+          telegramUserId,
+          customerCode,
+          role: isTelegramAdmin(telegramUserId) ? 'admin' : 'customer',
+        }, '30d');
+      } catch {}
 
-        const personalAppUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}&name=${encodeURIComponent(userName)}`;
-        await sendTelegramMessage(
-          chatId,
-          `📦 <b>Yuk ma'lumotlari:</b>\n\n` +
-          `Trek raqam: <code>${foundParcel.tracking_number}</code>\n` +
-          `Holati: <b>${statusInfo.title}</b>\n` +
-          `Vazni: <b>${weight}</b>\n` +
-          `Narxi: <b>${amount}</b>\n` +
-          `To'lov holati: <b>${foundParcel.payment_status === 'paid' ? '✅ To\'langan' : '⏳ To\'lov kutilmoqda'}</b>\n` +
-          `Yetkazish: <b>Admin orqali bevosita</b>\n` +
-          `\n${statusInfo.desc}`,
-          {
-            inline_keyboard: [
-              [{ text: `📦 Shaxsiy hisobimda ko'rish (${customerCode})`, web_app: { url: personalAppUrl } }],
+      const personalLink = `${MINI_APP_URL}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
+
+      await sendTelegramMessage(
+        chatId,
+        `👋 <b>Assalomu alaykum, ${existingUser.name || from.first_name}!</b>\n\n` +
+          `Siz Yukla Go ta’lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tgansiz.\n\n` +
+          `👤 <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
+          `📞 <b>Telefon:</b> <code>${existingUser.phone || 'Kiritilgan'}</code>\n\n` +
+          `Darslarni davom ettirish uchun quyidagi tugmani bosing:`,
+        {
+          inline_keyboard: [
+            [
+              {
+                text: '🚀 Darslarni boshlash',
+                web_app: { url: personalLink },
+              },
             ],
-          }
-        );
-      } else {
-        await sendTelegramMessage(
-          chatId,
-          `🔎 <code>${cleanTrack}</code> trek raqami bo'yicha ma'lumot topilmadi.\n\n` +
-          `Uni hisobingizga qo'shishni xohlaysizmi?`,
-          {
-            inline_keyboard: [
-              [{ text: `➕ Ha, yuklarimga qo'shish`, callback_data: `add_track_${cleanTrack}` }],
-            ],
-          }
-        );
-      }
+          ],
+        }
+      );
       return true;
     }
 
-    // Default reply
+    // New User -> Show Oferta
+    userSessions.set(telegramUserId, { step: 'oferta' });
+
+    const welcomeText =
+      `👋 <b>Assalomu alaykum, ${from.first_name || 'Hurmatli talaba'}!</b>\n\n` +
+      `Yukla Go yopiq video ta’lim platformasiga xush kelibsiz.\n\n` +
+      `Platformamiz orqali Xitoydan tovar olib kelish, 1688, Taobao va xavfsiz import sirlarini bosqichma-bosqich o‘rganasiz.\n\n` +
+      `Kursni boshlashdan oldin ommaviy oferta (foydalanish shartlari) bilan tanishib chiqing:\n` +
+      `📄 <a href="https://telegra.ph/Yukla-Go-Ommaviy-Oferta-01-01">Ommaviy Oferta shartlarini o‘qish</a>\n\n` +
+      `Davom etish uchun quyidagi tugmani bosing:`;
+
     await sendTelegramMessage(
       chatId,
-      `Buyruq tushunarsiz bo'ldi. Trek raqamini yuboring yoki quyidagi menyudan foydalaning:`,
-      getMainInlineKeyboard(customerCode, userName)
+      welcomeText,
+      {
+        inline_keyboard: [
+          [
+            {
+              text: '✅ Ofertani qabul qilaman va roziman',
+              callback_data: 'accept_oferta',
+            },
+          ],
+        ],
+      }
     );
     return true;
   }
 
+  // Handle Step: Name
+  if (session && session.step === 'name') {
+    if (rawText.length < 2) {
+      await sendTelegramMessage(
+        chatId,
+        '⚠️ Iltimos, ism va familiyangizni to‘liq kiriting (kamida 2 ta belgi):',
+        { remove_keyboard: true }
+      );
+      return true;
+    }
+
+    userSessions.set(telegramUserId, { step: 'phone', name: rawText });
+
+    await sendTelegramMessage(
+      chatId,
+      `👍 Rahmat, <b>${rawText}</b>!\n\n` +
+        `Endi <b>telefon raqamingizni</b> yozib yuboring:\n` +
+        `<i>(Masalan: +998901234567)</i>`,
+      { remove_keyboard: true }
+    );
+    return true;
+  }
+
+  // Handle Step: Phone
+  if (session && session.step === 'phone') {
+    const formattedPhone = formatPhoneNumber(rawText);
+    if (formattedPhone.replace(/\D/g, '').length < 7) {
+      await sendTelegramMessage(
+        chatId,
+        '⚠️ Telefon raqam noto‘g‘ri kiritildi. Iltimos, to‘g‘ri raqam kiriting:\n<i>(Masalan: +998901234567)</i>',
+        { remove_keyboard: true }
+      );
+      return true;
+    }
+
+    const userName = session.name || from.first_name || 'Talaba';
+    return await completeRegistration(chatId, telegramUserId, from, userName, formattedPhone, supabase);
+  }
+
+  // Default fallback: Check if user registered
+  let existingUser: any = null;
+  if (supabase) {
+    try {
+      const { data } = await supabase
+        .from('users')
+        .select('*')
+        .eq('telegram_user_id', telegramUserId)
+        .maybeSingle();
+      existingUser = data;
+    } catch {}
+  }
+
+  if (existingUser && existingUser.onboarding_completed) {
+    const customerCode = existingUser.customer_code || 'YK-100';
+    let token = '';
+    try {
+      token = createSessionToken({
+        userId: existingUser.id,
+        telegramUserId,
+        customerCode,
+        role: isTelegramAdmin(telegramUserId) ? 'admin' : 'customer',
+      }, '30d');
+    } catch {}
+
+    const personalLink = `${MINI_APP_URL}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(existingUser.id)}&token=${encodeURIComponent(token)}`;
+
+    await sendTelegramMessage(
+      chatId,
+      `Siz ro‘yxatdan o‘tgansiz. Darslarga kirish uchun quyidagi tugmani bosing:`,
+      {
+        inline_keyboard: [
+          [
+            {
+              text: '🚀 Darslarni boshlash',
+              web_app: { url: personalLink },
+            },
+          ],
+        ],
+      }
+    );
+    return true;
+  }
+
+  // If not registered, prompt /start
+  await sendTelegramMessage(
+    chatId,
+    'Ro‘yxatdan o‘tish va darslarga kirish uchun /start buyrug‘ini bosing.',
+    { remove_keyboard: true }
+  );
   return true;
 }
 
-// -----------------------------------------------------------------------------
-// Helper: Send formatted China Warehouse Address
-// -----------------------------------------------------------------------------
-async function sendWarehouseAddress(chatId: number, customerCode: string, supabase: any) {
-  let receiver = `Yukla Go (${customerCode})`;
-  let phone = '13335957161';
-  let region = '浙江省金华市义乌市';
-  let address = `077库房/70099号 ${customerCode}`;
+async function completeRegistration(
+  chatId: number,
+  telegramUserId: number,
+  from: any,
+  userName: string,
+  phone: string,
+  supabase: any
+): Promise<boolean> {
+  let customerCode = `YK-${Math.floor(100 + Math.random() * 900)}`;
+  let userId = `usr_${telegramUserId}`;
 
   if (supabase) {
     try {
-      const { data: provider } = await supabase
-        .from('cargo_providers')
-        .select('phone, province, city, district, full_address, warehouse_code, address_template')
-        .eq('active', true)
+      // Try generating code via RPC
+      try {
+        const { data: rpcCode } = await supabase.rpc('generate_customer_code');
+        if (rpcCode) customerCode = rpcCode;
+      } catch {}
+
+      // Insert or update in users table
+      const { data: userRow } = await supabase
+        .from('users')
+        .upsert(
+          {
+            telegram_user_id: telegramUserId,
+            name: userName.trim(),
+            phone: phone.trim(),
+            customer_code: customerCode,
+            onboarding_completed: true,
+            onboarding_step: 'completed',
+            status: 'active',
+            phone_verified_at: new Date().toISOString(),
+          },
+          { onConflict: 'telegram_user_id' }
+        )
+        .select()
         .single();
 
-      if (provider) {
-        phone = provider.phone;
-        region = `${provider.province} ${provider.city}${provider.district ? ' ' + provider.district : ''}`;
-        address = provider.address_template
-          .replace('{warehouse_code}', provider.warehouse_code)
-          .replace('{customer_id}', customerCode);
+      if (userRow) {
+        userId = userRow.id;
+        if (userRow.customer_code) customerCode = userRow.customer_code;
+
+        // Auto grant access to all active courses
+        try {
+          const { data: courses } = await supabase.from('academy_courses').select('id').eq('active', true);
+          if (courses && courses.length > 0) {
+            for (const c of courses) {
+              await supabase.from('academy_access').upsert(
+                {
+                  user_id: userRow.id,
+                  course_id: c.id,
+                  status: 'granted',
+                  granted_at: new Date().toISOString(),
+                },
+                { onConflict: 'user_id,course_id' }
+              );
+            }
+          }
+        } catch {}
       }
-    } catch {
-      // Keep defaults
+    } catch (err) {
+      console.error('Supabase user insert error:', err);
     }
   }
 
-  const fullOneLine = `${receiver}，${phone}，${region} ${address}`;
+  // Clear session
+  userSessions.delete(telegramUserId);
 
-  const message =
-    `🇨🇳 <b>Xitoydagi ombor manzilingiz:</b>\n\n` +
-    `👤 <b>Qabul qiluvchi (收件人):</b>\n<code>${receiver}</code>\n\n` +
-    `📱 <b>Telefon (手机号码):</b>\n<code>${phone}</code>\n\n` +
-    `📍 <b>Hudud (所在地区):</b>\n<code>${region}</code>\n\n` +
-    `🏢 <b>Batafsil manzil (详细地址):</b>\n<code>${address}</code>\n\n` +
-    `📋 <b>Bitta bosishda nusxalash (Taobao/1688 uchun):</b>\n<code>${fullOneLine}</code>\n\n` +
-    `💡 <i>Nusxalash uchun matn ustiga bir marta bosing. Taobao ilovasida manzil qo'shish oynasiga kirsangiz, avtomatik to'ldirish taklif qilinadi.</i>`;
-
-  const personalAppUrl = `${MINI_APP_URL}?code=${encodeURIComponent(customerCode)}`;
-  const keyboard = {
-    inline_keyboard: [
-      [{ text: `📱 Shaxsiy hisobim (${customerCode})`, web_app: { url: personalAppUrl } }],
-    ],
-  };
-
-  await sendTelegramMessage(chatId, message, keyboard);
-}
-
-// -----------------------------------------------------------------------------
-// Helper: Add Parcel to Database
-// -----------------------------------------------------------------------------
-async function addParcelToDatabase(user: any, trackingNumber: string, supabase: any): Promise<boolean> {
+  let token = '';
   try {
-    const { data: existing } = await supabase
-      .from('parcels')
-      .select('id')
-      .eq('tracking_number', trackingNumber)
-      .single();
+    token = createSessionToken({
+      userId,
+      telegramUserId,
+      customerCode,
+      role: isTelegramAdmin(telegramUserId) ? 'admin' : 'customer',
+    }, '30d');
+  } catch {}
 
-    if (existing) return false;
+  const personalLink = `${MINI_APP_URL}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
 
-    const { data: activeProvider } = await supabase
-      .from('cargo_providers')
-      .select('id, phone, province, city, district, full_address, warehouse_code')
-      .eq('active', true)
-      .single();
+  const successMessage =
+    `🎉 <b>Tabriklaymiz, ${userName}!</b>\n\n` +
+    `Siz Yukla Go ta’lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tdingiz.\n\n` +
+    `📋 <b>Sizning ma’lumotlaringiz:</b>\n` +
+    `• <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
+    `• <b>Telefon:</b> <code>${phone}</code>\n\n` +
+    `👇 Shaxsiy o‘quv kabinetingizga kirish uchun quyidagi tugmani bosing:`;
 
-    const branch = user.default_branch;
-    const deliverySnapshot = branch ? {
-      provider: branch.provider,
-      branchName: branch.branch_name,
-      region: branch.region,
-      address: branch.address,
-    } : {
-      provider: 'Standard',
-      branchName: 'Standart filial',
-      region: 'O\'zbekiston',
-      address: 'Markaziy ombor',
-    };
+  await sendTelegramMessage(
+    chatId,
+    successMessage,
+    {
+      inline_keyboard: [
+        [
+          {
+            text: '🚀 Darslarni boshlash',
+            web_app: { url: personalLink },
+          },
+        ],
+      ],
+    }
+  );
 
-    const cargoSnapshot = activeProvider ? {
-      warehouseCode: activeProvider.warehouse_code,
-      fullAddress: `${activeProvider.province} ${activeProvider.city} ${activeProvider.full_address}`,
-      phone: activeProvider.phone,
-    } : {
-      warehouseCode: '077库房',
-      fullAddress: 'Zhejiang Jinhua Yiwu',
-      phone: '13335957161',
-    };
-
-    const { data: newParcel, error } = await supabase
-      .from('parcels')
-      .insert({
-        user_id: user.id,
-        tracking_number: trackingNumber,
-        customer_code_snapshot: user.customer_code,
-        cargo_provider_id: activeProvider?.id || null,
-        cargo_address_snapshot: cargoSnapshot,
-        delivery_branch_id: user.default_delivery_branch_id || null,
-        delivery_address_snapshot: deliverySnapshot,
-        status: 'added',
-        payment_status: 'pending',
-        amount: 0,
-        currency: 'USD',
-        weight_kg: 0,
-      })
-      .select()
-      .single();
-
-    return !error && !!newParcel;
-  } catch {
-    return false;
-  }
+  return true;
 }

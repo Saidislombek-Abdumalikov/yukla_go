@@ -81,6 +81,24 @@ export async function sendTelegramMessage(chatId: number | string, text: string,
   }
 }
 
+export async function answerTelegramCallbackQuery(callbackQueryId: string, text?: string): Promise<boolean> {
+  const token = getBotToken();
+  if (!token) return false;
+  try {
+    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        callback_query_id: callbackQueryId,
+        text,
+      }),
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function notifyParcelStatusUpdate(
   telegramUserId: number,
   trackingNumber: string,
