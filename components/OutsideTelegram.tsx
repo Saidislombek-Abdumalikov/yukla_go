@@ -1,10 +1,6 @@
 import React from 'react';
 
-interface OutsideTelegramProps {
-  onAdminClick?: () => void;
-}
-
-const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onAdminClick }) => {
+const OutsideTelegram: React.FC = () => {
   return (
     <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6 text-center animate-fade-in select-none">
       <div className="w-full max-w-sm bg-white p-8 rounded-[36px] shadow-soft border border-gray-100 space-y-6">
@@ -32,23 +28,6 @@ const OutsideTelegram: React.FC<OutsideTelegramProps> = ({ onAdminClick }) => {
         </a>
       </div>
 
-      {/* Discreet admin entry point without exposing buttons or tokens */}
-      <div className="mt-8 text-center">
-        <button
-          type="button"
-          onClick={() => {
-            if (onAdminClick) {
-              onAdminClick();
-            } else {
-              window.location.hash = '#admin';
-            }
-          }}
-          className="text-[11px] text-gray-400/80 hover:text-gray-600 transition-colors p-2"
-          title="Admin"
-        >
-          🔒 Boshqaruv
-        </button>
-      </div>
     </div>
   );
 };

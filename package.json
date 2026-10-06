@@ -8,7 +8,7 @@
     "build:api": "esbuild api/_router.ts --bundle --platform=node --format=esm --target=node20 --outfile=api/index.js --packages=external",
     "build": "vite build && npm run build:api",
     "preview": "vite preview",
-    "test": "node --experimental-strip-types tests/security-check.ts && node --experimental-strip-types tests/e2e-workflow.test.ts && node --experimental-strip-types tests/bot-webhook.test.ts && node --experimental-strip-types tests/academy.test.ts && node --experimental-strip-types tests/api-router.test.ts",
+    "test": "node --env-file=tests/test.env --experimental-strip-types tests/security-check.ts && node --env-file=tests/test.env --experimental-strip-types tests/e2e-workflow.test.ts && node --env-file=tests/test.env --experimental-strip-types tests/bot-webhook.test.ts && node --env-file=tests/test.env --experimental-strip-types tests/academy.test.ts && node --env-file=tests/test.env --experimental-strip-types tests/api-router.test.ts",
     "bot:webhook": "node --env-file=.env --experimental-strip-types scripts/setup-webhook.ts",
     "bot:poll": "node --env-file=.env --experimental-strip-types scripts/bot-dev-poller.ts",
     "db:verify": "node --env-file=.env --experimental-strip-types scripts/verify-supabase.ts"

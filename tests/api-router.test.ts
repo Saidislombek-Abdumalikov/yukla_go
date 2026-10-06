@@ -75,13 +75,12 @@ async function runRouterTests() {
     console.log('  ✓ /api/config/rates routed and returned rates data');
   }
 
-  // Test 5: /api/academy/courses returns courses
+  // Test 5: /api/academy/courses requires a login
   {
     const { req, res } = createMockReqRes('/api/academy/courses');
     await handler(req, res);
-    assert.strictEqual(res.getStatus(), 200, 'Academy courses endpoint should return 200');
-    assert.ok(Array.isArray(res.getData()), 'Academy courses should return array');
-    console.log('  ✓ /api/academy/courses routed and returned courses list');
+    assert.strictEqual(res.getStatus(), 401, 'Academy courses endpoint must reject anonymous requests');
+    console.log('  ✓ /api/academy/courses routed and rejected anonymous request with 401');
   }
 
   // Test 6: /api/bot/webhook with GET returns 405 Method Not Allowed

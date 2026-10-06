@@ -19,7 +19,17 @@ export interface SessionPayload {
 /**
  * Verified Admin Telegram User IDs
  */
-export const ADMIN_TELEGRAM_IDS: number[] = [7232597769, 5059829001];
+const DEFAULT_ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
+
+function loadAdminIds(): number[] {
+  const fromEnv = (process.env.ADMIN_TELEGRAM_IDS || '')
+    .split(',')
+    .map(s => Number(s.trim()))
+    .filter(n => Number.isInteger(n) && n > 0);
+  return Array.from(new Set([...DEFAULT_ADMIN_TELEGRAM_IDS, ...fromEnv]));
+}
+
+export const ADMIN_TELEGRAM_IDS: number[] = loadAdminIds();
 
 /**
  * Check if a telegram user ID has admin rights
@@ -33,12 +43,12 @@ export function isTelegramAdmin(telegramUserId: number | string | undefined | nu
 /**
  * Validates Telegram Mini App initData using HMAC-SHA256 according to Telegram specifications.
  * @param initData Raw query string received from Telegram WebApp
- * @param maxAgeSeconds Maximum allowable age for auth_date (defaults to 10 minutes)
+ * @param maxAgeSeconds Maximum allowable age for auth_date (defaults to 24 hours)
  * @param tokenOverride Optional bot token override for testing
  */
 export function validateTelegramInitData(
   initData: string,
-  maxAgeSeconds = 86400 * 30,
+  maxAgeSeconds = 86400,
   tokenOverride?: string
 ): { valid: boolean; user?: TelegramUser; error?: string } {
   if (!initData) {
@@ -109,26 +119,41 @@ export function validateTelegramInitData(
 }
 
 /**
- * Creates a persistent JWT session for Mini App (defaults to 30 days).
+ * JWT signing secret. There is NO default: if it is missing or weak the server
+ * refuses to issue or accept sessions (fail closed).
  */
-export function createSessionToken(payload: SessionPayload, expiresIn: string | number = '30d'): string {
-  const secret = process.env.JWT_SECRET || 'yukla_go_dev_secret_replace_in_prod';
-  return jwt.sign(payload, secret, { expiresIn: expiresIn as any });
+function getJwtSecret(): string {
+  const secret = process.env.JWT_SECRET || '';
+  if (secret.length < 32) {
+    throw new Error('JWT_SECRET is missing or shorter than 32 characters');
+  }
+  return secret;
 }
 
 /**
- * Verifies Bearer session token from HTTP request header.
+ * Creates a signed JWT session (HS256).
+ */
+export function createSessionToken(payload: SessionPayload, expiresIn: string | number = '7d'): string {
+  return jwt.sign(payload, getJwtSecret(), { algorithm: 'HS256', expiresIn: expiresIn as any });
+}
+
+/**
+ * Verifies Bearer session token from HTTP request header. Returns null on any problem.
  */
 export function verifySessionToken(authHeader: string | undefined): SessionPayload | null {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return null;
   }
   const token = authHeader.substring(7).trim();
-  const secret = process.env.JWT_SECRET || 'yukla_go_dev_secret_replace_in_prod';
   try {
-    const decoded = jwt.verify(token, secret) as SessionPayload;
+    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ['HS256'] }) as SessionPayload;
+    if (!decoded || typeof decoded.telegramUserId !== 'number' || !decoded.userId) return null;
     return decoded;
-  } catch (err) {
+  } catch {
     return null;
   }
+}
+
+export function isAdminSession(session: SessionPayload | null): boolean {
+  return Boolean(session && (session.role === 'admin' || session.role === 'super_admin'));
 }

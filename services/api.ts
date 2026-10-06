@@ -76,72 +76,52 @@ function saveStoredParcels(parcels: Parcel[]) {
   }
 }
 
+/**
+ * The profile ONLY ever comes from the server (/api/auth/session and
+ * /api/user/me). The URL (?code=, ?name=) is deliberately ignored: any link
+ * can carry any text, so it must never decide whose account is shown.
+ */
 export function getStoredProfile(): UserProfile {
-  let stored: UserProfile | null = null;
   try {
     const raw = localStorage.getItem('yukla_profile');
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (parsed && parsed.customerCode) stored = parsed;
+      if (parsed && parsed.customerCode) return parsed;
     }
   } catch {
     // Ignore
   }
-
-  // Check URL params and Telegram WebApp environment
-  let urlCode: string | null = null;
-  let urlName: string | null = null;
-  let tgUser: any = null;
-
-  if (typeof window !== 'undefined') {
-    try {
-      const params = new URLSearchParams(window.location.search);
-      urlCode = params.get('code');
-      urlName = params.get('name');
-      tgUser = (window as any).Telegram?.WebApp?.initDataUnsafe?.user;
-    } catch {
-      // Ignore
-    }
-  }
-
-  // If a profile was already saved and is valid, return it (updating with URL params if explicitly passed)
-  if (stored) {
-    let modified = false;
-    if (urlCode && urlCode.toUpperCase() !== stored.customerCode.toUpperCase()) {
-      stored.customerCode = urlCode;
-      modified = true;
-    }
-    if (urlName && urlName !== stored.name) {
-      stored.name = urlName;
-      modified = true;
-    }
-    if (modified) {
-      saveStoredProfile(stored);
-    }
-    return stored;
-  }
-
-  // Initial derivation only when nothing exists in storage yet
-  let derivedName = urlName || (tgUser ? ([tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ') || tgUser.username || 'Mijoz') : 'Mijoz');
-  let derivedCode = urlCode || 'YK-001';
-  let telegramUserId = tgUser?.id || 0;
-
   return {
-    id: `usr_${telegramUserId || 'guest'}`,
-    telegramUserId,
-    customerCode: derivedCode,
-    name: derivedName,
+    id: '',
+    telegramUserId: 0,
+    customerCode: '',
+    name: '',
     phone: '',
-    phoneVerified: true,
+    phoneVerified: false,
     status: 'active',
-    ofertaAccepted: true,
-    defaultDeliveryBranch: {
-      provider: 'BTS',
-      branchName: 'BTS Chilonzor',
-      region: 'Toshkent',
-      address: 'Chilonzor 9-mavze, Qatortol 1',
-    },
+    ofertaAccepted: false,
   };
+}
+
+/** Role from the signed session token (UI hint only; the server re-checks every call). */
+export function getSessionRole(): string {
+  try {
+    const t = getSessionToken();
+    if (!t) return 'customer';
+    const payload = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+    return payload.role || 'customer';
+  } catch {
+    return 'customer';
+  }
+}
+
+function clearAccountCache() {
+  try {
+    localStorage.removeItem('yukla_profile');
+    localStorage.removeItem('yukla_parcels');
+  } catch {
+    // Ignore
+  }
 }
 
 export function saveStoredProfile(profile: UserProfile) {
@@ -179,6 +159,11 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     throw new Error('Serverdan noto\'g\'ri formatdagi javob keldi');
   }
 
+  if (response.status === 401 && endpoint !== '/api/auth/session') {
+    setSessionToken(null);
+    if (typeof window !== 'undefined') window.dispatchEvent(new Event('yukla-auth-expired'));
+  }
+
   if (!response.ok) {
     throw new Error(data.error || 'Serverda xatolik yuz berdi');
   }
@@ -192,79 +177,38 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
 export const api = {
   // 1. Authenticate with Telegram initData
   authWithTelegram: async (initData: string): Promise<{ token: string; user: any }> => {
-    try {
-      const res = await request<{ token: string; user: any }>('/api/auth/session', {
-        method: 'POST',
-        body: JSON.stringify({ initData }),
-      });
-      if (res.token) {
-        setSessionToken(res.token);
-      }
-      if (res.user) {
-        saveStoredProfile({
-          id: res.user.id || `usr_${res.user.telegramUserId}`,
-          telegramUserId: res.user.telegramUserId,
-          customerCode: res.user.customerCode,
-          name: res.user.name,
-          phone: res.user.phone || '',
-          phoneVerified: true,
-          status: res.user.status || 'active',
-          ofertaAccepted: true,
-          defaultDeliveryBranch: res.user.defaultDeliveryBranch || {
-            provider: 'BTS',
-            branchName: 'BTS Chilonzor',
-            region: 'Toshkent',
-            address: 'Chilonzor 9-mavze, Qatortol 1',
-          },
-        });
-      }
-      return res;
-    } catch (err: any) {
-      if (import.meta.env.DEV) {
-        const fallbackToken = 'dev-token-auto';
-        setSessionToken(fallbackToken);
-        return { token: fallbackToken, user: getStoredProfile() };
-      }
-      throw err;
-    }
-  },
-
-  // 1.1 Direct Admin Key Authentication
-  adminLogin: async (adminKey: string): Promise<{ token: string; user: any }> => {
     const res = await request<{ token: string; user: any }>('/api/auth/session', {
       method: 'POST',
-      body: JSON.stringify({ adminKey }),
+      body: JSON.stringify({ initData }),
     });
-    if (res.token) {
-      setSessionToken(res.token);
+
+    // A different Telegram account on this device must never see the previous one's data.
+    const previous = getStoredProfile();
+    if (previous.telegramUserId && previous.telegramUserId !== res.user?.telegramUserId) {
+      clearAccountCache();
     }
-    if (res.user) {
-      saveStoredProfile({
-        id: res.user.id,
-        telegramUserId: res.user.telegramUserId,
-        customerCode: res.user.customerCode,
-        name: res.user.name,
-        phone: '',
-        phoneVerified: true,
-        status: 'active',
-        ofertaAccepted: true,
-      });
-    }
+
+    setSessionToken(res.token);
+    saveStoredProfile({
+      id: res.user.id,
+      telegramUserId: res.user.telegramUserId,
+      customerCode: res.user.customerCode,
+      name: res.user.name,
+      phone: res.user.phone || '',
+      phoneVerified: true,
+      status: res.user.status || 'active',
+      ofertaAccepted: true,
+      defaultDeliveryBranch: res.user.defaultDeliveryBranch || previous.defaultDeliveryBranch,
+    });
     return res;
   },
 
   // 2. User profile
   getProfile: async (): Promise<UserProfile> => {
-    try {
-      const profile = await request<UserProfile>('/api/user/me');
-      if (profile && profile.customerCode) {
-        saveStoredProfile(profile);
-        return profile;
-      }
-      return getStoredProfile();
-    } catch {
-      return getStoredProfile();
-    }
+    const profile = await request<UserProfile>('/api/user/me');
+    if (!profile || !profile.customerCode) throw new Error('Profil topilmadi');
+    saveStoredProfile(profile);
+    return profile;
   },
 
   // 3. Submit location change request

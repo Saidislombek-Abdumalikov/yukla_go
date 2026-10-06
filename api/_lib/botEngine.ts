@@ -1,4 +1,5 @@
 import { getSupabase } from './supabase.ts';
+import { ADMIN_TELEGRAM_IDS as AUTH_ADMIN_IDS } from './auth.ts';
 import { STATUS_MESSAGES, sendTelegramMessage } from './botNotifications.ts';
 import { ALL_BRANCHES, REGIONS_LIST, getBranches, getRegionsForProvider, findBranchById } from './branchesData.ts';
 import { getOfertaText } from './ofertaData.ts';
@@ -64,7 +65,7 @@ export function getInMemoryBotUsers(): BotUser[] {
   return Array.from(inMemoryUsers.values());
 }
 
-export const ADMIN_TELEGRAM_IDS: number[] = [7232597769, 5059829001];
+export const ADMIN_TELEGRAM_IDS: number[] = AUTH_ADMIN_IDS;
 
 export const getAdminInlineKeyboard = () => {
   return {

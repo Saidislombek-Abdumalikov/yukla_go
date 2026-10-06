@@ -10,27 +10,17 @@ interface AdminDashboardProps {
 type AdminTab = 'PARCELS' | 'COURSES' | 'WAREHOUSE' | 'SETTINGS' | 'USERS' | 'STATS';
 
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-    return Boolean(getSessionToken());
-  });
-  const [adminKeyInput, setAdminKeyInput] = useState('');
-  const [adminAuthLoading, setAdminAuthLoading] = useState(false);
-  const [adminAuthError, setAdminAuthError] = useState<string | null>(null);
-
-  const handleAdminLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!adminKeyInput.trim()) return;
-    setAdminAuthLoading(true);
-    setAdminAuthError(null);
+  // UI convenience only: the server re-checks the admin role on EVERY request.
+  const isAdminAuthenticated = (() => {
     try {
-      await api.adminLogin(adminKeyInput.trim());
-      setIsAdminAuthenticated(true);
-    } catch (err: any) {
-      setAdminAuthError(err.message || 'Noto\'g\'ri admin kaliti');
-    } finally {
-      setAdminAuthLoading(false);
+      const token = getSessionToken();
+      if (!token) return false;
+      const payload = JSON.parse(atob(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/')));
+      return payload.role === 'admin' || payload.role === 'super_admin';
+    } catch {
+      return false;
     }
-  };
+  })();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('PARCELS');
   const [stats, setStats] = useState<any>(null);
@@ -601,35 +591,15 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
           </div>
           <div className="space-y-1">
             <h2 className="text-xl font-black text-gray-900">Yukla Go Admin</h2>
-            <p className="text-xs text-gray-500">Boshqaruv paneliga kirish uchun parolni kiriting</p>
+            <p className="text-xs text-gray-500">Bu bo'lim faqat tasdiqlangan administrator Telegram akkauntlari uchun</p>
           </div>
-          <form onSubmit={handleAdminLogin} className="space-y-4">
-            <input
-              type="password"
-              placeholder="Admin kaliti yoki paroli"
-              value={adminKeyInput}
-              onChange={(e) => setAdminKeyInput(e.target.value)}
-              className="w-full px-4 py-3.5 bg-gray-50 border border-gray-200 rounded-2xl text-sm font-semibold text-gray-900 focus:outline-none focus:border-primary focus:bg-white transition-all text-center tracking-wider"
-              autoFocus
-            />
-            {adminAuthError && (
-              <p className="text-xs text-red-500 font-medium">{adminAuthError}</p>
-            )}
-            <button
-              type="submit"
-              disabled={adminAuthLoading || !adminKeyInput.trim()}
-              className="w-full py-3.5 px-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold text-xs uppercase tracking-wider shadow-lg transition-all disabled:opacity-50 active:scale-95 flex items-center justify-center gap-2"
-            >
-              {adminAuthLoading ? 'Tekshirilmoqda...' : 'Kirish'}
-            </button>
-            <button
-              type="button"
-              onClick={onBack}
-              className="w-full py-2.5 text-xs text-gray-400 hover:text-gray-600 transition-colors"
-            >
-              Ortga qaytish
-            </button>
-          </form>
+          <button
+            type="button"
+            onClick={onBack}
+            className="w-full py-3.5 px-4 bg-gray-900 hover:bg-black text-white rounded-2xl font-bold text-xs uppercase tracking-wider shadow-lg transition-all active:scale-95"
+          >
+            Ortga qaytish
+          </button>
         </div>
       </div>
     );
@@ -664,7 +634,7 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ onBack }) => {
             <button
               onClick={() => {
                 setSessionToken(null);
-                setIsAdminAuthenticated(false);
+                onBack();
               }}
               className="text-xs font-bold text-red-500 hover:text-red-700 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded-xl border border-red-200 transition-colors"
               title="Admin sessiyasini tugatish"

@@ -1,18 +1,21 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-
 let clientInstance: SupabaseClient | null = null;
+let override: any = null;
+
+/** Test hook: inject a fake client (pass null to remove). */
+export const setSupabaseForTests = (client: any | null) => {
+  override = client;
+};
 
 export const getSupabase = (): SupabaseClient | null => {
+  if (override) return override as SupabaseClient;
   if (clientInstance) return clientInstance;
-  if (supabaseUrl && supabaseServiceKey) {
-    clientInstance = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-      },
+  const url = process.env.SUPABASE_URL || '';
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+  if (url && key) {
+    clientInstance = createClient(url, key, {
+      auth: { persistSession: false, autoRefreshToken: false },
     });
     return clientInstance;
   }

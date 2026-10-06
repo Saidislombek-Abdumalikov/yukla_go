@@ -14,21 +14,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
   const supabase = getSupabase();
   if (!supabase) {
-    // Development fallback
-    return res.status(200).json({
-      id: session.userId,
-      telegramUserId: session.telegramUserId,
-      customerCode: session.customerCode || 'YK-001',
-      name: session.role === 'super_admin' ? 'Administrator' : 'Foydalanuvchi',
-      phone: '',
-      status: 'active',
-      defaultDeliveryBranch: {
-        provider: 'BTS',
-        branchName: 'BTS Chilonzor',
-        region: 'Toshkent',
-        address: 'Chilonzor 9-mavze, Qatortol ko\'chasi 1',
-      },
-    });
+    return res.status(503).json({ error: 'Server sozlanmagan (ma\'lumotlar bazasi yo\'q)' });
   }
 
   try {
@@ -64,21 +50,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const { data: user } = await query.maybeSingle();
 
     if (!user) {
-      // Gracefully return session profile instead of error
-      return res.status(200).json({
-        id: session.userId,
-        telegramUserId: session.telegramUserId,
-        customerCode: session.customerCode || 'YK-001',
-        name: session.role === 'super_admin' ? 'Administrator' : 'Foydalanuvchi',
-        phone: '',
-        status: 'active',
-        defaultDeliveryBranch: {
-          provider: 'BTS',
-          branchName: 'BTS Chilonzor',
-          region: 'Toshkent',
-          address: 'Chilonzor 9-mavze, Qatortol ko\'chasi 1',
-        },
-      });
+      return res.status(401).json({ error: 'Foydalanuvchi topilmadi, qayta kiring' });
     }
 
     if (user.status === 'blocked') {
@@ -95,13 +67,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       defaultDeliveryBranch: user.default_delivery_branch,
     });
   } catch (err) {
-    return res.status(200).json({
-      id: session.userId,
-      telegramUserId: session.telegramUserId,
-      customerCode: session.customerCode || 'YK-001',
-      name: session.role === 'super_admin' ? 'Administrator' : 'Foydalanuvchi',
-      phone: '',
-      status: 'active',
-    });
+    console.error('user/me error:', err);
+    return res.status(500).json({ error: 'Serverda xatolik yuz berdi' });
   }
 }

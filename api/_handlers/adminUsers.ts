@@ -2,7 +2,6 @@ import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { verifySessionToken, ADMIN_TELEGRAM_IDS } from '../_lib/auth.ts';
 import { getSupabase } from '../_lib/supabase.ts';
 import { wipeBotUser } from '../_lib/botEngine.ts';
-import { wipeAcademyUser } from '../_lib/academyData.ts';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
   const session = verifySessionToken(req.headers.authorization);
@@ -132,9 +131,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     if (customerCode) wipeBotUser(customerCode);
     if (userId) wipeBotUser(userId);
 
-    if (userId) wipeAcademyUser(userId);
-    if (customerCode) wipeAcademyUser(customerCode);
-
     // B. Wipe from Supabase if connected
     if (supabase) {
       try {
@@ -162,8 +158,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           await supabase.from('parcels').delete().eq('user_id', effectiveUserId);
           await supabase.from('location_requests').delete().eq('user_id', effectiveUserId);
           await supabase.from('oferta_acceptances').delete().eq('user_id', effectiveUserId);
-          await supabase.from('academy_progress').delete().eq('user_id', effectiveUserId);
-          await supabase.from('academy_access').delete().eq('user_id', effectiveUserId);
+          // academy progress/access rows are removed automatically (ON DELETE CASCADE)
           await supabase.from('users').delete().eq('id', effectiveUserId);
         }
 

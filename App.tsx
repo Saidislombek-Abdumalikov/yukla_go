@@ -11,7 +11,7 @@ import AcademyApp from './components/academy/AcademyApp';
 import { Tab } from './types';
 import { api } from './services/api';
 
-const ADMIN_TELEGRAM_IDS = [7232597769, 5059829001];
+type Phase = 'loading' | 'ready' | 'error' | 'outside';
 
 function App() {
   const [activeTab, setActiveTab] = useState<Tab>(Tab.HOME);
@@ -20,124 +20,77 @@ function App() {
   const [isCargoMode, setIsCargoMode] = useState(false);
   const [isAdminPreview, setIsAdminPreview] = useState(false);
 
-  // Check if current user is an authorized admin
-  const currentTgId = window.Telegram?.WebApp?.initDataUnsafe?.user?.id;
-  const isDev = import.meta.env.DEV || window.location.hostname === 'localhost' || window.location.hostname.includes('ngrok');
-  const isAdminUser = Boolean(
-    (currentTgId && ADMIN_TELEGRAM_IDS.includes(Number(currentTgId))) ||
-    (isDev && (window.location.search.includes('admin=true') || window.location.hash === '#admin'))
-  );
-
-  // Authentication & environment states
-  const [isTelegramEnv, setIsTelegramEnv] = useState<boolean>(true);
-  const [authLoading, setAuthLoading] = useState<boolean>(true);
+  // Who is using the app is decided by the SERVER from Telegram's signed data. Nothing else.
+  const [phase, setPhase] = useState<Phase>('loading');
   const [authError, setAuthError] = useState<string | null>(null);
+  const [role, setRole] = useState<string>('customer');
+  const [attempt, setAttempt] = useState(0);
+  const isAdminUser = role === 'admin' || role === 'super_admin';
 
+  // Telegram setup + login. Every button in the bot opens the same app, and every
+  // open signs in again from Telegram's initData, so all buttons give the same account.
   useEffect(() => {
     const tg = window.Telegram?.WebApp;
     if (tg && typeof tg.ready === 'function') {
       tg.ready();
       tg.expand();
+      try { tg.enableClosingConfirmation(); } catch (e) { /* ignored */ }
       try {
-        tg.enableClosingConfirmation();
-      } catch (e) {
-        // Ignored
-      }
-      try {
-        // Telegram Bot API 7.7+: Disables pull-down-to-close gesture during scrolling
-        if (typeof (tg as any).disableVerticalSwipes === 'function') {
-          (tg as any).disableVerticalSwipes();
-        }
-      } catch (e) {
-        // Ignored
-      }
+        if (typeof (tg as any).disableVerticalSwipes === 'function') (tg as any).disableVerticalSwipes();
+      } catch (e) { /* ignored */ }
     }
 
     const initData = tg?.initData;
-    const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const isTunnel = window.location.hostname.includes('ngrok') || window.location.hostname.includes('loca.lt');
-    const isDevEnv = import.meta.env.DEV || isLocalhost || isTunnel || window.location.search.includes('preview=true') || window.location.search.includes('dev=true');
-
-    if (!initData && !isDevEnv) {
-      setIsTelegramEnv(false);
-      setAuthLoading(false);
+    if (!initData) {
+      setPhase('outside');
       return;
     }
 
-    // Attempt authentication if initData is present
-    if (initData) {
-      api.authWithTelegram(initData)
-        .then(() => api.getProfile())
-        .then(() => {
-          setAuthLoading(false);
-        })
-        .catch((err) => {
-          console.warn('Auth issue:', err.message);
-          api.getProfile().finally(() => {
-            setAuthLoading(false);
-          });
-        });
-    } else {
-      // Dev / Preview mode: preload profile
-      api.getProfile().finally(() => {
-        setAuthLoading(false);
+    let cancelled = false;
+    setPhase('loading');
+    setAuthError(null);
+    api.authWithTelegram(initData)
+      .then((res) => {
+        if (cancelled) return;
+        setRole(res.user?.role || 'customer');
+        setPhase('ready');
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAuthError(err?.message || 'Kirishda xatolik yuz berdi');
+        setPhase('error');
       });
-    }
+    return () => { cancelled = true; };
+  }, [attempt]);
 
-    // Check URL parameters and hash for specific apps
+  // Session expired mid-use -> sign in again automatically
+  useEffect(() => {
+    const onExpired = () => setAttempt(a => a + 1);
+    window.addEventListener('yukla-auth-expired', onExpired);
+    return () => window.removeEventListener('yukla-auth-expired', onExpired);
+  }, []);
+
+  // Link modes (#admin, app=cargo)
+  useEffect(() => {
     const checkModes = () => {
-      const search = window.location.search;
-      const hash = window.location.hash;
-
-      if (hash === '#admin' || search.includes('admin=true')) {
-        setIsAdminPreview(true);
-      } else {
-        setIsAdminPreview(false);
-      }
-
-      if (search.includes('app=cargo') || hash === '#cargo') {
-        setIsCargoMode(true);
-      } else {
-        setIsCargoMode(false);
-      }
+      setIsAdminPreview(window.location.hash === '#admin');
+      setIsCargoMode(window.location.search.includes('app=cargo') || window.location.hash === '#cargo');
     };
-
     checkModes();
     window.addEventListener('hashchange', checkModes);
     return () => window.removeEventListener('hashchange', checkModes);
-  }, [isAdminUser]);
+  }, []);
 
   const handleTrackAdded = () => {
     setRefreshKey(prev => prev + 1);
     setActiveTab(Tab.MY_PARCELS);
   };
 
-  // 1. Admin Mode (Protected by secure passkey & server-side role validation)
-  if (isAdminPreview) {
-    return (
-      <AdminDashboard 
-        onBack={() => {
-          setIsAdminPreview(false);
-          window.location.hash = '';
-        }} 
-      />
-    );
+  if (phase === 'outside') {
+    return <OutsideTelegram />;
   }
 
-  // 2. If opened directly outside Telegram in a browser
-  if (!isTelegramEnv) {
-    return (
-      <OutsideTelegram 
-        onAdminClick={() => {
-          setIsAdminPreview(true);
-          window.location.hash = '#admin';
-        }} 
-      />
-    );
-  }
-
-  // Loading state
-  if (authLoading) {
+  if (phase === 'loading') {
     return (
       <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6">
         <div className="animate-spin h-8 w-8 border-3 border-primary border-t-transparent rounded-full mb-3"></div>
@@ -146,32 +99,33 @@ function App() {
     );
   }
 
-  // Auth Error (e.g. Needs onboarding or blocked)
-  if (authError) {
+  if (phase === 'error') {
     return (
       <div className="min-h-screen bg-[#F5F7FA] flex flex-col items-center justify-center p-6 text-center">
         <div className="w-full max-w-sm bg-white p-6 rounded-3xl shadow-soft space-y-4">
           <span className="text-3xl block">⚠️</span>
-          <h3 className="font-black text-gray-900 text-base">Diqqat</h3>
+          <h3 className="font-black text-gray-900 text-base">Kirib bo'lmadi</h3>
           <p className="text-xs text-gray-500 leading-relaxed">{authError}</p>
-          <div className="space-y-2">
-            <a
-              href="https://t.me/yuklakargobot"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20"
-            >
-              Telegram botga o'tish
-            </a>
-            <button
-              onClick={() => setAuthError(null)}
-              className="block w-full py-2 bg-gray-50 hover:bg-gray-100 text-gray-600 rounded-xl text-xs font-medium"
-            >
-              Ko'rish rejimida davom etish
-            </button>
-          </div>
+          <button
+            onClick={() => setAttempt(a => a + 1)}
+            className="block w-full py-3 bg-primary text-white rounded-xl text-xs font-bold shadow-md shadow-primary/20"
+          >
+            Qayta urinish
+          </button>
         </div>
       </div>
+    );
+  }
+
+  // Admin dashboard: only when the SERVER says this Telegram account is an admin.
+  if (isAdminPreview && isAdminUser) {
+    return (
+      <AdminDashboard
+        onBack={() => {
+          setIsAdminPreview(false);
+          window.location.hash = '';
+        }}
+      />
     );
   }
 
