@@ -26097,20 +26097,19 @@ function shouldShowDeprecationWarning() {
 if (shouldShowDeprecationWarning()) console.warn("\u26A0\uFE0F  Node.js 20 and below are deprecated and will no longer be supported in future versions of @supabase/supabase-js. Please upgrade to Node.js 22 or later. For more information, visit: https://github.com/orgs/supabase/discussions/45715");
 
 // api/_lib/supabase.ts
+var DEFAULT_SUPABASE_URL = "https://dajlwaqoqcnwrrhyvmtw.supabase.co";
+var DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhamx3YXFvcWNud3JyaHl2bXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTIwOTk4NSwiZXhwIjoyMTA2Nzg1OTg1fQ.12KfEAK7aU17B2bidfcxeag8P0yLlKJq8QAhoq5mhAs";
 var clientInstance = null;
 var override = null;
 var getSupabase = () => {
   if (override) return override;
   if (clientInstance) return clientInstance;
-  const url2 = process.env.SUPABASE_URL || "";
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
-  if (url2 && key) {
-    clientInstance = createClient(url2, key, {
-      auth: { persistSession: false, autoRefreshToken: false }
-    });
-    return clientInstance;
-  }
-  return null;
+  const url2 = process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SUPABASE_KEY;
+  clientInstance = createClient(url2, key, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  });
+  return clientInstance;
 };
 
 // api/_lib/academyStore.ts
@@ -26608,7 +26607,7 @@ function getBotToken() {
     }
   } catch {
   }
-  return "";
+  return "8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo";
 }
 var STATUS_MESSAGES = {
   added: {
@@ -47625,121 +47624,137 @@ function formatDuration(seconds) {
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 async function handler13(req, res) {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
-  if (req.method === "OPTIONS") {
-    return res.status(200).end();
-  }
-  const supabase = getSupabase();
-  let courses = [];
-  let lessons = [];
-  let users = [];
-  let settings = {
-    adminPassword: "admin",
-    defaultCompletionPercent: 95,
-    autoSaveProgress: true,
-    sequentialLessons: true,
-    dynamicWatermark: true,
-    watermarkFormat: "id-brand"
-  };
-  if (supabase) {
-    try {
-      const { data: dbCourses } = await supabase.from("academy_courses").select("*").order("order", { ascending: true });
-      if (dbCourses) {
-        courses = dbCourses.map((c) => ({
-          id: c.id,
-          title: c.title,
-          description: c.description || "",
-          lessons: 0,
-          users: 0,
-          completion: 0,
-          status: c.active ? "Faol" : "Qoralama",
-          updated: "Bugun",
-          tone: c.icon || "blue"
-        }));
-      }
-      const { data: dbLessons } = await supabase.from("academy_lessons").select("*").order("order", { ascending: true });
-      if (dbLessons) {
-        lessons = dbLessons.map((l) => {
-          let videoUrl = l.youtube_video_id || "";
-          let videoFormat = "auto";
-          let thumbnailUrl = "";
-          try {
-            if (videoUrl.startsWith("{")) {
-              const parsed = JSON.parse(videoUrl);
-              videoUrl = parsed.url || "";
-              videoFormat = parsed.format || "auto";
-              thumbnailUrl = parsed.thumb || "";
-            }
-          } catch {
-          }
-          if (/^[a-zA-Z0-9_-]{11}$/.test(videoUrl)) {
-            videoUrl = `https://youtu.be/${videoUrl}`;
-          }
-          return {
-            id: l.id,
-            courseId: l.course_id,
-            title: l.title,
-            description: l.description || "",
-            duration: formatDuration(l.duration_seconds || 600),
-            durationSeconds: l.duration_seconds || 600,
-            videoUrl,
-            videoFormat,
-            status: "Faol",
-            thumbnailUrl,
-            color: "lesson-blue",
-            viewers: 0,
-            completion: 0
-          };
-        });
-        courses = courses.map((c) => {
-          const count = lessons.filter((l) => String(l.courseId) === String(c.id)).length;
-          return { ...c, lessons: count };
-        });
-      }
-      const { data: dbUsers } = await supabase.from("users").select("*").order("created_at", { ascending: false });
-      if (dbUsers) {
-        const { data: dbAccess } = await supabase.from("academy_access").select("*");
-        const accessMap = {};
-        if (dbAccess) {
-          for (const a of dbAccess) {
-            if (!accessMap[a.user_id]) accessMap[a.user_id] = {};
-            accessMap[a.user_id][a.course_id] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
-          }
-        }
-        users = dbUsers.map((u) => {
-          const initials = (u.name || "U").trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "YG";
-          const userCourseAccess = accessMap[u.id] || {};
-          courses.forEach((c) => {
-            if (!userCourseAccess[c.id]) {
-              userCourseAccess[c.id] = "Faol";
-            }
-          });
-          return {
-            id: u.customer_code || u.id,
-            name: u.name || "Hurmatli talaba",
-            initials,
-            phone: u.phone || "",
-            access: u.status === "blocked" ? "To\u2018xtatilgan" : "Faol",
-            coursesAccess: userCourseAccess,
-            progress: 0,
-            done: "0 / " + lessons.length,
-            activity: "Hozirgina"
-          };
-        });
-      }
-    } catch (err) {
-      console.error("Error fetching Supabase state:", err);
+  try {
+    if (res.setHeader) {
+      res.setHeader("Access-Control-Allow-Origin", "*");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     }
+    if (req.method === "OPTIONS") {
+      return res.status ? res.status(200).end() : res.end();
+    }
+    const supabase = getSupabase();
+    let courses = [];
+    let lessons = [];
+    let users = [];
+    let settings = {
+      adminPassword: "admin",
+      defaultCompletionPercent: 95,
+      autoSaveProgress: true,
+      sequentialLessons: true,
+      dynamicWatermark: true,
+      watermarkFormat: "id-brand"
+    };
+    if (supabase) {
+      try {
+        const { data: dbCourses } = await supabase.from("academy_courses").select("*").order("order", { ascending: true });
+        if (dbCourses && Array.isArray(dbCourses)) {
+          courses = dbCourses.map((c) => ({
+            id: c.id,
+            title: c.title,
+            description: c.description || "",
+            lessons: 0,
+            users: 0,
+            completion: 0,
+            status: c.active ? "Faol" : "Qoralama",
+            updated: "Bugun",
+            tone: c.icon || "blue"
+          }));
+        }
+        const { data: dbLessons } = await supabase.from("academy_lessons").select("*").order("order", { ascending: true });
+        if (dbLessons && Array.isArray(dbLessons)) {
+          lessons = dbLessons.map((l) => {
+            let videoUrl = l.youtube_video_id || "";
+            let videoFormat = "auto";
+            let thumbnailUrl = "";
+            try {
+              if (videoUrl.startsWith("{")) {
+                const parsed = JSON.parse(videoUrl);
+                videoUrl = parsed.url || "";
+                videoFormat = parsed.format || "auto";
+                thumbnailUrl = parsed.thumb || "";
+              }
+            } catch {
+            }
+            if (/^[a-zA-Z0-9_-]{11}$/.test(videoUrl)) {
+              videoUrl = `https://youtu.be/${videoUrl}`;
+            }
+            return {
+              id: l.id,
+              courseId: l.course_id,
+              title: l.title,
+              description: l.description || "",
+              duration: formatDuration(l.duration_seconds || 600),
+              durationSeconds: l.duration_seconds || 600,
+              videoUrl,
+              videoFormat,
+              status: "Faol",
+              thumbnailUrl,
+              color: "lesson-blue",
+              viewers: 0,
+              completion: 0
+            };
+          });
+          courses = courses.map((c) => {
+            const count = lessons.filter((l) => String(l.courseId) === String(c.id)).length;
+            return { ...c, lessons: count };
+          });
+        }
+        const { data: dbUsers } = await supabase.from("users").select("*").order("created_at", { ascending: false });
+        if (dbUsers && Array.isArray(dbUsers)) {
+          const { data: dbAccess } = await supabase.from("academy_access").select("*");
+          const accessMap = {};
+          if (dbAccess) {
+            for (const a of dbAccess) {
+              if (!accessMap[a.user_id]) accessMap[a.user_id] = {};
+              accessMap[a.user_id][a.course_id] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
+            }
+          }
+          users = dbUsers.map((u) => {
+            const initials = (u.name || "U").trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "YG";
+            const userCourseAccess = accessMap[u.id] || {};
+            courses.forEach((c) => {
+              if (!userCourseAccess[c.id]) {
+                userCourseAccess[c.id] = "Faol";
+              }
+            });
+            return {
+              id: u.customer_code || u.id,
+              name: u.name || "Hurmatli talaba",
+              initials,
+              phone: u.phone || "",
+              access: u.status === "blocked" ? "To\u2018xtatilgan" : "Faol",
+              coursesAccess: userCourseAccess,
+              progress: 0,
+              done: "0 / " + lessons.length,
+              activity: "Hozirgina"
+            };
+          });
+        }
+      } catch (err) {
+        console.error("Supabase state query error:", err);
+      }
+    }
+    const payload = {
+      courses,
+      lessons,
+      users,
+      settings,
+      progress: {}
+    };
+    if (typeof res.json === "function") {
+      return res.status(200).json(payload);
+    }
+    res.writeHead(200, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify(payload));
+  } catch (error62) {
+    console.error("State handler critical error:", error62);
+    if (typeof res.json === "function") {
+      return res.status(500).json({ error: error62?.message || "Server error" });
+    }
+    res.writeHead(500, { "Content-Type": "application/json" });
+    return res.end(JSON.stringify({ error: error62?.message || "Server error" }));
   }
-  return res.status(200).json({
-    courses,
-    lessons,
-    users,
-    settings,
-    progress: {}
-  });
 }
 
 // api/_handlers/user.ts
