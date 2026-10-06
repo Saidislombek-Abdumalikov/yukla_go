@@ -387,21 +387,56 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // 4. Get User By Token or ID (User App link entry)
+  // 4. Get User By Token, tg_id, or ID (User App link entry)
   if (pathname === "/api/user" && req.method === "GET") {
     const token = url.searchParams.get("token");
     const userId = url.searchParams.get("u") || url.searchParams.get("id");
     const code = url.searchParams.get("code");
+    const tgId = url.searchParams.get("tg_id");
 
-    const user = db.users.find(
+    let user = db.users.find(
       (u) =>
+        (tgId && (String(u.telegramId) === String(tgId) || String(u.telegram_user_id) === String(tgId))) ||
         (token && u.token === token) ||
         (userId && u.id.toLowerCase() === userId.toLowerCase()) ||
         (code && u.id.toLowerCase() === code.toLowerCase())
     );
 
+    // If not found in local db, try Supabase if connected
+    if (!user && supabase && tgId) {
+      try {
+        const { data: supaUser } = await supabase
+          .from("users")
+          .select("*")
+          .eq("telegram_user_id", Number(tgId))
+          .maybeSingle();
+        if (supaUser && supaUser.onboarding_completed) {
+          const initials = (supaUser.name || "U")
+            .trim()
+            .split(" ")
+            .map((w) => w[0])
+            .join("")
+            .toUpperCase()
+            .slice(0, 2) || "YG";
+          user = {
+            id: supaUser.customer_code || supaUser.id,
+            name: supaUser.name || "Talaba",
+            initials,
+            phone: supaUser.phone || "",
+            access: supaUser.status === "blocked" ? "To‘xtatilgan" : "Faol",
+            coursesAccess: { 1: "Faol", 2: "Faol" },
+            progress: 0,
+            done: "0 / 8",
+            activity: "Hozirgina",
+          };
+        }
+      } catch (err) {
+        console.warn("Supabase user fetch fallback error:", err.message);
+      }
+    }
+
     if (!user) {
-      return sendJson(res, 404, { success: false, error: "Foydalanuvchi topilmadi" });
+      return sendJson(res, 404, { success: false, notRegistered: true, error: "Foydalanuvchi topilmadi" });
     }
 
     return sendJson(res, 200, { success: true, user });

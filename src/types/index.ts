@@ -6,7 +6,7 @@ export interface UserProfile {
   name: string;
   initials: string;
   phone: string;
-  coursesAccess?: Record<number, "Faol" | "To‘xtatilgan">;
+  coursesAccess?: Record<string | number, UserAccessStatus>;
   course?: string;
   courseId?: number;
   access: UserAccessStatus;

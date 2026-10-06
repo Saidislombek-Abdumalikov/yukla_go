@@ -187,16 +187,53 @@ export const store = {
     }
   },
 
-  async loadUserFromUrlOrStorage(): Promise<UserProfile | null> {
-    if (typeof window === "undefined") return null;
+  async loadUserFromUrlOrStorage(): Promise<{ user: UserProfile | null; error?: "browser_not_allowed" | "not_registered" | "blocked" | "network" }> {
+    if (typeof window === "undefined") return { user: null };
+
+    const isLocalhost =
+      window.location.hostname === "localhost" ||
+      window.location.hostname === "127.0.0.1";
+
+    const tg = (window as any).Telegram?.WebApp;
+    if (tg) {
+      try {
+        tg.ready();
+        tg.expand();
+      } catch {}
+    }
+
+    const tgUser = tg?.initDataUnsafe?.user;
+    const tgUserId = tgUser?.id;
 
     const urlParams = new URLSearchParams(window.location.search);
     const token = urlParams.get("token");
     const userId = urlParams.get("u") || urlParams.get("id");
     const code = urlParams.get("code");
-    const name = urlParams.get("name");
-    const phone = urlParams.get("phone");
 
+    // 1. If inside Telegram Mini App with detected Telegram User ID
+    if (tgUserId) {
+      try {
+        const baseUrl = !isLocalhost ? "" : API_BASE;
+        const res = await fetch(`${baseUrl}/api/user?tg_id=${encodeURIComponent(tgUserId)}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.user) {
+            this.setAuthUser(data.user);
+            return { user: data.user };
+          }
+        } else if (res.status === 404) {
+          this.setAuthUser(null);
+          return { user: null, error: "not_registered" };
+        } else if (res.status === 403) {
+          this.setAuthUser(null);
+          return { user: null, error: "blocked" };
+        }
+      } catch (err) {
+        console.warn("Could not verify Telegram user:", err);
+      }
+    }
+
+    // 2. If token/code/u provided in URL (fallback / link entry)
     if (token || userId || code) {
       try {
         const query = token
@@ -204,44 +241,50 @@ export const store = {
           : code
             ? `code=${encodeURIComponent(code)}`
             : `u=${encodeURIComponent(userId!)}`;
-        const baseUrl = typeof window !== "undefined" && window.location.hostname !== "localhost" ? "" : API_BASE;
+        const baseUrl = !isLocalhost ? "" : API_BASE;
         const res = await fetch(`${baseUrl}/api/user?${query}`);
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.user) {
             this.setAuthUser(data.user);
-            return data.user;
+            return { user: data.user };
           }
+        } else if (res.status === 404) {
+          this.setAuthUser(null);
+          return { user: null, error: "not_registered" };
+        } else if (res.status === 403) {
+          this.setAuthUser(null);
+          return { user: null, error: "blocked" };
         }
       } catch (err) {
-        console.warn("Could not fetch user from API, falling back to URL params:", err);
+        console.warn("Could not fetch user from API:", err);
       }
-
-      // Fallback: If URL has code or user identity from bot link, authenticate directly!
-      const userCode = code || userId || "YK-100";
-      const userName = name ? decodeURIComponent(name) : "Hurmatli talaba";
-      const initials = userName
-        .trim()
-        .split(" ")
-        .map((w) => w[0])
-        .join("")
-        .toUpperCase()
-        .slice(0, 2) || "YG";
-
-      const fallbackUser: UserProfile = {
-        id: userCode,
-        name: userName,
-        phone: phone ? decodeURIComponent(phone) : "",
-        access: "Faol",
-        coursesAccess: { 1: "Faol", 2: "Faol" },
-        initials,
-      };
-      this.setAuthUser(fallbackUser);
-      return fallbackUser;
     }
 
-    // Return stored user
-    return this.getAuthUser();
+    // 3. Localhost Development Mode (for local development on PC)
+    if (isLocalhost) {
+      const stored = this.getAuthUser();
+      if (stored) return { user: stored };
+
+      const devUser: UserProfile = {
+        id: "DEV-100",
+        name: "Lokal Talaba",
+        initials: "LT",
+        phone: "+998901234567",
+        access: "Faol",
+        coursesAccess: { 1: "Faol", 2: "Faol" },
+        progress: 0,
+        done: "0 / 8",
+        activity: "Hozirgina",
+      };
+      this.setAuthUser(devUser);
+      return { user: devUser };
+    }
+
+    // 4. In Production on Web Browser (Outside Telegram Mini App):
+    // Strictly reject standalone browser entry! Clear any saved session!
+    this.setAuthUser(null);
+    return { user: null, error: "browser_not_allowed" };
   },
 
   logout(): void {

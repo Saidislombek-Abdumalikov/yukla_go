@@ -189,7 +189,6 @@ async function processTelegramUpdate(update) {
         }, "30d");
       } catch {
       }
-      const personalLink = `${MINI_APP_URL2}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
       await sendTelegramMessage(
         chatId,
         `\u{1F44B} <b>Assalomu alaykum, ${existingUser2.name || from.first_name}!</b>
@@ -205,7 +204,7 @@ Darslarni davom ettirish uchun quyidagi tugmani bosing:`,
             [
               {
                 text: "\u{1F680} Darslarni boshlash",
-                web_app: { url: personalLink }
+                web_app: { url: MINI_APP_URL2 }
               }
             ]
           ]
@@ -293,7 +292,6 @@ Endi <b>telefon raqamingizni</b> yozib yuboring:
       }, "30d");
     } catch {
     }
-    const personalLink = `${MINI_APP_URL2}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(existingUser.id)}&token=${encodeURIComponent(token)}`;
     await sendTelegramMessage(
       chatId,
       `Siz ro\u2018yxatdan o\u2018tgansiz. Darslarga kirish uchun quyidagi tugmani bosing:`,
@@ -302,7 +300,7 @@ Endi <b>telefon raqamingizni</b> yozib yuboring:
           [
             {
               text: "\u{1F680} Darslarni boshlash",
-              web_app: { url: personalLink }
+              web_app: { url: MINI_APP_URL2 }
             }
           ]
         ]
@@ -376,7 +374,6 @@ async function completeRegistration(chatId, telegramUserId, from, userName, phon
     }, "30d");
   } catch {
   }
-  const personalLink = `${MINI_APP_URL2}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
   const successMessage = `\u{1F389} <b>Tabriklaymiz, ${userName}!</b>
 
 Siz Yukla Go ta\u2019lim platformasidan muvaffaqiyatli ro\u2018yxatdan o\u2018tdingiz.
@@ -394,7 +391,7 @@ Siz Yukla Go ta\u2019lim platformasidan muvaffaqiyatli ro\u2018yxatdan o\u2018td
         [
           {
             text: "\u{1F680} Darslarni boshlash",
-            web_app: { url: personalLink }
+            web_app: { url: MINI_APP_URL2 }
           }
         ]
       ]
@@ -592,19 +589,21 @@ async function handler3(req, res) {
   if (req.method === "OPTIONS") {
     return res.status(200).end();
   }
-  const { token, code, u } = req.query;
+  const { token, code, u, tg_id } = req.query;
   const supabase = getSupabase();
-  if (!token && !code && !u) {
+  if (!token && !code && !u && !tg_id) {
     return res.status(400).json({ error: "Foydalanuvchi parametri kiritilmagan" });
   }
   let customerCode = code ? String(code).trim() : null;
   let userId = u ? String(u).trim() : null;
+  let telegramUserId = tg_id ? Number(tg_id) : null;
   if (token) {
     try {
       const decoded = verifySessionToken(String(token));
       if (decoded) {
         customerCode = decoded.customerCode || customerCode;
         userId = decoded.userId || userId;
+        if (decoded.telegramUserId) telegramUserId = decoded.telegramUserId;
       }
     } catch {
     }
@@ -612,25 +611,36 @@ async function handler3(req, res) {
   if (supabase) {
     try {
       let query = supabase.from("users").select("*");
-      if (customerCode) {
+      if (telegramUserId && !isNaN(telegramUserId)) {
+        query = query.eq("telegram_user_id", telegramUserId);
+      } else if (customerCode) {
         query = query.eq("customer_code", customerCode);
       } else if (userId) {
         query = query.eq("id", userId);
       }
       const { data: userRow } = await query.maybeSingle();
       if (userRow) {
+        if (!userRow.onboarding_completed) {
+          return res.status(403).json({
+            success: false,
+            notRegistered: true,
+            error: "Ro\u2018yxatdan o\u2018tish yakunlanmagan. Iltimos, botda ro\u2018yxatdan o\u2018tishni yakunlang."
+          });
+        }
         const initials = (userRow.name || "U").trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "YG";
         const { data: dbAccess } = await supabase.from("academy_access").select("course_id, status").eq("user_id", userRow.id);
         const coursesAccess = {};
         if (dbAccess) {
           for (const a of dbAccess) {
-            coursesAccess[a.course_id] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
+            coursesAccess[String(a.course_id)] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
           }
         }
         return res.status(200).json({
           success: true,
           user: {
             id: userRow.customer_code || userRow.id,
+            rawId: userRow.id,
+            telegramUserId: userRow.telegram_user_id,
             name: userRow.name || "Hurmatli talaba",
             initials,
             phone: userRow.phone || "",
@@ -646,20 +656,10 @@ async function handler3(req, res) {
       console.error("Supabase user lookup error:", err);
     }
   }
-  const fallbackCode = customerCode || "YK-100";
-  return res.status(200).json({
-    success: true,
-    user: {
-      id: fallbackCode,
-      name: "Hurmatli talaba",
-      initials: "YG",
-      phone: "",
-      access: "Faol",
-      coursesAccess: { 1: "Faol", 2: "Faol" },
-      progress: 0,
-      done: "0 / 8",
-      activity: "Hozirgina"
-    }
+  return res.status(404).json({
+    success: false,
+    notRegistered: true,
+    error: "Foydalanuvchi topilmadi. Iltimos, @yuklakargobot orqali ro\u2018yxatdan o\u2018ting."
   });
 }
 

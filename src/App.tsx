@@ -159,7 +159,10 @@ function formatTime(seconds: number) {
 }
 
 // --- Telegram Bot Direct Link Screen (No Login Form) ---
-function TelegramBotWelcomeScreen() {
+function TelegramBotWelcomeScreen({ reason }: { reason?: string }) {
+  const isNotRegistered = reason === "not_registered";
+  const isBlocked = reason === "blocked";
+
   return (
     <main className="screen login-screen">
       <BrandMark />
@@ -172,19 +175,28 @@ function TelegramBotWelcomeScreen() {
         <div className="bot-link-icon">
           <Icon name="shield" size={28} />
         </div>
-        <h3>Shaxsiy havolangiz orqali kiring</h3>
+        <h3>
+          {isBlocked
+            ? "Kirish to‘xtatilgan"
+            : isNotRegistered
+              ? "Ro‘yxatdan o‘tish zarur"
+              : "Telegram bot orqali kiring"}
+        </h3>
         <p>
-          Ushbu platforma foydalanuvchilar uchun yopiq hisoblanadi. Darslarga kirish
-          uchun rasmiy Telegram botimiz orqali ro‘yxatdan o‘ting va maxsus havolani oling.
+          {isBlocked
+            ? "Profilingiz administrator tomonidan bloklangan. Bot orqali qo‘llab-quvvatlash xizmatiga murojaat qiling."
+            : isNotRegistered
+              ? "Siz hali rasmiy botimizda ro‘yxatdan o‘tmadingiz. Darslarga kirish uchun botga kiring va /start buyrug‘ini yuboring."
+              : "Ushbu video ta’lim platformasi foydalanuvchilar uchun yopiq hisoblanadi. Tashqi brauzer orqali to‘g‘ridan-to‘g‘ri kirish cheklangan. Darslarni ko‘rish uchun rasmiy Telegram botimiz orqali kiring."}
         </p>
 
         <a
-          href="https://t.me/yuklago_bot"
+          href="https://t.me/yuklakargobot"
           target="_blank"
           rel="noopener noreferrer"
           className="primary-button telegram-link-btn"
         >
-          <span>Telegram bot orqali kirish</span>
+          <span>Telegram botga o‘tish (@yuklakargobot)</span>
         </a>
       </div>
     </main>
@@ -1068,23 +1080,32 @@ export default function App() {
   const [activeLessonId, setActiveLessonId] = useState<number | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
-  // Authenticated user state (loaded via token / link)
-  const [user, setUser] = useState<UserProfile | null>(() => store.getAuthUser());
+  // Authenticated user state (strict Telegram Mini App check in production)
+  const isLocalhost =
+    typeof window !== "undefined" &&
+    (window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1");
+  const [user, setUser] = useState<UserProfile | null>(() => (isLocalhost ? store.getAuthUser() : null));
+  const [authError, setAuthError] = useState<string | undefined>(undefined);
+  const [authLoading, setAuthLoading] = useState(true);
 
   // Dynamic store data
   const [courses, setCourses] = useState<CourseItem[]>(() => store.getCourses());
   const [activeCourseId, setActiveCourseId] = useState<number>(() => store.getActiveCourseId());
   const [lessons, setLessons] = useState<LessonItem[]>(() => store.getLessons());
   const [settings, setSettings] = useState<AdminSettings>(() => store.getSettings());
-  const [userProgress, setUserProgress] = useState(() => (user ? store.getUserProgress(user.id) : {}));
+  const [userProgress, setUserProgress] = useState<Record<string | number, any>>(() => (user ? store.getUserProgress(user.id) : {}));
 
-  // Auto load user from URL query param (?token=... or ?u=...)
+  // Auto load user from Telegram Mini App or link
   useEffect(() => {
-    store.loadUserFromUrlOrStorage().then((loadedUser) => {
+    store.loadUserFromUrlOrStorage().then(({ user: loadedUser, error }) => {
       if (loadedUser) {
         setUser(loadedUser);
         setUserProgress(store.getUserProgress(loadedUser.id));
+      } else {
+        setUser(null);
+        setAuthError(error);
       }
+      setAuthLoading(false);
     });
 
     const doSync = () => {
@@ -1236,11 +1257,23 @@ export default function App() {
     }
   };
 
+  // --- 0. Authentication loading screen ---
+  if (authLoading) {
+    return (
+      <div className="app-shell" style={{ display: "grid", placeItems: "center", minHeight: "100vh" }}>
+        <div style={{ textAlign: "center", display: "flex", flexDirection: "column", alignItems: "center", gap: "16px" }}>
+          <BrandMark />
+          <p style={{ color: "var(--ink-soft)", fontSize: "14px", fontWeight: 600 }}>Yuklanmoqda...</p>
+        </div>
+      </div>
+    );
+  }
+
   // --- 1. No user authenticated: Show Telegram Bot Welcome Screen (NO LOGIN FORM) ---
   if (!user) {
     return (
       <div className="app-shell">
-        <TelegramBotWelcomeScreen />
+        <TelegramBotWelcomeScreen reason={authError} />
       </div>
     );
   }

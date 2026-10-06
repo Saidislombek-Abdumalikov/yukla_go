@@ -11,15 +11,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     return res.status(200).end();
   }
 
-  const { token, code, u } = req.query;
+  const { token, code, u, tg_id } = req.query;
   const supabase = getSupabase();
 
-  if (!token && !code && !u) {
+  if (!token && !code && !u && !tg_id) {
     return res.status(400).json({ error: 'Foydalanuvchi parametri kiritilmagan' });
   }
 
   let customerCode = code ? String(code).trim() : null;
   let userId = u ? String(u).trim() : null;
+  let telegramUserId = tg_id ? Number(tg_id) : null;
 
   // 1. Verify token if provided
   if (token) {
@@ -28,6 +29,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       if (decoded) {
         customerCode = decoded.customerCode || customerCode;
         userId = decoded.userId || userId;
+        if (decoded.telegramUserId) telegramUserId = decoded.telegramUserId;
       }
     } catch {}
   }
@@ -35,7 +37,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   if (supabase) {
     try {
       let query = supabase.from('users').select('*');
-      if (customerCode) {
+      if (telegramUserId && !isNaN(telegramUserId)) {
+        query = query.eq('telegram_user_id', telegramUserId);
+      } else if (customerCode) {
         query = query.eq('customer_code', customerCode);
       } else if (userId) {
         query = query.eq('id', userId);
@@ -44,6 +48,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       const { data: userRow } = await query.maybeSingle();
 
       if (userRow) {
+        if (!userRow.onboarding_completed) {
+          return res.status(403).json({
+            success: false,
+            notRegistered: true,
+            error: 'Ro‘yxatdan o‘tish yakunlanmagan. Iltimos, botda ro‘yxatdan o‘tishni yakunlang.',
+          });
+        }
+
         const initials = (userRow.name || 'U')
           .trim()
           .split(' ')
@@ -61,7 +73,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         const coursesAccess: Record<string, 'Faol' | 'To‘xtatilgan'> = {};
         if (dbAccess) {
           for (const a of dbAccess) {
-            coursesAccess[a.course_id] = a.status === 'granted' ? 'Faol' : 'To‘xtatilgan';
+            coursesAccess[String(a.course_id)] = a.status === 'granted' ? 'Faol' : 'To‘xtatilgan';
           }
         }
 
@@ -69,6 +81,8 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           success: true,
           user: {
             id: userRow.customer_code || userRow.id,
+            rawId: userRow.id,
+            telegramUserId: userRow.telegram_user_id,
             name: userRow.name || 'Hurmatli talaba',
             initials,
             phone: userRow.phone || '',
@@ -85,20 +99,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     }
   }
 
-  // Fallback user profile
-  const fallbackCode = customerCode || 'YK-100';
-  return res.status(200).json({
-    success: true,
-    user: {
-      id: fallbackCode,
-      name: 'Hurmatli talaba',
-      initials: 'YG',
-      phone: '',
-      access: 'Faol',
-      coursesAccess: { 1: 'Faol', 2: 'Faol' },
-      progress: 0,
-      done: '0 / 8',
-      activity: 'Hozirgina',
-    },
+  return res.status(404).json({
+    success: false,
+    notRegistered: true,
+    error: 'Foydalanuvchi topilmadi. Iltimos, @yuklakargobot orqali ro‘yxatdan o‘ting.',
   });
 }

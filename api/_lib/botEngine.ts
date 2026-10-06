@@ -127,8 +127,6 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         }, '30d');
       } catch {}
 
-      const personalLink = `${MINI_APP_URL}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
-
       await sendTelegramMessage(
         chatId,
         `👋 <b>Assalomu alaykum, ${existingUser.name || from.first_name}!</b>\n\n` +
@@ -141,7 +139,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
             [
               {
                 text: '🚀 Darslarni boshlash',
-                web_app: { url: personalLink },
+                web_app: { url: MINI_APP_URL },
               },
             ],
           ],
@@ -242,8 +240,6 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
       }, '30d');
     } catch {}
 
-    const personalLink = `${MINI_APP_URL}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(existingUser.id)}&token=${encodeURIComponent(token)}`;
-
     await sendTelegramMessage(
       chatId,
       `Siz ro‘yxatdan o‘tgansiz. Darslarga kirish uchun quyidagi tugmani bosing:`,
@@ -252,7 +248,7 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
           [
             {
               text: '🚀 Darslarni boshlash',
-              web_app: { url: personalLink },
+              web_app: { url: MINI_APP_URL },
             },
           ],
         ],
@@ -348,8 +344,6 @@ async function completeRegistration(
     }, '30d');
   } catch {}
 
-  const personalLink = `${MINI_APP_URL}/?code=${encodeURIComponent(customerCode)}&u=${encodeURIComponent(userId)}&token=${encodeURIComponent(token)}`;
-
   const successMessage =
     `🎉 <b>Tabriklaymiz, ${userName}!</b>\n\n` +
     `Siz Yukla Go ta’lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tdingiz.\n\n` +
@@ -366,7 +360,7 @@ async function completeRegistration(
         [
           {
             text: '🚀 Darslarni boshlash',
-            web_app: { url: personalLink },
+            web_app: { url: MINI_APP_URL },
           },
         ],
       ],
