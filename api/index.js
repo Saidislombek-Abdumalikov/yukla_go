@@ -206,50 +206,72 @@ async function findUserByAnyId(supabase, uid) {
 }
 
 // --- Bot Menus & Action Handlers ---
-async function showCoursesMenu(chatId, user, messageId = null) {
+async function getMainMenuKeyboard(supabase) {
+  const { data: courses } = await supabase
+    .from("academy_courses")
+    .select("id, title")
+    .order("order", { ascending: true });
+
+  const keyboard = [];
+  const courseList = courses || [];
+
+  for (let i = 0; i < courseList.length; i += 2) {
+    const row = [courseList[i].title];
+    if (courseList[i + 1]) row.push(courseList[i + 1].title);
+    keyboard.push(row);
+  }
+
+  keyboard.push(["💎 Premium", "👤 Profilim"]);
+  return keyboard;
+}
+
+async function sendMainMenu(chatId, user) {
   const supabase = getSupabase();
-  const granted = await getGrantedCourses(supabase, user.id);
+  const keyboard = await getMainMenuKeyboard(supabase);
 
-  if (granted.length === 0) {
-    const text =
-      `⏳ <b>Hurmatli ${user.name}!</b>\n\n` +
-      `👤 <b>Mijoz kodi:</b> <code>${user.customer_code}</code>\n` +
-      `📱 <b>Telefon:</b> <code>${user.phone}</code>\n\n` +
-      `⚠️ <b>Holat: Administrator ruxsati kutilmoqda.</b>\n` +
-      `Administrator darslarni ko‘rish uchun ruxsat bergach, ushbu bot orqali xabar keladi va darslar ochiladi.`;
-
-    if (messageId) {
-      await callTelegram("editMessageText", {
-        chat_id: chatId,
-        message_id: messageId,
-        text,
-        parse_mode: "HTML",
-      });
-    } else {
-      await sendTelegramMessage(chatId, text);
+  await sendTelegramMessage(
+    chatId,
+    `🏠 <b>Kerakli bo'limni tanlang:</b>`,
+    {
+      keyboard,
+      resize_keyboard: true,
     }
-    return;
+  );
+}
+
+async function sendCourseLessonsMenu(chatId, user, course) {
+  const supabase = getSupabase();
+  const { data: lessons } = await supabase
+    .from("academy_lessons")
+    .select("*")
+    .eq("course_id", String(course.id))
+    .order("order", { ascending: true });
+
+  const keyboard = [];
+  if (lessons && lessons.length > 0) {
+    for (let i = 0; i < lessons.length; i++) {
+      const l = lessons[i];
+      const lessonTitle = l.title.includes("-dars")
+        ? l.title
+        : `${l.order || i + 1}-dars: ${l.title}`;
+      keyboard.push([lessonTitle]);
+    }
   }
 
-  const buttons = granted.map((c) => [
-    { text: `📚 ${c.title}`, callback_data: `course_${c.id}` },
-  ]);
+  keyboard.push(["⬅️ Orqaga"]);
 
-  const text =
-    `🎓 <b>Mening kurslarim</b>\n\n` +
-    `Darslarni tomosha qilish uchun kursni tanlang 👇`;
+  await sendTelegramMessage(
+    chatId,
+    `<b>${course.title.toLowerCase()} bo'yicha videolar:</b>`,
+    {
+      keyboard,
+      resize_keyboard: true,
+    }
+  );
+}
 
-  if (messageId) {
-    await callTelegram("editMessageText", {
-      chat_id: chatId,
-      message_id: messageId,
-      text,
-      parse_mode: "HTML",
-      reply_markup: { inline_keyboard: buttons },
-    });
-  } else {
-    await sendTelegramMessage(chatId, text, { inline_keyboard: buttons });
-  }
+async function showCoursesMenu(chatId, user, messageId = null) {
+  return await sendMainMenu(chatId, user);
 }
 
 async function showCourseLessons(chatId, user, courseId, messageId = null) {
@@ -394,25 +416,24 @@ async function playLessonVideo(chatId, user, lessonId) {
   const s = (lesson.duration_seconds || 600) % 60;
   const durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 
+  const lessonDisplayTitle = lesson.title.includes("-dars")
+    ? lesson.title
+    : `${lesson.order ? `${lesson.order}-dars: ` : ""}${lesson.title}`;
+
   const buttons = [
     [{ text: "✅ Tugatdim", callback_data: `finish_${lesson.id}` }],
-    [{ text: "📋 Darslar ro‘yxati", callback_data: `course_${lesson.course_id}` }],
   ];
 
   if (!videoToSend) {
     await sendTelegramMessage(
       chatId,
-      `🎬 <b>${lesson.title}</b>\n\nUshbu dars uchun video hali biriktirilmagan. Tez orada yuklanadi!`,
+      `🎬 <b>${lessonDisplayTitle}</b>\n\nUshbu dars uchun video hali biriktirilmagan. Tez orada yuklanadi!`,
       { inline_keyboard: buttons }
     );
     return;
   }
 
-  const caption =
-    `🎬 <b>${lesson.title}</b>\n\n` +
-    `⏱ <b>Davomiyligi:</b> ${durationStr}\n` +
-    (lesson.description ? `📖 <b>Tavsif:</b> ${lesson.description}\n\n` : "\n") +
-    `🔒 <i>Xavfsizlik: Ushbu video himoyalangan. Saqlash, ulashish va ekran yozib olish (screen recording) bloklangan.</i>`;
+  const caption = `🎬 <b>${lessonDisplayTitle}</b>`;
 
   // Send protected video (DRM)
   const sent = await sendTelegramVideo(chatId, videoToSend, caption, { inline_keyboard: buttons }, true);
@@ -567,6 +588,42 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
+    if (data.startsWith("quickgrant_") && isAdmin(telegramUserId)) {
+      const targetUserId = data.replace("quickgrant_", "");
+      const targetUser = await findUserByAnyId(supabase, targetUserId);
+      if (targetUser) {
+        const { data: allCourses } = await supabase.from("academy_courses").select("id");
+        for (const c of allCourses || []) {
+          await supabase.from("academy_access").upsert(
+            {
+              user_id: targetUser.id,
+              course_id: String(c.id),
+              status: "granted",
+              granted_at: new Date().toISOString(),
+            },
+            { onConflict: "user_id,course_id" }
+          );
+        }
+        await supabase.from("users").update({ status: "active" }).eq("id", targetUser.id);
+
+        await answerTelegramCallbackQuery(callbackQuery.id, "✅ Premium ruxsat berildi!");
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>${targetUser.name}</b> uchun barcha kurslarga Premium ruxsat berildi!`
+        );
+
+        if (targetUser.telegram_user_id) {
+          await sendTelegramMessage(
+            targetUser.telegram_user_id,
+            `💎 <b>Tabriklaymiz!</b>\n\n` +
+              `Sizga Premium a'zolik berildi! Endi barcha darslarni ko‘rishingiz mumkin.`
+          );
+          await sendMainMenu(targetUser.telegram_user_id, targetUser);
+        }
+      }
+      return true;
+    }
+
     // Admin attaching video to lesson
     if (data.startsWith("attach_") && isAdmin(telegramUserId)) {
       const parts = data.split("_");
@@ -653,20 +710,58 @@ async function processTelegramUpdate(update) {
       .select()
       .single();
 
-    // Remove keyboard and send waiting status message
+    // Send confirmation and immediately show physical Main Menu keyboard
     await sendTelegramMessage(
       chatId,
       `✅ <b>Raqamingiz tasdiqlandi:</b> <code>${phone}</code>\n\n` +
         `👤 <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
-        `📱 <b>Ism:</b> ${fullName}\n\n` +
-        `⏳ <b>Sizning arizangiz qabul qilindi.</b>\n` +
-        `Administrator darslarni ko‘rish uchun ruxsat bergach, ushbu bot orqali darhol xabarnoma olasiz va darslar ochiladi!`,
-      { remove_keyboard: true }
+        `📱 <b>Ism:</b> ${fullName}`
     );
+    await sendMainMenu(chatId, userRow);
     return true;
   }
 
-  // 3. Handle Admin Video Upload (200-300MB+ Direct Upload via Telegram)
+  // 3. Handle Payment Screenshot Upload (Photo)
+  if (message?.photo) {
+    const user = await findUserByTelegramId(supabase, telegramUserId);
+    const photo = message.photo[message.photo.length - 1]; // Highest resolution
+    const fileId = photo.file_id;
+
+    await sendTelegramMessage(
+      chatId,
+      `✅ <b>To‘lov skrinshoti qabul qilindi!</b>\n\n` +
+        `Administrator tekshirib, tez orada sizga premium ruxsat beradi!`
+    );
+
+    const adminText =
+      `💳 <b>Yangi to‘lov skrinshoti keldi!</b>\n\n` +
+      `👤 <b>Talaba:</b> ${user?.name || from.first_name || "Talaba"}\n` +
+      `🆔 <b>Mijoz kodi:</b> <code>${user?.customer_code || "YK1"}</code>\n` +
+      `📱 <b>Telefon:</b> <code>${user?.phone || "Mavjud emas"}</code>\n` +
+      `💬 <b>Telegram ID:</b> <code>${telegramUserId}</code>`;
+
+    for (const adminId of ADMIN_TELEGRAM_IDS) {
+      await callTelegram("sendPhoto", {
+        chat_id: adminId,
+        photo: fileId,
+        caption: adminText,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "✅ Premium ruxsat berish",
+                callback_data: `quickgrant_${user?.id || telegramUserId}`,
+              },
+            ],
+          ],
+        },
+      });
+    }
+    return true;
+  }
+
+  // 4. Handle Admin Video Upload (200-300MB+ Direct Upload via Telegram)
   if (message?.video) {
     if (!isAdmin(telegramUserId)) {
       await sendTelegramMessage(chatId, "⚠️ Videoni faqat administratorlar yuklashi mumkin.");
@@ -707,14 +802,12 @@ async function processTelegramUpdate(update) {
     return true;
   }
 
-  // 4. Handle Text Messages (/start, /courses, etc.)
+  // 5. Handle Text Messages (/start, courses, lessons, ⬅️ Orqaga, 💎 Premium, etc.)
   if (message?.text) {
     const text = message.text.trim();
+    let user = await findUserByTelegramId(supabase, telegramUserId);
 
     if (text.startsWith("/start")) {
-      let user = await findUserByTelegramId(supabase, telegramUserId);
-
-      // Create pending record immediately if doesn't exist so admin sees student in Admin Panel right away
       if (!user) {
         const customerCode = await generateNextCustomerCode(supabase);
         const fullName =
@@ -759,26 +852,11 @@ async function processTelegramUpdate(update) {
         return true;
       }
 
-      // B. Registered -> Remove legacy keyboards and show status/courses
-      await sendTelegramMessage(
-        chatId,
-        `📚 <b>Yukla Go ta’lim platformasi</b>`,
-        { remove_keyboard: true }
-      );
-      await showCoursesMenu(chatId, user);
+      // B. Registered -> Show Physical Reply Keyboard Main Menu
+      await sendMainMenu(chatId, user);
       return true;
     }
 
-    if (text.startsWith("/courses") || text === "📚 Kurslar" || text === "Darslar") {
-      const user = await findUserByTelegramId(supabase, telegramUserId);
-      if (user) {
-        await showCoursesMenu(chatId, user);
-        return true;
-      }
-    }
-
-    // Default fallback
-    const user = await findUserByTelegramId(supabase, telegramUserId);
     if (!user) {
       await sendTelegramMessage(
         chatId,
@@ -786,7 +864,103 @@ async function processTelegramUpdate(update) {
       );
       return true;
     }
-    await showCoursesMenu(chatId, user);
+
+    // 1. "⬅️ Orqaga" -> Back to Main Menu
+    if (text === "⬅️ Orqaga" || text === "Orqaga" || text === "/menu") {
+      await sendMainMenu(chatId, user);
+      return true;
+    }
+
+    // 2. "💎 Premium"
+    if (text === "💎 Premium" || text.toLowerCase().includes("premium")) {
+      const granted = await getGrantedCourses(supabase, user.id);
+      if (granted.length > 0) {
+        await sendTelegramMessage(
+          chatId,
+          `💎 <b>Sizda Premium obuna faol!</b>\n\nBarcha darslar siz uchun ochiq. Istalgan bo‘limni tanlab darslarni ko‘rishingiz mumkin.`
+        );
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          `💎 <b>PREMIUM VERSIYA</b>\n\n` +
+            `💰 <b>Narxi:</b> 15,000 so'm\n` +
+            `ℹ️ <b>To'lov usullari:</b>\n` +
+            `• KARTA <code>9860010123637026</code>\n` +
+            `• Zokirjonov Abduqahhor\n` +
+            `• Muammo bo'lsa @ZokirjonovAbduqahhor ga yozing\n\n` +
+            `💎 <b>Imkoniyatlar:</b>\n` +
+            `• Barcha darslarga cheksiz bir umrlik ruxsat\n\n` +
+            `To'lov qilganingizdan so'ng skrinshotini, shu yerga yuboring, tekshirib sizga premium topshiraman`
+        );
+      }
+      return true;
+    }
+
+    // 3. "👤 Profilim"
+    if (text === "👤 Profilim" || text.toLowerCase().includes("profil")) {
+      const granted = await getGrantedCourses(supabase, user.id);
+      const isPrem = granted.length > 0;
+      await sendTelegramMessage(
+        chatId,
+        `👤 <b>Mening profilim:</b>\n\n` +
+          `👤 <b>Ism:</b> ${user.name}\n` +
+          `🆔 <b>Mijoz kodi:</b> <code>${user.customer_code}</code>\n` +
+          `📱 <b>Telefon:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
+          `💎 <b>Obuna holati:</b> ${isPrem ? "✅ Faol (Premium)" : "⏳ Kutilmoqda (Oddiy)"}`
+      );
+      return true;
+    }
+
+    // 4. Check if text matches any COURSE title (e.g. Pinduoduo, Taobao, etc.)
+    const { data: courses } = await supabase.from("academy_courses").select("*");
+    const matchedCourse = (courses || []).find(
+      (c) => c.title.trim().toLowerCase() === text.toLowerCase()
+    );
+
+    if (matchedCourse) {
+      await sendCourseLessonsMenu(chatId, user, matchedCourse);
+      return true;
+    }
+
+    // 5. Check if text matches any LESSON (e.g. "1-dars: ...", or matching lesson order/title)
+    const { data: allLessons } = await supabase.from("academy_lessons").select("*");
+    let matchedLesson = null;
+    const cleanInput = text.toLowerCase().trim();
+
+    for (const l of allLessons || []) {
+      const orderPrefix = `${l.order}-dars:`;
+      const fullTitle = `${orderPrefix} ${l.title}`.toLowerCase().trim();
+      const simpleTitle = l.title.toLowerCase().trim();
+
+      if (
+        cleanInput === fullTitle ||
+        cleanInput === simpleTitle ||
+        cleanInput.startsWith(`${l.order}-dars:`) ||
+        cleanInput === `${l.order}-dars` ||
+        (cleanInput.includes("-dars:") && cleanInput.includes(simpleTitle))
+      ) {
+        matchedLesson = l;
+        break;
+      }
+    }
+
+    if (matchedLesson) {
+      const hasAccess = await hasAccessToCourse(supabase, user.id, matchedLesson.course_id);
+      if (!hasAccess) {
+        await sendTelegramMessage(
+          chatId,
+          `🔒 <b>Ushbu video faqat Premium a'zolar uchun!</b>\n` +
+            `Premium obuna bo'lish uchun admin bilan bog'laning`
+        );
+        return true;
+      }
+
+      await playLessonVideo(chatId, user, matchedLesson.id);
+      return true;
+    }
+
+    // Fallback: Send Main Menu with physical keyboard
+    await sendMainMenu(chatId, user);
     return true;
   }
 
