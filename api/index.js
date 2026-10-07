@@ -305,7 +305,7 @@ async function findUserByAnyId(supabase, uid) {
 }
 
 // --- Bot Menus & Action Handlers ---
-async function getMainMenuKeyboard(supabase) {
+async function getMainMenuKeyboard(supabase, telegramUserId = null) {
   const courses = await getCachedCourses(supabase);
   const keyboard = [];
   const courseList = courses || [];
@@ -316,13 +316,17 @@ async function getMainMenuKeyboard(supabase) {
     keyboard.push(row);
   }
 
-  keyboard.push(["💎 Premium", "👤 Profilim"]);
+  const bottomRow = ["💎 Premium", "👤 Profilim"];
+  if (isAdmin(telegramUserId)) {
+    bottomRow.push("⚙️ Admin");
+  }
+  keyboard.push(bottomRow);
   return keyboard;
 }
 
 async function sendMainMenu(chatId, user) {
   const supabase = getSupabase();
-  const keyboard = await getMainMenuKeyboard(supabase);
+  const keyboard = await getMainMenuKeyboard(supabase, user?.telegram_user_id);
 
   await sendTelegramMessage(
     chatId,
@@ -992,6 +996,39 @@ async function processTelegramUpdate(update) {
           `👤 <b>Ism:</b> ${user.name}\n` +
           `📱 <b>Tel:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
           `💎 <b>Status:</b> ${isPrem ? "✅ Premium" : "⏳ Oddiy"}`
+      );
+      return true;
+    }
+
+    // 4.5. "⚙️ Admin" / "/admin"
+    if (text === "⚙️ Admin" || text === "/admin" || text.toLowerCase() === "admin") {
+      if (!isAdmin(telegramUserId)) {
+        await sendTelegramMessage(chatId, "🔒 <b>Ushbu bo‘lim faqat administratorlar uchun!</b>");
+        return true;
+      }
+
+      const courses = await getCachedCourses(supabase);
+      const lessons = await getCachedLessons(supabase);
+      const { count: usersCount } = await supabase
+        .from("users")
+        .select("id", { count: "exact", head: true });
+      const { count: enrollmentsCount } = await supabase
+        .from("academy_enrollments")
+        .select("id", { count: "exact", head: true });
+
+      await sendTelegramMessage(
+        chatId,
+        `⚙️ <b>ADMIN BOSHQARUV PANELI</b> 🛠\n\n` +
+          `📊 <b>Statistika:</b>\n` +
+          `• 👥 Jami foydalanuvchilar: <b>${usersCount || 0} ta</b>\n` +
+          `• 💎 Faol obunalar: <b>${enrollmentsCount || 0} ta</b>\n` +
+          `• 📚 Kurslar: <b>${courses?.length || 0} ta</b>\n` +
+          `• 🎬 Darslar: <b>${lessons?.length || 0} ta</b>\n\n` +
+          `💻 <b>Web Admin Panel:</b>\n` +
+          `🔗 http://localhost:5174/\n` +
+          `🔑 Parol: <code>admin</code>\n\n` +
+          `📹 <b>Video yuklash:</b>\n` +
+          `Istalgan videoni (2 GB gacha) to‘g‘ridan-to‘g‘ri shu botga yuborsangiz, bot darsga biriktirib beradi.`
       );
       return true;
     }
