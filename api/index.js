@@ -132,6 +132,25 @@ async function hasAccessToCourse(supabase, userId, courseId) {
   return Boolean(data);
 }
 
+// Generate sequential customer code: YK1, YK2, YK3...
+async function generateNextCustomerCode(supabase) {
+  const { data } = await supabase.from("users").select("customer_code");
+  let maxNum = 0;
+  if (data && data.length > 0) {
+    for (const u of data) {
+      if (!u.customer_code) continue;
+      const match = u.customer_code.match(/YK-?(\d+)/i);
+      if (match) {
+        const num = parseInt(match[1], 10);
+        if (!isNaN(num) && num > maxNum) {
+          maxNum = num;
+        }
+      }
+    }
+  }
+  return `YK${maxNum + 1}`;
+}
+
 // --- Bot Menus & Action Handlers ---
 async function showCoursesMenu(chatId, user, messageId = null) {
   const supabase = getSupabase();
@@ -519,7 +538,10 @@ async function processTelegramUpdate(update) {
       "Talaba";
 
     let existingUser = await findUserByTelegramId(supabase, telegramUserId);
-    const customerCode = existingUser?.customer_code || `YK-${Math.floor(100 + Math.random() * 900)}`;
+    let customerCode = existingUser?.customer_code;
+    if (!customerCode) {
+      customerCode = await generateNextCustomerCode(supabase);
+    }
 
     const { data: userRow } = await supabase
       .from("users")
@@ -598,9 +620,37 @@ async function processTelegramUpdate(update) {
     const text = message.text.trim();
 
     if (text.startsWith("/start")) {
-      const user = await findUserByTelegramId(supabase, telegramUserId);
+      let user = await findUserByTelegramId(supabase, telegramUserId);
 
-      // A. Not registered yet -> Ask for contact button
+      // Create pending record immediately if doesn't exist so admin sees student in Admin Panel right away
+      if (!user) {
+        const customerCode = await generateNextCustomerCode(supabase);
+        const fullName =
+          `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
+          from.username ||
+          "Talaba";
+
+        const { data: newUser } = await supabase
+          .from("users")
+          .upsert(
+            {
+              telegram_user_id: telegramUserId,
+              name: fullName,
+              phone: "",
+              customer_code: customerCode,
+              status: "pending",
+              onboarding_completed: false,
+              onboarding_step: "start",
+            },
+            { onConflict: "telegram_user_id" }
+          )
+          .select()
+          .maybeSingle();
+
+        user = newUser || user;
+      }
+
+      // A. Not registered phone yet -> Ask for contact button
       if (!user || !user.phone) {
         const welcomeText =
           `👋 <b>Assalomu alaykum, ${from.first_name || "Talaba"}!</b>\n\n` +
@@ -891,7 +941,71 @@ export default async function handler(req, res) {
       });
     }
 
-    // 3. ADMIN ACCESS PERMISSION ENDPOINT (/api/users/access)
+    // 3. ADMIN USER MANUAL ADD (/api/users/add)
+    if (normalizedPath === "/api/users/add" && req.method === "POST") {
+      const body = await parseBody();
+      const { name, phone, courseId, status } = body;
+
+      const customerCode = await generateNextCustomerCode(supabase);
+      const newUserId = `u_${Date.now()}`;
+
+      const { data: newUser, error: userErr } = await supabase
+        .from("users")
+        .insert({
+          id: newUserId,
+          name: (name || "Talaba").trim(),
+          phone: (phone || "").trim(),
+          customer_code: customerCode,
+          status: status === "Faol" ? "active" : "pending",
+          onboarding_completed: true,
+          onboarding_step: "completed",
+        })
+        .select()
+        .single();
+
+      if (userErr) {
+        console.error("User insert error:", userErr);
+        return sendSafeJson(res, 500, { error: userErr.message });
+      }
+
+      // If courseId provided and active, grant access
+      if (courseId && status === "Faol") {
+        await supabase.from("academy_access").upsert(
+          {
+            user_id: newUserId,
+            course_id: String(courseId),
+            status: "granted",
+            granted_at: new Date().toISOString(),
+          },
+          { onConflict: "user_id,course_id" }
+        );
+      }
+
+      const initials = (name || "U")
+        .trim()
+        .split(" ")
+        .map((w) => w[0])
+        .join("")
+        .toUpperCase()
+        .slice(0, 2) || "YG";
+
+      const createdUser = {
+        id: customerCode,
+        supabaseId: newUserId,
+        name: newUser.name,
+        initials,
+        phone: newUser.phone,
+        access: status === "Faol" ? "Faol" : "Kutilmoqda",
+        coursesAccess: courseId && status === "Faol" ? { [String(courseId)]: "Faol" } : {},
+        progress: 0,
+        done: "0 / 0",
+        activity: "Faol",
+      };
+
+      return sendSafeJson(res, 200, { success: true, user: createdUser });
+    }
+
+    // 4. ADMIN ACCESS PERMISSION ENDPOINT (/api/users/access)
     if (normalizedPath === "/api/users/access" && req.method === "POST") {
       const body = await parseBody();
       const { userIds, courseId, access } = body;
@@ -963,100 +1077,192 @@ export default async function handler(req, res) {
       return sendSafeJson(res, 200, { success: true });
     }
 
-    // 4. ADMIN USER DELETE ENDPOINT (/api/users/delete)
+    // 5. ADMIN USER DELETE ENDPOINT (/api/users/delete)
     if (normalizedPath === "/api/users/delete" && req.method === "POST") {
-      const { userId } = await parseBody();
-      if (userId) {
-        await supabase
+      const body = await parseBody();
+      const uid = body.userId || body.id;
+      if (uid) {
+        const { data: u } = await supabase
           .from("users")
-          .delete()
-          .or(`customer_code.eq.${userId},id.eq.${userId}`);
+          .select("id")
+          .or(`customer_code.eq.${uid},id.eq.${uid}`)
+          .maybeSingle();
+
+        const dbId = u?.id || uid;
+        await supabase.from("academy_access").delete().eq("user_id", dbId);
+        await supabase.from("academy_user_progress").delete().eq("user_id", dbId);
+        await supabase.from("users").delete().or(`customer_code.eq.${uid},id.eq.${dbId}`);
       }
       return sendSafeJson(res, 200, { success: true });
     }
 
-    // 5. ADMIN COURSES CRUD
+    // 6. ADMIN COURSES CRUD
     if (normalizedPath === "/api/courses/add" && req.method === "POST") {
       const { title, description } = await parseBody();
       const id = String(Date.now());
-      await supabase.from("academy_courses").insert({
+      const newCourse = {
         id,
         title: title || "Yangi kurs",
         description: description || "",
         active: true,
         order: 1,
+      };
+      await supabase.from("academy_courses").insert(newCourse);
+      return sendSafeJson(res, 200, {
+        success: true,
+        courseId: id,
+        course: {
+          id,
+          title: newCourse.title,
+          description: newCourse.description,
+          lessons: 0,
+          users: 0,
+          completion: 0,
+          status: "Faol",
+          updated: "Bugun",
+          tone: "blue",
+        },
       });
-      return sendSafeJson(res, 200, { success: true, courseId: id });
     }
 
     if (normalizedPath === "/api/courses/update" && req.method === "POST") {
-      const { id, title, description, status } = await parseBody();
-      if (id) {
+      const body = await parseBody();
+      const courseId = body.id || body.courseId;
+      if (courseId) {
         await supabase
           .from("academy_courses")
           .update({
-            title,
-            description,
-            active: status === "Faol",
+            title: body.title,
+            description: body.description,
+            active: body.status === "Faol",
             updated_at: new Date().toISOString(),
           })
-          .eq("id", String(id));
+          .eq("id", String(courseId));
       }
       return sendSafeJson(res, 200, { success: true });
     }
 
     if (normalizedPath === "/api/courses/delete" && req.method === "POST") {
-      const { id } = await parseBody();
-      if (id) {
-        await supabase.from("academy_courses").delete().eq("id", String(id));
-        await supabase.from("academy_lessons").delete().eq("course_id", String(id));
+      const body = await parseBody();
+      const courseId = body.id || body.courseId;
+      if (courseId) {
+        await supabase.from("academy_courses").delete().eq("id", String(courseId));
+        await supabase.from("academy_lessons").delete().eq("course_id", String(courseId));
       }
       return sendSafeJson(res, 200, { success: true });
     }
 
-    // 6. ADMIN LESSONS CRUD
+    // 7. ADMIN LESSONS CRUD
     if (normalizedPath === "/api/lessons/add" && req.method === "POST") {
       const body = await parseBody();
-      const id = String(body.id || Date.now());
+      const id = String(body.id || body.lessonId || Date.now());
       const { data: countData } = await supabase
         .from("academy_lessons")
         .select("id")
         .eq("course_id", String(body.courseId));
       const nextOrder = (countData?.length || 0) + 1;
 
-      await supabase.from("academy_lessons").insert({
+      let videoIdToSave = body.videoUrl || "";
+      if (body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
+        videoIdToSave = JSON.stringify({
+          url: body.videoUrl,
+          format: body.videoFormat || "shorts",
+          thumb: body.thumbnailUrl || "",
+        });
+      }
+
+      const lessonRecord = {
         id,
         course_id: String(body.courseId),
         title: body.title || "Yangi dars",
         description: body.description || "",
-        youtube_video_id: body.videoUrl || "",
-        duration_seconds: body.durationSeconds || 600,
+        youtube_video_id: videoIdToSave,
+        duration_seconds: Number(body.durationSeconds) || 600,
         order: body.order ? Number(body.order) : nextOrder,
+      };
+
+      const { data, error } = await supabase
+        .from("academy_lessons")
+        .upsert(lessonRecord, { onConflict: "id" })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Lesson upsert error:", error);
+        return sendSafeJson(res, 500, { error: error.message });
+      }
+
+      return sendSafeJson(res, 200, {
+        success: true,
+        lessonId: id,
+        lesson: {
+          id,
+          courseId: lessonRecord.course_id,
+          title: lessonRecord.title,
+          description: lessonRecord.description,
+          duration: body.duration || "10:00",
+          durationSeconds: lessonRecord.duration_seconds,
+          videoUrl: body.videoUrl || "",
+          videoFormat: body.videoFormat || "shorts",
+          thumbnailUrl: body.thumbnailUrl || "",
+          status: "Faol",
+          color: "lesson-blue",
+        },
       });
-      return sendSafeJson(res, 200, { success: true, lessonId: id });
     }
 
     if (normalizedPath === "/api/lessons/update" && req.method === "POST") {
       const body = await parseBody();
-      if (body.id) {
-        await supabase
+      const lessonId = body.id || body.lessonId;
+      if (lessonId) {
+        let videoIdToSave = body.videoUrl;
+        if (body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
+          videoIdToSave = JSON.stringify({
+            url: body.videoUrl,
+            format: body.videoFormat || "shorts",
+            thumb: body.thumbnailUrl || "",
+          });
+        }
+
+        const updateData = {
+          updated_at: new Date().toISOString(),
+        };
+        if (body.title !== undefined) updateData.title = body.title;
+        if (body.description !== undefined) updateData.description = body.description;
+        if (videoIdToSave !== undefined) updateData.youtube_video_id = videoIdToSave;
+        if (body.durationSeconds !== undefined) updateData.duration_seconds = Number(body.durationSeconds);
+        if (body.courseId !== undefined) updateData.course_id = String(body.courseId);
+
+        const { error } = await supabase
           .from("academy_lessons")
-          .update({
-            title: body.title,
-            description: body.description,
-            youtube_video_id: body.videoUrl,
-            duration_seconds: body.durationSeconds,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", String(body.id));
+          .update(updateData)
+          .eq("id", String(lessonId));
+
+        if (error) {
+          console.error("Lesson update error:", error);
+          return sendSafeJson(res, 500, { error: error.message });
+        }
       }
       return sendSafeJson(res, 200, { success: true });
     }
 
     if (normalizedPath === "/api/lessons/delete" && req.method === "POST") {
-      const { id } = await parseBody();
-      if (id) {
-        await supabase.from("academy_lessons").delete().eq("id", String(id));
+      const body = await parseBody();
+      const lessonId = body.id || body.lessonId;
+      if (lessonId) {
+        const { error } = await supabase
+          .from("academy_lessons")
+          .delete()
+          .eq("id", String(lessonId));
+
+        if (error) {
+          console.error("Lesson delete error:", error);
+          return sendSafeJson(res, 500, { error: error.message });
+        }
+        await supabase
+          .from("academy_user_progress")
+          .delete()
+          .eq("lesson_id", String(lessonId));
       }
       return sendSafeJson(res, 200, { success: true });
     }
