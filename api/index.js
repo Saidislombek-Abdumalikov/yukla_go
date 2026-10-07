@@ -305,7 +305,32 @@ async function findUserByAnyId(supabase, uid) {
 }
 
 // --- Bot Menus & Action Handlers ---
-async function getMainMenuKeyboard(supabase, telegramUserId = null) {
+function getHomeScreenKeyboard(telegramUserId = null) {
+  const keyboard = [
+    ["🆔 Ro‘yxatdan o‘tish", "📍 Xitoy manzili"],
+    ["🧮 Kalkulyator", "🚫 Taqiqlangan yuklar"],
+    ["🎬 Video darslar", "👤 Profilim"],
+  ];
+  if (isAdmin(telegramUserId)) {
+    keyboard.push(["⚙️ Admin"]);
+  }
+  return keyboard;
+}
+
+async function sendHomeScreen(chatId, user) {
+  const keyboard = getHomeScreenKeyboard(user?.telegram_user_id);
+  await sendTelegramMessage(
+    chatId,
+    `🏠 <b>Yukla Go platformasiga xush kelibsiz!</b> 🇨🇳🇺🇿\n\n` +
+      `Kerakli bo‘limni tanlang 👇`,
+    {
+      keyboard,
+      resize_keyboard: true,
+    }
+  );
+}
+
+async function getVideoLessonsMenuKeyboard(supabase, telegramUserId = null) {
   const courses = await getCachedCourses(supabase);
   const keyboard = [];
   const courseList = courses || [];
@@ -316,21 +341,23 @@ async function getMainMenuKeyboard(supabase, telegramUserId = null) {
     keyboard.push(row);
   }
 
-  const bottomRow = ["💎 Premium", "👤 Profilim"];
-  if (isAdmin(telegramUserId)) {
-    bottomRow.push("⚙️ Admin");
-  }
-  keyboard.push(bottomRow);
+  keyboard.push(["💎 Premium", "👤 Profilim"]);
+  keyboard.push(["🏠 Asosiy menyu"]);
   return keyboard;
 }
 
-async function sendMainMenu(chatId, user) {
+async function sendVideoLessonsMenu(chatId, user) {
   const supabase = getSupabase();
-  const keyboard = await getMainMenuKeyboard(supabase, user?.telegram_user_id);
+  const keyboard = await getVideoLessonsMenuKeyboard(supabase, user?.telegram_user_id);
+
+  if (user?.id) {
+    userContext.set(user.id, { inVideoSection: true, currentCourseId: null, lastLessonId: null });
+  }
 
   await sendTelegramMessage(
     chatId,
-    `🏠 <b>Bo‘limni tanlang:</b>`,
+    `🎬 <b>Video darslar bo‘limi:</b> 📚\n\n` +
+      `Qaysi kurs darslarini ko‘rmoqchisiz? Tanlang 👇`,
     {
       keyboard,
       resize_keyboard: true,
@@ -353,10 +380,10 @@ async function sendCourseLessonsMenu(chatId, user, course) {
     }
   }
 
-  keyboard.push(["⬅️ Orqaga"]);
+  keyboard.push(["⬅️ Orqaga", "🏠 Asosiy menyu"]);
 
   if (user?.id) {
-    userContext.set(user.id, { currentCourseId: course.id });
+    userContext.set(user.id, { inVideoSection: true, currentCourseId: course.id, lastLessonId: null });
   }
 
   await sendTelegramMessage(
@@ -369,8 +396,12 @@ async function sendCourseLessonsMenu(chatId, user, course) {
   );
 }
 
+async function sendMainMenu(chatId, user) {
+  return await sendHomeScreen(chatId, user);
+}
+
 async function showCoursesMenu(chatId, user) {
-  return await sendMainMenu(chatId, user);
+  return await sendVideoLessonsMenu(chatId, user);
 }
 
 async function showCourseLessons(chatId, user, courseId) {
@@ -380,7 +411,7 @@ async function showCourseLessons(chatId, user, courseId) {
   if (course) {
     await sendCourseLessonsMenu(chatId, user, course);
   } else {
-    await sendMainMenu(chatId, user);
+    await sendVideoLessonsMenu(chatId, user);
   }
 }
 
@@ -881,8 +912,7 @@ async function processTelegramUpdate(update) {
         const customerCode = await generateNextCustomerCode(supabase);
         const fullName =
           `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
-          from.username ||
-          "Talaba";
+          (from.username ? `@${from.username}` : "Foydalanuvchi");
 
         const { data: newUser } = await supabase
           .from("users")
@@ -894,7 +924,7 @@ async function processTelegramUpdate(update) {
               customer_code: customerCode,
               status: "active",
               onboarding_completed: false,
-              onboarding_step: "phone",
+              onboarding_step: "started",
             },
             { onConflict: "telegram_user_id" }
           )
@@ -907,25 +937,8 @@ async function processTelegramUpdate(update) {
         }
       }
 
-      // A. Not registered phone yet -> Ask for contact button
-      if (!user || !user.phone) {
-        const welcomeText =
-          `👋 <b>Assalomu alaykum, ${from.first_name || "do‘st"}!</b> 🚀\n\n` +
-          `Yukla Go platformasiga xush kelibsiz!\n` +
-          `Boshlash uchun telefon raqamingizni yuboring 👇`;
-
-        await sendTelegramMessage(chatId, welcomeText, {
-          keyboard: [
-            [{ text: "📱 Telefon raqamimni yuborish", request_contact: true }],
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        });
-        return true;
-      }
-
-      // B. Registered -> Show Physical Reply Keyboard Main Menu
-      await sendMainMenu(chatId, user);
+      if (user?.id) userContext.delete(user.id);
+      await sendHomeScreen(chatId, user);
       return true;
     }
 
@@ -937,11 +950,24 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
-    // 1. "⬅️ Orqaga" -> Smart Back Navigation
-    if (text === "⬅️ Orqaga" || text === "Orqaga" || text === "/menu") {
+    // 1. "🏠 Asosiy menyu" / "/home" -> Root Home Screen
+    if (
+      text === "🏠 Asosiy menyu" ||
+      text === "Asosiy menyu" ||
+      text === "/home" ||
+      text === "/menu"
+    ) {
+      if (user?.id) userContext.delete(user.id);
+      await sendHomeScreen(chatId, user);
+      return true;
+    }
+
+    // 1.1. "⬅️ Orqaga" -> Hierarchical Back Navigation
+    if (text === "⬅️ Orqaga" || text === "Orqaga") {
       const ctx = userContext.get(user.id);
       if (ctx?.lastLessonId && ctx?.currentCourseId) {
-        userContext.delete(user.id);
+        // Was watching a video -> return to lessons list of this course
+        ctx.lastLessonId = null;
         const courses = await getCachedCourses(supabase);
         const course = (courses || []).find((c) => String(c.id) === String(ctx.currentCourseId));
         if (course) {
@@ -949,8 +975,152 @@ async function processTelegramUpdate(update) {
           return true;
         }
       }
+      if (ctx?.currentCourseId) {
+        // Was in course lessons list -> return to Video darslar courses list
+        ctx.currentCourseId = null;
+        await sendVideoLessonsMenu(chatId, user);
+        return true;
+      }
+      if (ctx?.inVideoSection) {
+        // Was in Video darslar courses list -> return to Home screen
+        userContext.delete(user.id);
+        await sendHomeScreen(chatId, user);
+        return true;
+      }
       userContext.delete(user.id);
-      await sendMainMenu(chatId, user);
+      await sendHomeScreen(chatId, user);
+      return true;
+    }
+
+    // 1.2. "🎬 Video darslar" -> Open Current Lesson Interface
+    if (
+      text === "🎬 Video darslar" ||
+      text.toLowerCase() === "video darslar" ||
+      text.toLowerCase() === "video darsliklar" ||
+      text.toLowerCase().includes("video dars")
+    ) {
+      await sendVideoLessonsMenu(chatId, user);
+      return true;
+    }
+
+    // 1.3. "🆔 Ro‘yxatdan o‘tish"
+    if (
+      text === "🆔 Ro‘yxatdan o‘tish" ||
+      text.toLowerCase().includes("ro'yxat") ||
+      text.toLowerCase().includes("royxat") ||
+      text.toLowerCase().includes("ro‘yxat") ||
+      text === "/register"
+    ) {
+      if (user?.phone) {
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>Siz muvaffaqiyatli ro‘yxatdan o‘tgansiz!</b> ✨\n\n` +
+            `🆔 <b>Mijoz kodi:</b> <code>${user.customer_code}</code>\n` +
+            `👤 <b>Ism:</b> ${user.name}\n` +
+            `📱 <b>Telefon:</b> <code>${user.phone}</code>\n\n` +
+            `<i>Ushbu ID kodingiz orqali Xitoydan buyurtma bera olasiz.</i>`,
+          {
+            keyboard: getHomeScreenKeyboard(telegramUserId),
+            resize_keyboard: true,
+          }
+        );
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          `🆔 <b>Yukla Go — Ro‘yxatdan o‘tish</b> 📝\n\n` +
+            `Shaxsiy mijoz kodi (ID) va Xitoy ombor manziliga ega bo‘lish uchun pastdagi tugma orqali telefon raqamingizni yuboring 👇`,
+          {
+            keyboard: [
+              [{ text: "📱 Telefon raqamimni yuborish", request_contact: true }],
+              ["🏠 Asosiy menyu"],
+            ],
+            resize_keyboard: true,
+          }
+        );
+      }
+      return true;
+    }
+
+    // 1.4. "📍 Xitoy manzili"
+    if (
+      text === "📍 Xitoy manzili" ||
+      text.toLowerCase().includes("xitoy manzili") ||
+      text.toLowerCase().includes("manzil") ||
+      text === "/address"
+    ) {
+      const code = user?.customer_code || "[ID-KODINGIZ]";
+      const hasPhone = !!user?.phone;
+
+      await sendTelegramMessage(
+        chatId,
+        `📍 <b>Yukla Go — Xitoy ombor manzili:</b> 🇨🇳\n\n` +
+          `👤 <b>收件人:</b> <code>${code}</code>\n` +
+          `📞 <b>电话:</b> <code>13268048899</code>\n` +
+          `📍 <b>所在地区:</b> <code>广东省 广州市 越秀区</code>\n` +
+          `🏢 <b>详细地址:</b> <code>矿泉街道白云村云山大厦 ${code}</code>\n` +
+          `📮 <b>邮编:</b> <code>510000</code>\n\n` +
+          `💡 <i>Nusxa olish uchun har bir qator ustiga bosing (copy).</i>` +
+          (!hasPhone
+            ? `\n\n⚠️ <i>Eslatma: O‘z shaxsiy ID kodingizni olish uchun «🆔 Ro‘yxatdan o‘tish» bo‘limiga kiring.</i>`
+            : ""),
+        {
+          keyboard: getHomeScreenKeyboard(telegramUserId),
+          resize_keyboard: true,
+        }
+      );
+      return true;
+    }
+
+    // 1.5. "🧮 Kalkulyator"
+    if (
+      text === "🧮 Kalkulyator" ||
+      text.toLowerCase().includes("kalkulyator") ||
+      text.toLowerCase().includes("hisoblash") ||
+      text === "/calc"
+    ) {
+      await sendTelegramMessage(
+        chatId,
+        `🧮 <b>Kargo & Valyuta kalkulyatori</b> 📦\n\n` +
+          `✈️ <b>Avia kargo (5-7 kun):</b>\n` +
+          `• 1 kg = $8.5 – $9.5\n\n` +
+          `🚛 <b>Avto kargo (12-18 kun):</b>\n` +
+          `• 1 kg = $4.0 – $4.5\n\n` +
+          `💱 <b>Valyuta kurslari:</b>\n` +
+          `• 1 $ ≈ 12 900 so‘m\n` +
+          `• 1 ¥ (Yuan) ≈ 1 820 so‘m\n\n` +
+          `<i>(Aniq vazn bo‘yicha avtomatik hisoblash tez kunda ishga tushadi)</i>`,
+        {
+          keyboard: getHomeScreenKeyboard(telegramUserId),
+          resize_keyboard: true,
+        }
+      );
+      return true;
+    }
+
+    // 1.6. "🚫 Taqiqlangan yuklar"
+    if (
+      text === "🚫 Taqiqlangan yuklar" ||
+      text.toLowerCase().includes("taqiqlangan") ||
+      text.toLowerCase().includes("not allowed") ||
+      text === "/prohibited"
+    ) {
+      await sendTelegramMessage(
+        chatId,
+        `🚫 <b>Taqiqlangan yuklar ro‘yxati:</b> ⚠️\n\n` +
+          `Quyidagi tovarlarni Xitoydan olib kirish qat'iyan taqiqlanadi:\n` +
+          `❌ Qurol, pichoq va harbiy buyumlar\n` +
+          `❌ Yonuvchi gaz, aerozol, portlovchi moddalar\n` +
+          `❌ Giyohvand va psixotrop moddalar\n` +
+          `❌ Dronlar, maxfiy kameralar, GPS trekerlar\n` +
+          `❌ Dori vositalari va biologik preparatlar\n` +
+          `❌ O‘simlik, urug‘ va tirik jonivorlar\n` +
+          `❌ Qalbaki hujjat va pullar\n\n` +
+          `✅ <b>Ruxsat etilgan tovarlar:</b> Kiyim-kechak, poyabzal, sumkalar, maishiy buyumlar, telefon aksessuarlari va boshqalar.`,
+        {
+          keyboard: getHomeScreenKeyboard(telegramUserId),
+          resize_keyboard: true,
+        }
+      );
       return true;
     }
 
