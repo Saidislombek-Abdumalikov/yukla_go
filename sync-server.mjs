@@ -35,9 +35,86 @@ const defaultState = {
     sequentialLessons: true,
     dynamicWatermark: true,
     watermarkFormat: "id-brand",
+    b2KeyId: "",
+    b2AppKey: "",
+    b2Bucket: "",
+    b2Endpoint: "s3.us-west-004.backblazeb2.com",
   },
   progress: {},
 };
+
+// --- Backblaze B2 S3-Compatible SigV4 Presigner (Pure Node.js crypto, zero dependencies) ---
+function generateB2PresignedUrl({
+  endpoint,
+  region,
+  bucket,
+  keyId,
+  appKey,
+  key,
+  expiresIn = 7200,
+}) {
+  const cleanEndpoint = endpoint.replace(/^https?:\/\//, "").replace(/\/$/, "");
+  const inferredRegion = region || cleanEndpoint.split(".")[1] || "us-west-004";
+
+  const now = new Date();
+  const dateStr = now.toISOString().replace(/[:-]|\.\d{3}/g, "").slice(0, 8); // YYYYMMDD
+  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, ""); // YYYYMMDDTHHMMSSZ
+
+  const host = `${bucket}.${cleanEndpoint}`;
+  const credentialScope = `${dateStr}/${inferredRegion}/s3/aws4_request`;
+
+  const queryParams = {
+    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
+    "X-Amz-Credential": `${keyId}/${credentialScope}`,
+    "X-Amz-Date": amzDate,
+    "X-Amz-Expires": String(expiresIn),
+    "X-Amz-SignedHeaders": "host",
+  };
+
+  const canonicalQueryString = Object.keys(queryParams)
+    .sort()
+    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
+    .join("&");
+
+  const cleanKey = key.replace(/^\/+/, "");
+  const canonicalUri = `/${encodeURIComponent(cleanKey).replace(/%2F/g, "/")}`;
+  const canonicalHeaders = `host:${host}\n`;
+  const signedHeaders = "host";
+  const payloadHash = "UNSIGNED-PAYLOAD";
+
+  const canonicalRequest = [
+    "PUT",
+    canonicalUri,
+    canonicalQueryString,
+    canonicalHeaders,
+    signedHeaders,
+    payloadHash,
+  ].join("\n");
+
+  const hashedCanonicalRequest = crypto
+    .createHash("sha256")
+    .update(canonicalRequest, "utf8")
+    .digest("hex");
+
+  const stringToSign = [
+    "AWS4-HMAC-SHA256",
+    amzDate,
+    credentialScope,
+    hashedCanonicalRequest,
+  ].join("\n");
+
+  const kDate = crypto.createHmac("sha256", "AWS4" + appKey).update(dateStr).digest();
+  const kRegion = crypto.createHmac("sha256", kDate).update(inferredRegion).digest();
+  const kService = crypto.createHmac("sha256", kRegion).update("s3").digest();
+  const kSigning = crypto.createHmac("sha256", kService).update("aws4_request").digest();
+
+  const signature = crypto.createHmac("sha256", kSigning).update(stringToSign, "utf8").digest("hex");
+
+  const uploadUrl = `https://${host}${canonicalUri}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
+  const publicUrl = `https://${host}${canonicalUri}`;
+
+  return { uploadUrl, publicUrl, key: cleanKey };
+}
 
 let db = { ...defaultState };
 
@@ -525,6 +602,56 @@ const server = http.createServer(async (req, res) => {
       return;
     } catch (err) {
       console.error("Upload route error:", err);
+      return sendJson(res, 500, { success: false, error: err.message });
+    }
+  }
+
+  // 0.2 Backblaze B2 Presigned URL Endpoint (Direct Browser -> B2 Upload, Bypasses Vercel/Server limits)
+  if (pathname === "/api/b2/presign" && req.method === "GET") {
+    const rawName = url.searchParams.get("name") || `video_${Date.now()}.mp4`;
+    const cleanBaseName = path
+      .basename(decodeURIComponent(rawName))
+      .replace(/[^a-zA-Z0-9_.-]/g, "_");
+    const uniqueKey = `videos/${Date.now()}_${cleanBaseName}`;
+
+    // Read B2 configuration from settings or environment variables
+    const keyId = db.settings?.b2KeyId || process.env.B2_KEY_ID;
+    const appKey = db.settings?.b2AppKey || process.env.B2_APPLICATION_KEY;
+    const bucket = db.settings?.b2Bucket || process.env.B2_BUCKET_NAME;
+    const endpoint = (
+      db.settings?.b2Endpoint ||
+      process.env.B2_ENDPOINT ||
+      "s3.us-west-004.backblazeb2.com"
+    )
+      .replace(/^https?:\/\//, "")
+      .replace(/\/$/, "");
+
+    if (!keyId || !appKey || !bucket) {
+      return sendJson(res, 200, {
+        success: false,
+        configured: false,
+        error: "Backblaze B2 sozlanmagan. Admin panel sozlamalaridan B2 kalitlarini kiriting.",
+      });
+    }
+
+    try {
+      const presigned = generateB2PresignedUrl({
+        endpoint,
+        bucket,
+        keyId,
+        appKey,
+        key: uniqueKey,
+      });
+
+      return sendJson(res, 200, {
+        success: true,
+        configured: true,
+        uploadUrl: presigned.uploadUrl,
+        publicUrl: presigned.publicUrl,
+        key: presigned.key,
+      });
+    } catch (err) {
+      console.error("[B2 Presign Error]:", err);
       return sendJson(res, 500, { success: false, error: err.message });
     }
   }
