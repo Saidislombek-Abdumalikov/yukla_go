@@ -5,7 +5,7 @@
       "id": 1791305084906,
       "title": "Xitoydan tovar olib kelish asoslari",
       "description": "Boshlangich kurs",
-      "lessons": 1,
+      "lessons": 0,
       "users": 0,
       "completion": 0,
       "status": "Faol",
@@ -13,23 +13,7 @@
       "tone": "blue"
     }
   ],
-  "lessons": [
-    {
-      "id": 1791347626158,
-      "courseId": 1791305084906,
-      "title": "qwertyu",
-      "description": "",
-      "duration": "00:14",
-      "durationSeconds": 14,
-      "videoUrl": "https://dajlwaqoqcnwrrhyvmtw.supabase.co/storage/v1/object/public/videos/1791347605978_2025_02_09_21_08_IMG_5312.MP4",
-      "videoFormat": "shorts",
-      "status": "Faol",
-      "thumbnailUrl": "",
-      "color": "lesson-blue",
-      "viewers": 0,
-      "completion": 0
-    }
-  ],
+  "lessons": [],
   "settings": {
     "adminPassword": "admin",
     "defaultCompletionPercent": 95,

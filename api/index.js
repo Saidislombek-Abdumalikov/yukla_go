@@ -1017,7 +1017,13 @@ export default async function handler(req, res) {
     // 6. ADMIN LESSONS CRUD
     if (normalizedPath === "/api/lessons/add" && req.method === "POST") {
       const body = await parseBody();
-      const id = String(Date.now());
+      const id = String(body.id || Date.now());
+      const { data: countData } = await supabase
+        .from("academy_lessons")
+        .select("id")
+        .eq("course_id", String(body.courseId));
+      const nextOrder = (countData?.length || 0) + 1;
+
       await supabase.from("academy_lessons").insert({
         id,
         course_id: String(body.courseId),
@@ -1025,7 +1031,7 @@ export default async function handler(req, res) {
         description: body.description || "",
         youtube_video_id: body.videoUrl || "",
         duration_seconds: body.durationSeconds || 600,
-        order: 1,
+        order: body.order ? Number(body.order) : nextOrder,
       });
       return sendSafeJson(res, 200, { success: true, lessonId: id });
     }
