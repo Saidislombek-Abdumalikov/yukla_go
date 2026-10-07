@@ -60,8 +60,8 @@ async function sendTelegramMessage(chatId, text, replyMarkup, protectContent = f
 }
 
 async function sendTelegramVideo(chatId, video, caption, replyMarkup, protectContent = true) {
-  // Try sending native video with DRM protect_content
-  const sent = await callTelegram("sendVideo", {
+  // 1. Try sending native video with DRM protect_content
+  let sent = await callTelegram("sendVideo", {
     chat_id: chatId,
     video,
     caption,
@@ -70,17 +70,50 @@ async function sendTelegramVideo(chatId, video, caption, replyMarkup, protectCon
     protect_content: protectContent, // 🔒 NATIVE OS-LEVEL DRM
   });
 
-  if (!sent || !sent.ok) {
-    console.warn("sendVideo fallback to sendMessage:", sent?.description);
-    return await callTelegram("sendMessage", {
-      chat_id: chatId,
-      text: `${caption}\n\n🎥 <b>Video havolasi:</b>\n${video}`,
-      parse_mode: "HTML",
-      reply_markup: replyMarkup,
-      protect_content: protectContent,
-    });
+  if (sent && sent.ok) return sent;
+
+  console.warn("sendVideo direct param failed:", sent?.description);
+
+  // 2. If direct URL parameter failed, try uploading via multipart form data
+  if (typeof video === "string" && video.startsWith("http")) {
+    try {
+      console.log("Attempting multipart upload for video URL:", video);
+      const res = await fetch(video);
+      if (res.ok) {
+        const blob = await res.blob();
+        const formData = new FormData();
+        formData.append("chat_id", String(chatId));
+        formData.append("video", blob, "lesson.mp4");
+        if (caption) formData.append("caption", caption);
+        formData.append("parse_mode", "HTML");
+        if (replyMarkup) formData.append("reply_markup", JSON.stringify(replyMarkup));
+        if (protectContent) formData.append("protect_content", "true");
+
+        const token = getBotToken();
+        const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+          method: "POST",
+          body: formData,
+        });
+        sent = await tgRes.json();
+        if (sent && sent.ok) return sent;
+      }
+    } catch (mErr) {
+      console.error("Multipart video upload error:", mErr);
+    }
   }
-  return sent;
+
+  // 3. NEVER SEND VIDEO LINK. Send clean error message with retry options.
+  console.error("Failed to send video natively:", sent?.description);
+  return await callTelegram("sendMessage", {
+    chat_id: chatId,
+    text:
+      `${caption}\n\n` +
+      `⚠️ <b>Videoni yuklashda vaqtinchalik uzilish yuz berdi.</b>\n` +
+      `Iltimos, quyidagi tugma orqali qaytadan urinib ko‘ring yoki administratorga murojaat qiling.`,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    protect_content: protectContent,
+  });
 }
 
 async function answerTelegramCallbackQuery(callbackQueryId, text, showAlert = false) {
@@ -340,23 +373,33 @@ async function playLessonVideo(chatId, user, lessonId) {
 
   // Extract video URL / Telegram file_id
   let videoSource = lesson.youtube_video_id || "";
+  let videoFileId = null;
+  let videoUrl = "";
+
   try {
     if (videoSource.startsWith("{")) {
       const parsed = JSON.parse(videoSource);
-      videoSource = parsed.url || videoSource;
+      videoFileId = parsed.file_id || null;
+      videoUrl = parsed.url || "";
+    } else if (!videoSource.startsWith("http")) {
+      videoFileId = videoSource;
+    } else {
+      videoUrl = videoSource;
     }
   } catch {}
+
+  const videoToSend = videoFileId || videoUrl;
 
   const m = Math.floor((lesson.duration_seconds || 600) / 60);
   const s = (lesson.duration_seconds || 600) % 60;
   const durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 
   const buttons = [
-    [{ text: "✅ Darsni ko‘rib bo‘ldim (Tugatish)", callback_data: `finish_${lesson.id}` }],
-    [{ text: "📋 Darslar ro‘yxatiga qaytish", callback_data: `course_${lesson.course_id}` }],
+    [{ text: "✅ Tugatdim", callback_data: `finish_${lesson.id}` }],
+    [{ text: "📋 Darslar ro‘yxati", callback_data: `course_${lesson.course_id}` }],
   ];
 
-  if (!videoSource) {
+  if (!videoToSend) {
     await sendTelegramMessage(
       chatId,
       `🎬 <b>${lesson.title}</b>\n\nUshbu dars uchun video hali biriktirilmagan. Tez orada yuklanadi!`,
@@ -372,11 +415,34 @@ async function playLessonVideo(chatId, user, lessonId) {
     `🔒 <i>Xavfsizlik: Ushbu video himoyalangan. Saqlash, ulashish va ekran yozib olish (screen recording) bloklangan.</i>`;
 
   // Send protected video (DRM)
-  await sendTelegramVideo(chatId, videoSource, caption, { inline_keyboard: buttons }, true);
+  const sent = await sendTelegramVideo(chatId, videoToSend, caption, { inline_keyboard: buttons }, true);
+
+  // If new Telegram file_id was generated and not yet cached, save it in Supabase for fast delivery
+  if (sent && sent.ok && sent.result?.video?.file_id && !videoFileId) {
+    const newFileId = sent.result.video.file_id;
+    try {
+      let parsed = {};
+      try {
+        parsed = JSON.parse(lesson.youtube_video_id);
+      } catch {}
+      parsed.file_id = newFileId;
+      if (videoUrl && !parsed.url) parsed.url = videoUrl;
+      await supabase
+        .from("academy_lessons")
+        .update({ youtube_video_id: JSON.stringify(parsed) })
+        .eq("id", String(lesson.id));
+    } catch (e) {
+      console.warn("Failed to cache file_id:", e);
+    }
+  }
 }
 
-async function finishLesson(chatId, user, lessonId) {
+async function finishLesson(chatId, user, lessonId, callbackQueryId = null) {
   const supabase = getSupabase();
+
+  if (callbackQueryId) {
+    await answerTelegramCallbackQuery(callbackQueryId, "✅ Dars yakunlandi!");
+  }
 
   const { data: lesson } = await supabase
     .from("academy_lessons")
@@ -412,22 +478,18 @@ async function finishLesson(chatId, user, lessonId) {
   if (nextLesson) {
     await sendTelegramMessage(
       chatId,
-      `🎉 <b>Ajoyib, ${user.name}!</b>\n\n` +
+      `🎉 <b>Barakalla, ${user.name}!</b>\n\n` +
         `Siz <b>«${lesson.title}»</b> darsini muvaffaqiyatli yakunladingiz!\n\n` +
-        `Keyingi dars ochildi: <b>«${nextLesson.title}»</b> 👇`,
-      {
-        inline_keyboard: [
-          [{ text: `▶️ Keyingi dars: ${nextLesson.title}`, callback_data: `play_${nextLesson.id}` }],
-          [{ text: "📋 Darslar ro‘yxati", callback_data: `course_${lesson.course_id}` }],
-        ],
-      }
+        `Navbatdagi dars yuborilmoqda: <b>«${nextLesson.title}»</b> 🚀`
     );
+    // Directly send the next video lesson without waiting!
+    await playLessonVideo(chatId, user, nextLesson.id);
   } else {
     await sendTelegramMessage(
       chatId,
       `🏆 <b>TABRIKLAYMIZ, ${user.name}!</b>\n\n` +
-        `Siz kursdagi barcha darslarni to‘liq yakunladingiz! (100%)\n\n` +
-        `Bilimlaringizni amalda qo‘llashingizda muvaffaqiyat tilaymiz!`,
+        `Siz kursdagi barcha darslarni to‘liq yakunladingiz! 🎉 (100%)\n\n` +
+        `Bilimlaringizni amalda muvaffaqiyatli qo‘llashingizni tilaymiz!`,
       {
         inline_keyboard: [
           [{ text: "📋 Kurslar ro‘yxatiga qaytish", callback_data: "menu_courses" }],
@@ -484,6 +546,15 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
+    if (data.startsWith("locked_")) {
+      await answerTelegramCallbackQuery(
+        callbackQuery.id,
+        "🔒 Ushbu dars qulflangan! Avvalgi darsni yakunlang.",
+        true
+      );
+      return true;
+    }
+
     if (data.startsWith("play_")) {
       const lessonId = data.replace("play_", "");
       await playLessonVideo(chatId, user, lessonId);
@@ -492,7 +563,7 @@ async function processTelegramUpdate(update) {
 
     if (data.startsWith("finish_")) {
       const lessonId = data.replace("finish_", "");
-      await finishLesson(chatId, user, lessonId);
+      await finishLesson(chatId, user, lessonId, callbackQuery.id);
       return true;
     }
 
@@ -1263,30 +1334,35 @@ export default async function handler(req, res) {
       const lessonId = body.id || body.lessonId;
       if (lessonId) {
         let videoIdToSave = body.videoUrl;
+        const { data: cur } = await supabase
+          .from("academy_lessons")
+          .select("youtube_video_id")
+          .eq("id", String(lessonId))
+          .maybeSingle();
+
+        let curParsed = {};
+        try {
+          if (cur?.youtube_video_id?.startsWith("{")) {
+            curParsed = JSON.parse(cur.youtube_video_id);
+          }
+        } catch {}
+
         if (body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
+          const keepFileId = curParsed.url === body.videoUrl ? curParsed.file_id : undefined;
           videoIdToSave = JSON.stringify({
             url: body.videoUrl,
             format: body.videoFormat || "shorts",
             thumb: body.thumbnailUrl || "",
+            ...(keepFileId ? { file_id: keepFileId } : {}),
           });
         } else if (!body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
-          const { data: cur } = await supabase
-            .from("academy_lessons")
-            .select("youtube_video_id")
-            .eq("id", String(lessonId))
-            .maybeSingle();
-          let curRaw = cur?.youtube_video_id || "";
-          try {
-            if (curRaw.startsWith("{")) {
-              const p = JSON.parse(curRaw);
-              curRaw = p.url || curRaw;
-            }
-          } catch {}
+          let curRaw = curParsed.url || cur?.youtube_video_id || "";
           if (curRaw) {
             videoIdToSave = JSON.stringify({
               url: curRaw,
               format: body.videoFormat || "shorts",
               thumb: body.thumbnailUrl || "",
+              ...(curParsed.file_id ? { file_id: curParsed.file_id } : {}),
             });
           }
         }
