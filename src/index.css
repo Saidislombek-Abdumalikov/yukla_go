@@ -1604,64 +1604,36 @@ p {
   outline: none;
 }
 
-/* --- Modern Custom In-App Video Player (Pure Native HTML5 Video, Phone 9:16 & Wide 16:9) --- */
+/* --- Modern Custom In-App Video Player (Flexible Auto-Wrap Aspect Ratio, No Fixed Width) --- */
 .custom-video-player {
   position: relative;
   width: 100%;
+  max-width: 100%;
   background: #000000;
   overflow: hidden;
   user-select: none;
   -webkit-user-select: none;
   -webkit-touch-callout: none;
+  margin: 0 auto 16px auto;
+  border-radius: 18px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.08);
   transition: max-width 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease;
 }
 
-/* 9:16 Phone Mode: Full-bleed Immersive Mobile View (Zero Gaps, Reels / Shorts UX) */
-.screen.player-screen.screen-player-immersive {
-  width: 100%;
-  max-width: 480px;
-  height: 100vh;
-  height: 100dvh;
-  margin: 0 auto;
-  background: #000000;
-  position: fixed;
-  inset: 0;
-  z-index: 100;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.screen.player-screen.screen-player-immersive .custom-video-player.mode-phone {
-  width: 100%;
-  height: 100%;
+/* Flexible vertical video (e.g. 9:16 Reels/Shorts/Phone videos):
+   Covers all 4 sides with NO black bars or side gaps! */
+.custom-video-player.is-vertical-video:not(.is-fullscreen) {
+  max-height: 80vh;
+  width: fit-content;
   max-width: 100%;
-  max-height: 100%;
-  aspect-ratio: auto;
-  margin: 0;
-  border-radius: 0;
-  box-shadow: none;
-  flex: 1;
+  margin: 0 auto 20px auto;
 }
 
-/* Fallback non-immersive Phone Mode */
-.custom-video-player.mode-phone {
-  aspect-ratio: 9 / 16;
-  max-width: 420px;
-  max-height: 85vh;
-  margin: 0 auto;
-  border-radius: 20px;
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.65), 0 0 0 1px rgba(255, 255, 255, 0.08);
-}
-
-/* Wide Mode (16:9 Landscape / Desktop format) */
-.custom-video-player.mode-wide {
-  aspect-ratio: 16 / 9;
+/* Horizontal video (e.g. 16:9 Landscape) */
+.custom-video-player.is-horizontal-video:not(.is-fullscreen) {
+  width: 100%;
   max-width: 100%;
-  margin: 0 auto 16px auto;
-  border-radius: 18px;
-  box-shadow: 0 12px 36px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  margin: 0 auto 20px auto;
 }
 
 /* Fullscreen Immersive Mode (100% viewport on mobile & desktop) */
@@ -1683,18 +1655,7 @@ p {
   box-shadow: none !important;
 }
 
-.custom-video-player.is-fullscreen.mode-phone .custom-player-media-box {
-  width: 100%;
-  max-width: 56.25vh; /* 9:16 proportional in desktop fullscreen */
-  height: 100vh;
-}
-
-.custom-video-player.is-fullscreen.mode-wide .custom-player-media-box {
-  width: 100vw;
-  height: 100vh;
-}
-
-/* Media Box & Native Video Frame */
+/* Media Box & Native Video Frame: Hugs 100% of container */
 .custom-player-media-box {
   position: absolute;
   inset: 0;
@@ -1705,30 +1666,6 @@ p {
   align-items: center;
   justify-content: center;
   background: #000000;
-}
-
-/* Zero Gaps Phone Box: Fill Mode covers entire screen edge-to-edge with zero black gaps */
-.custom-player-media-box.phone-box.mode-fill .custom-player-native-video {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-}
-
-/* Fit Mode: keeps original aspect ratio */
-.custom-player-media-box.phone-box.mode-fit .custom-player-native-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
-}
-
-/* Wide Mode Media Box: 16:9 standard */
-.custom-player-media-box.wide-box .custom-player-native-video {
-  width: 100%;
-  height: 100%;
-  object-fit: contain;
-  display: block;
 }
 
 .custom-player-native-video {
@@ -1961,17 +1898,25 @@ p {
   transition: opacity 0.25s ease, transform 0.25s ease;
 }
 
-/* Controls Auto-Hide State */
-.custom-video-player.hide-controls:not(:hover) .player-overlay-top {
+/* Controls Auto-Hide State: EVERYTHING cleanly disappears when idle during playback so user can watch with full details */
+.custom-video-player.hide-controls {
+  cursor: none;
+}
+
+.custom-video-player.hide-controls .player-overlay-top {
   opacity: 0;
-  transform: translateY(-8px);
+  transform: translateY(-12px);
   pointer-events: none;
 }
 
-.custom-video-player.hide-controls:not(:hover) .player-overlay-bottom {
+.custom-video-player.hide-controls .player-overlay-bottom {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(12px);
   pointer-events: none;
+}
+
+.custom-video-player.hide-controls .dynamic-security-watermark {
+  opacity: 0.15;
 }
 
 /* Bottom Title Row in 9:16 Immersive mode */
@@ -2340,19 +2285,20 @@ p {
 /* Dynamic floating security watermark */
 .dynamic-security-watermark {
   position: absolute;
-  z-index: 22;
-  padding: 4px 10px;
+  z-index: 15;
+  padding: 3px 8px;
   border-radius: 6px;
-  background: rgba(15, 23, 42, 0.48);
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 11px;
+  background: rgba(15, 23, 42, 0.4);
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 10px;
   font-weight: 700;
   pointer-events: none;
   user-select: none;
   letter-spacing: 0.05em;
   backdrop-filter: blur(4px);
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
-  transition: top 3s ease-in-out, left 3s ease-in-out;
+  opacity: 0.5;
+  transition: top 3s ease-in-out, left 3s ease-in-out, opacity 0.3s ease;
 }
 
 /* Clean Modern Lesson Thumbnail Placeholder */

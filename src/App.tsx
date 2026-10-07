@@ -673,15 +673,13 @@ function VideoPlayer({
   hasNextLesson: boolean;
 }) {
 
-  // Default to 9:16 (Phone Mode) unless lesson is explicitly standard 16:9
-  const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">(() => {
-    if (lesson.videoFormat === "standard") return "16:9";
-    return "9:16";
-  });
-
-  // Fit mode: "fill" fills 9:16 screen completely without any gaps or letterboxing!
-  // "fit" fits the video inside the frame.
-  const [fitMode, setFitMode] = useState<"fill" | "fit">("fill");
+  // Dynamic video dimensions detected automatically from video metadata
+  const [videoDimensions, setVideoDimensions] = useState<{
+    width: number;
+    height: number;
+    aspectRatio: string;
+    isVertical: boolean;
+  } | null>(null);
 
   // Quality Control: default strictly to 720p HD minimum
   const [quality, setQuality] = useState<VideoQuality>("720p");
@@ -690,9 +688,6 @@ function VideoPlayer({
   // Double-tap splash indicator
   const [doubleTapSplash, setDoubleTapSplash] = useState<"-10s" | "+10s" | null>(null);
   const splashTimerRef = useRef<number | undefined>(undefined);
-
-  // Expandable description sheet in 9:16 phone mode
-  const [infoDrawerOpen, setInfoDrawerOpen] = useState(false);
 
   const total = lesson.durationSeconds || 600;
   const [duration, setDuration] = useState(total);
@@ -721,7 +716,7 @@ function VideoPlayer({
   maxWatchedRef.current = maxWatched;
   completedRef.current = completed;
 
-  // Auto-hide controls after 3.2s of playback
+  // Auto-hide controls after 2.6s of idle playback
   const showControlsTemporarily = () => {
     setControlsVisible(true);
     if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
@@ -729,9 +724,18 @@ function VideoPlayer({
       controlsTimeoutRef.current = window.setTimeout(() => {
         setControlsVisible(false);
         setQualityMenuOpen(false);
-      }, 3400);
+      }, 2600);
     }
   };
+
+  useEffect(() => {
+    if (playing) {
+      showControlsTemporarily();
+    } else {
+      setControlsVisible(true);
+      if (controlsTimeoutRef.current) window.clearTimeout(controlsTimeoutRef.current);
+    }
+  }, [playing]);
 
   const showScrubWarning = () => {
     setScrubNotice(true);
@@ -978,9 +982,9 @@ function VideoPlayer({
   const qualityLabel = quality === "1080p" ? "1080p HD" : quality === "720p" ? "720p HD" : quality === "480p" ? "480p" : "Avto";
 
   return (
-    <main className={`screen player-screen ${isPhoneMode ? "screen-player-immersive" : ""}`}>
-      {/* Top Header (Visible only in 16:9 Wide mode; in 9:16 mode header is overlaid directly on video) */}
-      {!isPhoneMode && (
+    <main className="screen player-screen">
+      {/* Top Header outside player (Visible when not in fullscreen) */}
+      {!isFullscreen && (
         <div className="player-header">
           <button aria-label="Orqaga" className="icon-button" onClick={onBack}>
             <Icon name="arrow-left" />
@@ -994,7 +998,8 @@ function VideoPlayer({
       {lesson.videoUrl ? (
         <div
           ref={containerRef}
-          className={`custom-video-player ${isPhoneMode ? "mode-phone" : "mode-wide"} ${isFullscreen ? "is-fullscreen" : ""} ${!controlsVisible && playing ? "hide-controls" : ""}`}
+          className={`custom-video-player ${videoDimensions?.isVertical ? "is-vertical-video" : "is-horizontal-video"} ${isFullscreen ? "is-fullscreen" : ""} ${!controlsVisible && playing ? "hide-controls" : ""}`}
+          style={!isFullscreen && videoDimensions ? { aspectRatio: videoDimensions.aspectRatio } : undefined}
           onMouseMove={showControlsTemporarily}
           onTouchStart={showControlsTemporarily}
           onContextMenu={(e) => e.preventDefault()}
@@ -1002,50 +1007,28 @@ function VideoPlayer({
           {/* Top Bar Overlay */}
           <div className="player-overlay-top">
             <div className="player-top-left">
-              {isPhoneMode && (
-                <button
-                  type="button"
-                  className="player-back-pill"
-                  onClick={onBack}
-                  title="Darslarga qaytish"
-                >
-                  <Icon name="arrow-left" size={16} />
-                  <span>Darslar</span>
-                </button>
-              )}
+              <button
+                type="button"
+                className="player-back-pill"
+                onClick={onBack}
+                title="Darslarga qaytish"
+              >
+                <Icon name="arrow-left" size={16} />
+                <span>Darslar</span>
+              </button>
               <span className="player-lesson-badge">
                 {lessonIndex + 1}-dars
               </span>
-              <button
-                type="button"
-                className="player-pill-btn active"
-                onClick={() => setAspectRatio((prev) => (prev === "9:16" ? "16:9" : "9:16"))}
-                title="Formatni o‘zgartirish (9:16 Telefon / 16:9 Keng)"
-              >
-                {aspectRatio === "9:16" ? "📱 9:16" : "💻 16:9"}
-              </button>
             </div>
 
             <div className="player-top-right">
-              {/* Fill / Fit Mode Toggle (Eliminates black pillarbox gaps in 9:16) */}
-              {isPhoneMode && (
-                <button
-                  type="button"
-                  className={`player-pill-btn ${fitMode === "fill" ? "active-gold" : ""}`}
-                  onClick={() => setFitMode((prev) => (prev === "fill" ? "fit" : "fill"))}
-                  title={fitMode === "fill" ? "Moslash (Asl o‘lcham)" : "To‘ldirish (Bo‘shliqsiz to‘liq ekran)"}
-                >
-                  {fitMode === "fill" ? "⛶ To‘ldirish" : "↔ Moslash"}
-                </button>
-              )}
-
-              {/* Quality Selector (At least 720p HD & Changeable) */}
+              {/* Quality Selector */}
               <div className="player-quality-wrapper">
                 <button
                   type="button"
                   className="player-pill-btn quality-pill"
                   onClick={() => setQualityMenuOpen((prev) => !prev)}
-                  title="Video sifati (At least 720p HD)"
+                  title="Video sifati"
                 >
                   <Icon name="settings" size={14} />
                   <span>{qualityLabel}</span>
@@ -1099,21 +1082,11 @@ function VideoPlayer({
               >
                 {speed}x
               </button>
-
-              {/* Fullscreen Button */}
-              <button
-                type="button"
-                className="player-icon-btn"
-                onClick={toggleFullscreen}
-                title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
-              >
-                <Icon name={isFullscreen ? "minimize" : "maximize"} size={18} />
-              </button>
             </div>
           </div>
 
           {/* Media Box: 100% Native HTML5 Video Player */}
-          <div className={`custom-player-media-box ${isPhoneMode ? `phone-box mode-${fitMode}` : "wide-box"}`}>
+          <div className="custom-player-media-box">
             <video
               ref={videoRef}
               src={lesson.videoUrl}
@@ -1125,6 +1098,16 @@ function VideoPlayer({
                 if (d > 0 && !isNaN(d)) setDuration(d);
                 if (initialPosition > 0) {
                   e.currentTarget.currentTime = initialPosition;
+                }
+                const w = e.currentTarget.videoWidth;
+                const h = e.currentTarget.videoHeight;
+                if (w > 0 && h > 0) {
+                  setVideoDimensions({
+                    width: w,
+                    height: h,
+                    aspectRatio: `${w} / ${h}`,
+                    isVertical: h > w,
+                  });
                 }
               }}
               onTimeUpdate={(e) => {
@@ -1180,30 +1163,6 @@ function VideoPlayer({
 
           {/* Bottom Controls Overlay */}
           <div className="player-overlay-bottom">
-            {/* In 9:16 mode: Title and info trigger */}
-            {isPhoneMode && (
-              <div className="player-bottom-title-row">
-                <div className="player-bottom-title-info">
-                  <h2 className="player-overlay-title">{lesson.title}</h2>
-                  {lesson.description && (
-                    <button
-                      type="button"
-                      className="player-info-trigger-btn"
-                      onClick={() => setInfoDrawerOpen(true)}
-                    >
-                      📖 Dars haqida
-                    </button>
-                  )}
-                </div>
-                {completed && (
-                  <span className="player-completed-chip">
-                    <Icon name="check" size={14} />
-                    <span>Tugallangan</span>
-                  </span>
-                )}
-              </div>
-            )}
-
             {/* Scrubber Progress Bar */}
             <div
               ref={scrubberTrackRef}
@@ -1272,47 +1231,18 @@ function VideoPlayer({
                     <Icon name="chevron" size={16} />
                   </button>
                 )}
-                {!isPhoneMode && (
-                  <button
-                    type="button"
-                    className="player-icon-btn"
-                    onClick={toggleFullscreen}
-                    title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
-                  >
-                    <Icon name={isFullscreen ? "minimize" : "maximize"} size={20} />
-                  </button>
-                )}
+                {/* Single, clean Fullscreen button */}
+                <button
+                  type="button"
+                  className="player-icon-btn"
+                  onClick={toggleFullscreen}
+                  title={isFullscreen ? "Kichraytirish" : "To‘liq ekran (Fullscreen)"}
+                >
+                  <Icon name={isFullscreen ? "minimize" : "maximize"} size={20} />
+                </button>
               </div>
             </div>
           </div>
-
-          {/* Slide-up Info Drawer in 9:16 mode */}
-          {infoDrawerOpen && (
-            <div className="player-info-drawer">
-              <div className="info-drawer-header">
-                <h3>{lesson.title}</h3>
-                <button
-                  type="button"
-                  className="info-drawer-close"
-                  onClick={() => setInfoDrawerOpen(false)}
-                >
-                  <Icon name="close" size={18} />
-                </button>
-              </div>
-              <p className="info-drawer-body">
-                {lesson.description || "Ushbu dars uchun qo‘shimcha tavsif kiritilmagan."}
-              </p>
-              <div className="info-drawer-footer">
-                <button
-                  type="button"
-                  className="player-pill-btn active"
-                  onClick={() => setInfoDrawerOpen(false)}
-                >
-                  Tushunarli
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       ) : (
         <div className="video-frame no-video-notice-box">
@@ -1323,8 +1253,8 @@ function VideoPlayer({
         </div>
       )}
 
-      {/* Lesson Details & Completion Section (Shown only in 16:9 Wide mode) */}
-      {!isPhoneMode && (
+      {/* Lesson Details & Completion Section (Shown when not in fullscreen) */}
+      {!isFullscreen && (
         <section className="lesson-detail">
           <div className="lesson-header-flex">
             <div>
