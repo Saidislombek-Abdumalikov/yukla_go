@@ -35,6 +35,7 @@ const CACHE_TTL_MS = 60 * 1000; // 60s TTL
 const userCache = new Map(); // tgId -> { user, time }
 const accessCache = new Map(); // `${userId}_${courseId}` -> { hasAccess, time }
 const userContext = new Map(); // userId -> { currentCourseId, lastLessonId, lastActionTime }
+const registrationState = new Map(); // tgId -> { step, data }
 
 function invalidateCatalogCache() {
   cachedCourses = null;
@@ -110,6 +111,23 @@ function isAdmin(telegramUserId) {
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isInteger(n) && n > 0);
   return ADMIN_TELEGRAM_IDS.includes(id) || envAdmins.includes(id);
+}
+
+async function getUserPendingApplication(supabase, telegramUserId) {
+  if (!telegramUserId) return null;
+  const { data } = await supabase
+    .from("admin_audit_logs")
+    .select("*")
+    .eq("action", "registration_request")
+    .eq("entity_id", String(telegramUserId))
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (data && data.details && data.details.status === "pending") {
+    return data;
+  }
+  return null;
 }
 
 // --- Telegram API Utilities (Persistent HTTP Keep-Alive) ---
@@ -307,14 +325,455 @@ async function findUserByAnyId(supabase, uid) {
 // --- Bot Menus & Action Handlers ---
 function getHomeScreenKeyboard(telegramUserId = null) {
   const keyboard = [
-    ["🆔 Ro‘yxatdan o‘tish", "📍 Xitoy manzili"],
-    ["🧮 Kalkulyator", "🚫 Taqiqlangan yuklar"],
+    ["🆔 Id Ko'd olish", "📍 Xitoy manzili"],
+    ["💰 Kargo narxlari", "🚫 Taqiqlangan yuklar"],
     ["🎬 Video darslar", "👤 Profilim"],
   ];
   if (isAdmin(telegramUserId)) {
     keyboard.push(["⚙️ Admin"]);
   }
   return keyboard;
+}
+
+async function handleIdKodOlish(chatId, user, telegramUserId) {
+  const supabase = getSupabase();
+
+  // 1. Check if user is already approved
+  if (user?.onboarding_completed && user?.customer_code && !user.customer_code.startsWith("YK_PENDING_")) {
+    const code = user.customer_code;
+    const text =
+      `✅ <b>Tabriklaymiz! Tizimda muvaffaqiyatli ro'yxatdan o'tdingiz!</b>\n` +
+      `🆔 <b>Sizning ID kodingiz:</b> <code>${code}</code>\n\n` +
+      `🇨🇳 <b>Xitoydagi ombor manzillari:</b>\n` +
+      `🚚 <b>AVTO KARGO:</b>\n` +
+      `收货人: <code>真${code}</code>\n` +
+      `手机号码: <code>18922155990</code>\n` +
+      `详细地址: <code>广州市白云区龙归街道南村三姓十巷3号一楼档口 ${code}</code>\n\n` +
+      `‼️ <b>SKLAD KIRGIZGANINGIZDAN SO'NG SKRINSHOTINI TASHLAB BERING!</b>\n` +
+      `Sklad kiritib va tekshirtirmay zakaz qilsangiz, u holatda biz yukingizga javob bermaymiz.\n\n` +
+      `🔗 Endi siz ushbu ID kodni adminga skrinshot qilib ko'rsatishingiz zarur (@AbdumalikovSaidislombek).`;
+
+    await sendTelegramMessage(chatId, text, {
+      keyboard: getHomeScreenKeyboard(telegramUserId),
+      resize_keyboard: true,
+    });
+    return;
+  }
+
+  // 2. Check if user application is pending
+  const pendingApp = await getUserPendingApplication(supabase, telegramUserId);
+  if (pendingApp) {
+    await sendTelegramMessage(
+      chatId,
+      `⏳ <b>Arizangiz ko'rib chiqilmoqda.</b> Iltimos, admin javobini kuting.`,
+      {
+        keyboard: getHomeScreenKeyboard(telegramUserId),
+        resize_keyboard: true,
+      }
+    );
+    return;
+  }
+
+  // 3. Start registration flow
+  registrationState.set(Number(telegramUserId), {
+    step: "reg_terms",
+    data: {},
+  });
+
+  const introText =
+    `Bizning mijozimizga aylanish uchun avval <b>Ishlash shartlari va qo'shimcha ma'lumotlar</b> bilan tanishib chiqing, to'g'ri kelsa ro'yxatdan o'ting!\n\n` +
+    `Agar tushunmasangiz admin bilan bog'laning: @AbdumalikovSaidislombek`;
+
+  await sendTelegramMessage(chatId, introText, {
+    keyboard: [
+      ["📋 Ma'lumot va shartlar"],
+      ["🏠 Asosiy menyu"],
+    ],
+    resize_keyboard: true,
+  });
+}
+
+async function handleKargoNarxlari(chatId, telegramUserId) {
+  const text =
+    `🚚 <b>AVTO KARGO TARIFLARI</b> 📦\n\n` +
+    `🕒 <b>Yetkazish muddati:</b> 10–18 kun\n` +
+    `⚖️ <b>MINIMALKA:</b> 100 GRAMM\n\n` +
+    `💵 <b>KARGO NARXLARI AVTO:</b>\n` +
+    `Har bir reysda kelgan yukingiz uchun:\n` +
+    `📦 Oddiy yuklar uchun: <b>7$</b> Kilosiga\n` +
+    `👕 BRAND buyumlar: <b>8$</b>\n` +
+    `📤 GABARIT: <b>8$ – 10$</b>\n` +
+    `✅ Seriya urish — xohlaganingizcha (cheksiz)\n` +
+    `❌ Pasport limiti umuman yo'q!\n\n` +
+    `⚖️ Yaxlit tijorat yuklari, zapchast, kiyim seriya yuklariga mahsulot turi hajmiga qarab kelishtirilgan tariflarda yetkazib beramiz: @AbdumalikovSaidislombek\n\n` +
+    `‼️ <b>MUHIM:</b>\n` +
+    `Yukingiz O'zbekistonga yetib kelgandan keyin omborda bepul saqlash kuni — <b>3 kun</b>.\n` +
+    `3 kundan keyin kunlik 2$ jarima qo'shiladi. 5 kundan keyin yuk musodara qilinadi.\n\n` +
+    `📦 <b>YETKAZIB BERISH XIZMATI:</b>\n` +
+    `Viloyatdagi mijozlarimiz yuklarini UZPOST pochtasi orqali yetkazib beramiz.\n` +
+    `Bir jo'natma uchun 10 000 so'm to'lovi mavjud. Agar yukingiz 10 kg dan oshsa uyingizgacha bepul yetkaziladi.`;
+
+  await sendTelegramMessage(chatId, text, {
+    keyboard: getHomeScreenKeyboard(telegramUserId),
+    resize_keyboard: true,
+  });
+}
+
+async function handleTaqiqlanganYuklar(chatId, telegramUserId) {
+  const text =
+    `‼️ <b>AVTO YO'NALISHIDA TAQIQLANADI</b> ‼️\n\n` +
+    `💍 Tilla va kumush buyumlari\n` +
+    `📲 Ommaviy axborot vositalari (telefon, kompyuter, televizor, fleshka) va ularning zapchastlari\n` +
+    `‼️ Sinuvchi har qanday buyum\n` +
+    `🧯 Yonuvchan va portlovchi mahsulotlar\n` +
+    `🍴 Oziq-ovqat mahsulotlari\n` +
+    `💉 Meditsinaga bog'liq tovarlar (dori-darmon, med texnikalar)\n` +
+    `❌ Linzalar, tirik o'simlik va hayvonlar\n` +
+    `🙅‍♂️ Odam sog'lig'iga ziyon beruvchi buyumlar\n` +
+    `🪹 Urug' va ko'chatlar\n` +
+    `🔞 18+ va fahshni targ'ib qiluvchi buyumlar\n\n` +
+    `Yuqorida ta'kidlangan narsa va buyumlarni biz olib kirmaymiz!\n` +
+    `Taqiqlangan buyum sotib olib qo'ysangiz, omborda 7 kun saqlanadi va undan keyin javobgarlik olinmaydi!`;
+
+  await sendTelegramMessage(chatId, text, {
+    keyboard: getHomeScreenKeyboard(telegramUserId),
+    resize_keyboard: true,
+  });
+}
+
+async function handleXitoyManzili(chatId, user, telegramUserId) {
+  const isApproved = user?.onboarding_completed && user?.customer_code && !user.customer_code.startsWith("YK_PENDING_");
+  const code = isApproved ? user.customer_code : "[ID-KODINGIZ]";
+
+  let text =
+    `🇨🇳 <b>Yukla Go — Xitoy ombor manzili:</b>\n\n` +
+    `🚚 <b>AVTO KARGO:</b>\n` +
+    `收货人: <code>真${code}</code>\n` +
+    `手机号码: <code>18922155990</code>\n` +
+    `所在地区: <code>广东省 广州市 白云区</code>\n` +
+    `详细地址: <code>广州市白云区龙归街道南村三姓十巷3号一楼档口 ${code}</code>\n\n` +
+    `💡 <i>Nusxa olish uchun har bir qator ustiga bosing (copy).</i>\n\n` +
+    `‼️ <b>SKLAD KIRGIZGANINGIZDAN SO'NG SKRINSHOTINI TASHLAB BERING!</b>\n` +
+    `Sklad kiritib va tekshirtirmay zakaz qilsangiz, u holatda biz yukingizga javob bermaymiz.`;
+
+  if (!isApproved) {
+    text += `\n\n⚠️ <b>Diqqat:</b> Xitoydan buyurtma berishdan avval «🆔 Id Ko'd olish» bo‘limidan ro‘yxatdan o‘tib, o‘z shaxsiy ID kodingizni oling!`;
+  }
+
+  await sendTelegramMessage(chatId, text, {
+    keyboard: getHomeScreenKeyboard(telegramUserId),
+    resize_keyboard: true,
+  });
+}
+
+async function handleProfilim(chatId, user, telegramUserId) {
+  const isApproved = user?.onboarding_completed && user?.customer_code && !user.customer_code.startsWith("YK_PENDING_");
+  const supabase = getSupabase();
+  const granted = user?.id ? await getGrantedCourses(supabase, user.id) : [];
+  const isPrem = granted.length > 0;
+
+  const text =
+    `👤 <b>Shaxsiy kabinet:</b>\n\n` +
+    `🆔 <b>ID kod:</b> <code>${isApproved ? user.customer_code : "Tasdiqlanmagan"}</code>\n` +
+    `👤 <b>Ism:</b> ${user?.name || "Mijoz"}\n` +
+    `📱 <b>Telefon:</b> <code>${user?.phone || "Kiritilmagan"}</code>\n` +
+    `💎 <b>Video darslar:</b> ${isPrem ? "✅ Premium faol" : "⏳ Oddiy"}`;
+
+  await sendTelegramMessage(chatId, text, {
+    keyboard: getHomeScreenKeyboard(telegramUserId),
+    resize_keyboard: true,
+  });
+}
+
+async function submitRegistrationApplication(chatId, user, telegramUserId, data) {
+  const supabase = getSupabase();
+
+  await supabase
+    .from("admin_audit_logs")
+    .insert({
+      admin_telegram_id: Number(telegramUserId),
+      action: "registration_request",
+      entity_type: "user_registration",
+      entity_id: String(telegramUserId),
+      details: {
+        ...data,
+        status: "pending",
+        submitted_at: new Date().toISOString(),
+      },
+    });
+
+  await sendTelegramMessage(
+    chatId,
+    `✅ <b>Arizangiz qabul qilindi!</b> Admin ko'rib chiqgandan so'ng javob olasiz.`,
+    {
+      keyboard: getHomeScreenKeyboard(telegramUserId),
+      resize_keyboard: true,
+    }
+  );
+
+  const adminSummary =
+    `🆕 <b>YANGI MIJOZ RO'YXATDAN O'TDI!</b> 🪪\n\n` +
+    `👤 <b>F.I.SH:</b> ${data.first_name || ""} ${data.last_name || ""}\n` +
+    `📍 <b>Hudud:</b> ${data.region || ""}\n` +
+    `📱 <b>Asosiy tel:</b> <code>${data.phone || ""}</code>\n` +
+    `📱 <b>Qo'shimcha tel:</b> <code>${data.extra_phone || ""}</code>\n` +
+    `🪪 <b>Pasport seriya:</b> <code>${data.passport_series || ""}</code>\n` +
+    `🔢 <b>JSHSHIR:</b> <code>${data.pinfl || ""}</code>\n` +
+    `📍 <b>Prapiska:</b> ${data.address || ""}\n` +
+    `💬 <b>Telegram ID:</b> <code>${telegramUserId}</code>`;
+
+  for (const adminId of ADMIN_TELEGRAM_IDS) {
+    if (data.photo_front) {
+      await callTelegram("sendPhoto", {
+        chat_id: adminId,
+        photo: data.photo_front,
+        caption: `🪪 <b>Pasport old tarafi (1/2)</b>\n\n${adminSummary}`,
+        parse_mode: "HTML",
+      });
+    }
+
+    if (data.photo_back) {
+      await callTelegram("sendPhoto", {
+        chat_id: adminId,
+        photo: data.photo_back,
+        caption: `🪪 <b>Pasport orqa tarafi (2/2)</b>\n\n👤 ${data.first_name} ${data.last_name}`,
+        parse_mode: "HTML",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ Tasdiqlash (ID berish)", callback_data: `appr_reg_${telegramUserId}` },
+              { text: "❌ Rad etish", callback_data: `rej_reg_${telegramUserId}` },
+            ],
+          ],
+        },
+      });
+    } else {
+      await sendTelegramMessage(
+        adminId,
+        adminSummary,
+        {
+          inline_keyboard: [
+            [
+              { text: "✅ Tasdiqlash (ID berish)", callback_data: `appr_reg_${telegramUserId}` },
+              { text: "❌ Rad etish", callback_data: `rej_reg_${telegramUserId}` },
+            ],
+          ],
+        }
+      );
+    }
+  }
+}
+
+async function handleRegistrationStep(chatId, user, telegramUserId, text, reg, from) {
+  if (reg.step === "reg_terms") {
+    if (text === "📋 Ma'lumot va shartlar" || text.toLowerCase().includes("shart")) {
+      const termsText =
+        `🚚 <b>AVTO KARGO TARIFLARI VA SHARTLARI</b> 📦\n\n` +
+        `🕒 <b>Yetkazish muddati:</b> 10–18 kun\n` +
+        `⚖️ <b>MINIMALKA:</b> 100 GRAMM\n\n` +
+        `💵 <b>KARGO TARIFLARI (AVTO):</b>\n` +
+        `📦 Oddiy yuklar uchun: <b>7$</b> Kilosiga\n` +
+        `👕 BRAND buyumlar: <b>8$</b>\n` +
+        `📤 GABARIT: <b>8$ – 10$</b>\n` +
+        `✅ Seriya urish — cheksiz!\n` +
+        `❌ Pasport limiti umuman yo'q!\n\n` +
+        `‼️ <b>AVTO YO'NALISHIDA TAQIQLANADI:</b>\n` +
+        `💍 Tilla va kumush buyumlari\n` +
+        `📲 Telefon, kompyuter, televizor, fleshka\n` +
+        `‼️ Sinuvchi har qanday buyum\n` +
+        `🧯 Yonuvchan va portlovchi mahsulotlar\n` +
+        `🍴 Oziq-ovqat mahsulotlari\n` +
+        `💉 Meditsinaga bog'liq tovarlar (dori-darmon, med texnikalar)\n` +
+        `❌ Linzalar, tirik o'simlik va hayvonlar\n` +
+        `🔞 18+ va fahshni targ'ib qiluvchi buyumlar\n\n` +
+        `‼️ <b>MUHIM:</b>\n` +
+        `Yukingiz O'zbekistonga yetib kelgandan keyin omborda bepul saqlash kuni — <b>3 kun</b>.\n` +
+        `3 kundan keyin kunlik 2$ jarima qo'shiladi. 5 kundan keyin yuk musodara qilinadi.\n\n` +
+        `📦 <b>YETKAZIB BERISH XIZMATI:</b>\n` +
+        `Viloyatdagi mijozlarimiz yuklarini UZPOST pochtasi orqali yetkazib beramiz.\n` +
+        `Bir jo'natma uchun 10 000 so'm to'lovi mavjud. Agar yukingiz 10 kg dan oshsa uyingizgacha bepul yetkaziladi.\n\n` +
+        `Quyidagi shartnomani to'liq o'qib chiqing va rozi bo'lsangiz tasdiqlang:\n` +
+        `https://telegra.ph/Shartnoma-04-05-2`;
+
+      reg.step = "reg_offer";
+      await sendTelegramMessage(chatId, termsText, {
+        keyboard: [
+          ["✅ Roziman"],
+          ["🏠 Asosiy menyu"],
+        ],
+        resize_keyboard: true,
+      });
+      return true;
+    }
+  }
+
+  if (reg.step === "reg_offer") {
+    if (text === "✅ Roziman" || text.toLowerCase().includes("roziman")) {
+      reg.step = "reg_region";
+      await sendTelegramMessage(chatId, `📍 <b>Siz qayerda yashaysiz?</b>`, {
+        keyboard: [
+          ["🏙 Toshkent shahri", "🌍 Viloyat"],
+          ["🏠 Asosiy menyu"],
+        ],
+        resize_keyboard: true,
+      });
+      return true;
+    }
+  }
+
+  if (reg.step === "reg_region") {
+    reg.data.region = text.includes("Toshkent") ? "Toshkent shahri" : "Viloyat";
+    reg.step = "reg_phone";
+    await sendTelegramMessage(
+      chatId,
+      `📱 <b>Telefon raqamingizni yuboring.</b>\n\nQuyidagi tugmani bosing yoki <code>+998XXXXXXXXX</code> shaklida yozing.`,
+      {
+        keyboard: [
+          [{ text: "📱 Telefon raqamimni yuborish", request_contact: true }],
+          ["🏠 Asosiy menyu"],
+        ],
+        resize_keyboard: true,
+      }
+    );
+    return true;
+  }
+
+  if (reg.step === "reg_phone") {
+    let p = text.replace(/[\s-]/g, "");
+    if (!p.startsWith("+") && p.startsWith("998")) p = `+${p}`;
+    else if (!p.startsWith("+") && p.length === 9) p = `+998${p}`;
+    reg.data.phone = p;
+    reg.step = "reg_extra_phone";
+    await sendTelegramMessage(
+      chatId,
+      `📱 <b>Qo'shimcha telefon raqamingizni kiriting:</b>\n\n` +
+        `Ushbu raqam birinchi raqamdan farqli bo'lishi kerak.\n` +
+        `Format: <code>+998XXXXXXXXX</code>`,
+      {
+        keyboard: [["🏠 Asosiy menyu"]],
+        resize_keyboard: true,
+      }
+    );
+    return true;
+  }
+
+  if (reg.step === "reg_extra_phone") {
+    let p2 = text.replace(/[\s-]/g, "");
+    if (!p2.startsWith("+") && p2.startsWith("998")) p2 = `+${p2}`;
+    else if (!p2.startsWith("+") && p2.length === 9) p2 = `+998${p2}`;
+    reg.data.extra_phone = p2;
+    reg.step = "reg_first_name";
+    await sendTelegramMessage(chatId, `👤 <b>Ismingizni kiriting:</b>`, {
+      keyboard: [["🏠 Asosiy menyu"]],
+      resize_keyboard: true,
+    });
+    return true;
+  }
+
+  if (reg.step === "reg_first_name") {
+    reg.data.first_name = text.trim();
+    reg.step = "reg_last_name";
+    await sendTelegramMessage(chatId, `👤 <b>Familiyangizni kiriting:</b>`, {
+      keyboard: [["🏠 Asosiy menyu"]],
+      resize_keyboard: true,
+    });
+    return true;
+  }
+
+  if (reg.step === "reg_last_name") {
+    reg.data.last_name = text.trim();
+    reg.step = "reg_passport";
+    await sendTelegramMessage(
+      chatId,
+      `🪪 <b>Passport seriya raqamingizni kiriting:</b>\n\n` +
+        `Namuna: <code>AA0000001</code> (yoki ID karta)\n\n` +
+        `❗️<i>Eslatma: Hurmatli mijoz, agar passport yoki ID kartadagi seriya raqamingizni kiritmasangiz, sizning so'rovingiz bekor qilinishi mumkin!</i>`,
+      {
+        keyboard: [["🏠 Asosiy menyu"]],
+        resize_keyboard: true,
+      }
+    );
+    return true;
+  }
+
+  if (reg.step === "reg_passport") {
+    reg.data.passport_series = text.trim().toUpperCase();
+    reg.step = "reg_pinfl";
+    await sendTelegramMessage(
+      chatId,
+      `🪪 <b>Passport JShShIR(PINFL) raqamingizni kiriting:</b>\n\n` +
+        `Namuna: <code>30101800050014</code>\n\n` +
+        `❗️<i>Eslatma: Hurmatli mijoz, passport yoki ID kartadagi 14 xonali JShShIR raqamingizni kiriting!</i>`,
+      {
+        keyboard: [["🏠 Asosiy menyu"]],
+        resize_keyboard: true,
+      }
+    );
+    return true;
+  }
+
+  if (reg.step === "reg_pinfl") {
+    reg.data.pinfl = text.trim();
+    reg.step = "reg_address";
+    await sendTelegramMessage(
+      chatId,
+      `📍 <b>PRAPISKADAGI Yashash manzilingizni to'liq va to'g'ri kiriting:</b>\n\n` +
+        `Namuna: <i>Toshkent shahri, Yunusobod tumani 10-kvartal, 65/4/45</i>`,
+      {
+        keyboard: [["🏠 Asosiy menyu"]],
+        resize_keyboard: true,
+      }
+    );
+    return true;
+  }
+
+  if (reg.step === "reg_address") {
+    reg.data.address = text.trim();
+    reg.step = "reg_photo_front";
+    await sendTelegramMessage(
+      chatId,
+      `🪪 <b>Passportingizni old tarafini yuklang (rasm yuboring 📸):</b>\n\n` +
+        `‼️<i>Eslatma: Faqat O'zbekiston respublikasi biometrik passporti yoki ID Kartasi bo'lishi shart!</i>`,
+      {
+        keyboard: [["🏠 Asosiy menyu"]],
+        resize_keyboard: true,
+      }
+    );
+    return true;
+  }
+
+  if (reg.step === "reg_photo_front") {
+    await sendTelegramMessage(chatId, `Iltimos, passportingizning old tarafi rasmini yuboring 📸`);
+    return true;
+  }
+
+  if (reg.step === "reg_photo_back") {
+    await sendTelegramMessage(chatId, `Iltimos, passportingizning orqa tarafi rasmini yuboring 📸`);
+    return true;
+  }
+
+  if (reg.step === "reg_confirm") {
+    if (text === "🔄 Qaytadan kiritish" || text.toLowerCase().includes("qaytadan")) {
+      reg.step = "reg_region";
+      reg.data = {};
+      await sendTelegramMessage(chatId, `📍 <b>Siz qayerda yashaysiz?</b>`, {
+        keyboard: [
+          ["🏙 Toshkent shahri", "🌍 Viloyat"],
+          ["🏠 Asosiy menyu"],
+        ],
+        resize_keyboard: true,
+      });
+      return true;
+    }
+
+    if (text === "✅ Tasdiqlash" || text.toLowerCase().includes("tasdiqlash")) {
+      await submitRegistrationApplication(chatId, user, telegramUserId, reg.data);
+      registrationState.delete(Number(telegramUserId));
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function sendHomeScreen(chatId, user) {
@@ -717,6 +1176,103 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
+    if (data.startsWith("appr_reg_") && isAdmin(telegramUserId)) {
+      const targetTgId = Number(data.replace("appr_reg_", ""));
+      const app = await getUserPendingApplication(supabase, targetTgId);
+
+      if (!app) {
+        await answerTelegramCallbackQuery(callbackQuery.id, "⚠️ Ariza topilmadi yoki allaqachon ko‘rib chiqilgan.", true);
+        return true;
+      }
+
+      const newCode = await generateNextCustomerCode(supabase);
+      const fullName = `${app.details.first_name || ""} ${app.details.last_name || ""}`.trim() || "Mijoz";
+
+      await supabase
+        .from("admin_audit_logs")
+        .update({
+          details: { ...app.details, status: "approved", customer_code: newCode, approved_at: new Date().toISOString() },
+        })
+        .eq("id", app.id);
+
+      const { data: updatedUser } = await supabase
+        .from("users")
+        .upsert(
+          {
+            telegram_user_id: targetTgId,
+            customer_code: newCode,
+            name: fullName,
+            phone: app.details.phone,
+            status: "active",
+            onboarding_completed: true,
+            onboarding_step: "completed",
+            phone_verified_at: new Date().toISOString(),
+          },
+          { onConflict: "telegram_user_id" }
+        )
+        .select()
+        .single();
+
+      if (updatedUser) {
+        userCache.set(targetTgId, { user: updatedUser, time: Date.now() });
+      }
+
+      await answerTelegramCallbackQuery(callbackQuery.id, `✅ Tasdiqlandi! Kod: ${newCode}`);
+
+      await sendTelegramMessage(
+        chatId,
+        `✅ <b>Mijoz tasdiqlandi!</b>\n\n👤 <b>Ism:</b> ${fullName}\n🆔 <b>Berilgan ID:</b> <code>${newCode}</code>\n📱 <b>Telefon:</b> <code>${app.details.phone}</code>`
+      );
+
+      const userSuccessText =
+        `✅ <b>Tabriklaymiz! Tizimda muvaffaqiyatli ro'yxatdan o'tdingiz!</b>\n` +
+        `🆔 <b>Sizning ID kodingiz:</b> <code>${newCode}</code>\n\n` +
+        `🇨🇳 <b>Xitoydagi ombor manzili:</b>\n` +
+        `🚚 <b>AVTO KARGO:</b>\n` +
+        `收货人: <code>真${newCode}</code>\n` +
+        `手机号码: <code>18922155990</code>\n` +
+        `详细地址: <code>广州市白云区龙归街道南村三姓十巷3号一楼档口 ${newCode}</code>\n\n` +
+        `‼️ <b>SKLAD KIRGIZGANINGIZDAN SO'NG SKRINSHOTINI TASHLAB BERING!</b>\n` +
+        `Sklad kiritib va tekshirtirmay zakaz qilsangiz, u holatda biz yukingizga javob bermaymiz.\n\n` +
+        `🔗 Endi siz ushbu ID kodni adminga skrinshot qilib ko'rsatishingiz zarur (@AbdumalikovSaidislombek).`;
+
+      await sendTelegramMessage(targetTgId, userSuccessText, {
+        keyboard: getHomeScreenKeyboard(targetTgId),
+        resize_keyboard: true,
+      });
+
+      return true;
+    }
+
+    if (data.startsWith("rej_reg_") && isAdmin(telegramUserId)) {
+      const targetTgId = Number(data.replace("rej_reg_", ""));
+      const app = await getUserPendingApplication(supabase, targetTgId);
+
+      if (app) {
+        await supabase
+          .from("admin_audit_logs")
+          .update({
+            details: { ...app.details, status: "rejected", rejected_at: new Date().toISOString() },
+          })
+          .eq("id", app.id);
+      }
+
+      await answerTelegramCallbackQuery(callbackQuery.id, "❌ Ariza rad etildi");
+      await sendTelegramMessage(chatId, `❌ Ariza rad etildi (TG ID: ${targetTgId})`);
+
+      await sendTelegramMessage(
+        targetTgId,
+        `❌ <b>Afsuski, arizangiz rad etildi.</b>\n\n` +
+          `Qo'shimcha ma'lumot uchun admin bilan bog'laning: @AbdumalikovSaidislombek\n\n` +
+          `Qaytadan urinish uchun «🆔 Id Ko'd olish» tugmasini bosing.`,
+        {
+          keyboard: getHomeScreenKeyboard(targetTgId),
+          resize_keyboard: true,
+        }
+      );
+      return true;
+    }
+
     // Admin attaching video to lesson
     if (data.startsWith("attach_") && isAdmin(telegramUserId)) {
       const parts = data.split("_");
@@ -776,10 +1332,27 @@ async function processTelegramUpdate(update) {
     let phone = contact.phone_number.trim();
     if (!phone.startsWith("+")) phone = `+${phone}`;
 
+    const reg = registrationState.get(Number(telegramUserId));
+    if (reg && reg.step === "reg_phone") {
+      reg.data.phone = phone;
+      reg.step = "reg_extra_phone";
+      await sendTelegramMessage(
+        chatId,
+        `📱 <b>Qo'shimcha telefon raqamingizni kiriting:</b>\n\n` +
+          `Ushbu raqam birinchi raqamdan farqli bo'lishi kerak.\n` +
+          `Format: <code>+998XXXXXXXXX</code>`,
+        {
+          keyboard: [["🏠 Asosiy menyu"]],
+          resize_keyboard: true,
+        }
+      );
+      return true;
+    }
+
     const fullName =
       `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
       contact.first_name ||
-      "Talaba";
+      "Mijoz";
 
     let existingUser = await findUserByTelegramId(supabase, telegramUserId);
     let customerCode = existingUser?.customer_code;
@@ -821,8 +1394,53 @@ async function processTelegramUpdate(update) {
     return true;
   }
 
-  // 3. Handle Payment Screenshot Upload (Photo)
+  // 3. Handle Photo Upload (Passport Photos or Payment Screenshot)
   if (message?.photo) {
+    const reg = registrationState.get(Number(telegramUserId));
+    if (reg && reg.step === "reg_photo_front") {
+      const photo = message.photo[message.photo.length - 1];
+      reg.data.photo_front = photo.file_id;
+      reg.step = "reg_photo_back";
+      await sendTelegramMessage(
+        chatId,
+        `🪪 <b>Passportingizni orqa tarafini yuklang (rasm yuboring 📸):</b>\n\n` +
+          `JShShIR va Seriya raqamini tasdiqlash uchun.`,
+        {
+          keyboard: [["🏠 Asosiy menyu"]],
+          resize_keyboard: true,
+        }
+      );
+      return true;
+    }
+
+    if (reg && reg.step === "reg_photo_back") {
+      const photo = message.photo[message.photo.length - 1];
+      reg.data.photo_back = photo.file_id;
+      reg.step = "reg_confirm";
+
+      const d = reg.data;
+      const summaryText =
+        `📋 <b>Ma'lumotlaringizni tekshiring:</b>\n\n` +
+        `📍 <b>Hudud:</b> ${d.region || "Viloyat"}\n` +
+        `📱 <b>Telefon:</b> <code>${d.phone || ""}</code>\n` +
+        `📱 <b>Qo'shimcha:</b> <code>${d.extra_phone || ""}</code>\n` +
+        `👤 <b>Ism:</b> ${d.first_name || ""}\n` +
+        `👤 <b>Familiya:</b> ${d.last_name || ""}\n` +
+        `🪪 <b>Pasport:</b> <code>${d.passport_series || ""}</code>\n` +
+        `🔢 <b>JSHSHIR:</b> <code>${d.pinfl || ""}</code>\n` +
+        `📍 <b>Manzil:</b> ${d.address || ""}\n\n` +
+        `Barcha ma'lumotlar to‘g‘ri bo‘lsa, «✅ Tasdiqlash» tugmasini bosing:`;
+
+      await sendTelegramMessage(chatId, summaryText, {
+        keyboard: [
+          ["✅ Tasdiqlash"],
+          ["🔄 Qaytadan kiritish", "🏠 Asosiy menyu"],
+        ],
+        resize_keyboard: true,
+      });
+      return true;
+    }
+
     const user = await getCachedUser(supabase, telegramUserId);
     const photo = message.photo[message.photo.length - 1]; // Highest resolution
     const fileId = photo.file_id;
@@ -957,14 +1575,22 @@ async function processTelegramUpdate(update) {
       text === "/home" ||
       text === "/menu"
     ) {
+      registrationState.delete(Number(telegramUserId));
       if (user?.id) userContext.delete(user.id);
       await sendHomeScreen(chatId, user);
       return true;
     }
 
+    // Check ongoing registration step
+    const regState = registrationState.get(Number(telegramUserId));
+    if (regState) {
+      const handled = await handleRegistrationStep(chatId, user, telegramUserId, text, regState, from);
+      if (handled) return true;
+    }
+
     // 1.1. "⬅️ Orqaga" -> Hierarchical Back Navigation
     if (text === "⬅️ Orqaga" || text === "Orqaga") {
-      const ctx = userContext.get(user.id);
+      const ctx = userContext.get(user?.id);
       if (ctx?.lastLessonId && ctx?.currentCourseId) {
         // Was watching a video -> return to lessons list of this course
         ctx.lastLessonId = null;
@@ -983,11 +1609,11 @@ async function processTelegramUpdate(update) {
       }
       if (ctx?.inVideoSection) {
         // Was in Video darslar courses list -> return to Home screen
-        userContext.delete(user.id);
+        userContext.delete(user?.id);
         await sendHomeScreen(chatId, user);
         return true;
       }
-      userContext.delete(user.id);
+      if (user?.id) userContext.delete(user.id);
       await sendHomeScreen(chatId, user);
       return true;
     }
@@ -1003,41 +1629,19 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
-    // 1.3. "🆔 Ro‘yxatdan o‘tish"
+    // 1.3. "🆔 Id Ko'd olish" / "🆔 Ro‘yxatdan o‘tish"
     if (
+      text === "🆔 Id Ko'd olish" ||
+      text === "Id Ko'd olish" ||
+      text.toLowerCase().includes("id ko'd") ||
+      text.toLowerCase().includes("id kod") ||
       text === "🆔 Ro‘yxatdan o‘tish" ||
       text.toLowerCase().includes("ro'yxat") ||
       text.toLowerCase().includes("royxat") ||
       text.toLowerCase().includes("ro‘yxat") ||
       text === "/register"
     ) {
-      if (user?.phone) {
-        await sendTelegramMessage(
-          chatId,
-          `✅ <b>Siz muvaffaqiyatli ro‘yxatdan o‘tgansiz!</b> ✨\n\n` +
-            `🆔 <b>Mijoz kodi:</b> <code>${user.customer_code}</code>\n` +
-            `👤 <b>Ism:</b> ${user.name}\n` +
-            `📱 <b>Telefon:</b> <code>${user.phone}</code>\n\n` +
-            `<i>Ushbu ID kodingiz orqali Xitoydan buyurtma bera olasiz.</i>`,
-          {
-            keyboard: getHomeScreenKeyboard(telegramUserId),
-            resize_keyboard: true,
-          }
-        );
-      } else {
-        await sendTelegramMessage(
-          chatId,
-          `🆔 <b>Yukla Go — Ro‘yxatdan o‘tish</b> 📝\n\n` +
-            `Shaxsiy mijoz kodi (ID) va Xitoy ombor manziliga ega bo‘lish uchun pastdagi tugma orqali telefon raqamingizni yuboring 👇`,
-          {
-            keyboard: [
-              [{ text: "📱 Telefon raqamimni yuborish", request_contact: true }],
-              ["🏠 Asosiy menyu"],
-            ],
-            resize_keyboard: true,
-          }
-        );
-      }
+      await handleIdKodOlish(chatId, user, telegramUserId);
       return true;
     }
 
@@ -1048,52 +1652,21 @@ async function processTelegramUpdate(update) {
       text.toLowerCase().includes("manzil") ||
       text === "/address"
     ) {
-      const code = user?.customer_code || "[ID-KODINGIZ]";
-      const hasPhone = !!user?.phone;
-
-      await sendTelegramMessage(
-        chatId,
-        `📍 <b>Yukla Go — Xitoy ombor manzili:</b> 🇨🇳\n\n` +
-          `👤 <b>收件人:</b> <code>${code}</code>\n` +
-          `📞 <b>电话:</b> <code>13268048899</code>\n` +
-          `📍 <b>所在地区:</b> <code>广东省 广州市 越秀区</code>\n` +
-          `🏢 <b>详细地址:</b> <code>矿泉街道白云村云山大厦 ${code}</code>\n` +
-          `📮 <b>邮编:</b> <code>510000</code>\n\n` +
-          `💡 <i>Nusxa olish uchun har bir qator ustiga bosing (copy).</i>` +
-          (!hasPhone
-            ? `\n\n⚠️ <i>Eslatma: O‘z shaxsiy ID kodingizni olish uchun «🆔 Ro‘yxatdan o‘tish» bo‘limiga kiring.</i>`
-            : ""),
-        {
-          keyboard: getHomeScreenKeyboard(telegramUserId),
-          resize_keyboard: true,
-        }
-      );
+      await handleXitoyManzili(chatId, user, telegramUserId);
       return true;
     }
 
-    // 1.5. "🧮 Kalkulyator"
+    // 1.5. "💰 Kargo narxlari" / "🧮 Kalkulyator"
     if (
+      text === "💰 Kargo narxlari" ||
+      text === "Kargo narxlari" ||
+      text.toLowerCase().includes("kargo narx") ||
       text === "🧮 Kalkulyator" ||
       text.toLowerCase().includes("kalkulyator") ||
-      text.toLowerCase().includes("hisoblash") ||
+      text.toLowerCase().includes("narxlar") ||
       text === "/calc"
     ) {
-      await sendTelegramMessage(
-        chatId,
-        `🧮 <b>Kargo & Valyuta kalkulyatori</b> 📦\n\n` +
-          `✈️ <b>Avia kargo (5-7 kun):</b>\n` +
-          `• 1 kg = $8.5 – $9.5\n\n` +
-          `🚛 <b>Avto kargo (12-18 kun):</b>\n` +
-          `• 1 kg = $4.0 – $4.5\n\n` +
-          `💱 <b>Valyuta kurslari:</b>\n` +
-          `• 1 $ ≈ 12 900 so‘m\n` +
-          `• 1 ¥ (Yuan) ≈ 1 820 so‘m\n\n` +
-          `<i>(Aniq vazn bo‘yicha avtomatik hisoblash tez kunda ishga tushadi)</i>`,
-        {
-          keyboard: getHomeScreenKeyboard(telegramUserId),
-          resize_keyboard: true,
-        }
-      );
+      await handleKargoNarxlari(chatId, telegramUserId);
       return true;
     }
 
@@ -1104,23 +1677,7 @@ async function processTelegramUpdate(update) {
       text.toLowerCase().includes("not allowed") ||
       text === "/prohibited"
     ) {
-      await sendTelegramMessage(
-        chatId,
-        `🚫 <b>Taqiqlangan yuklar ro‘yxati:</b> ⚠️\n\n` +
-          `Quyidagi tovarlarni Xitoydan olib kirish qat'iyan taqiqlanadi:\n` +
-          `❌ Qurol, pichoq va harbiy buyumlar\n` +
-          `❌ Yonuvchi gaz, aerozol, portlovchi moddalar\n` +
-          `❌ Giyohvand va psixotrop moddalar\n` +
-          `❌ Dronlar, maxfiy kameralar, GPS trekerlar\n` +
-          `❌ Dori vositalari va biologik preparatlar\n` +
-          `❌ O‘simlik, urug‘ va tirik jonivorlar\n` +
-          `❌ Qalbaki hujjat va pullar\n\n` +
-          `✅ <b>Ruxsat etilgan tovarlar:</b> Kiyim-kechak, poyabzal, sumkalar, maishiy buyumlar, telefon aksessuarlari va boshqalar.`,
-        {
-          keyboard: getHomeScreenKeyboard(telegramUserId),
-          resize_keyboard: true,
-        }
-      );
+      await handleTaqiqlanganYuklar(chatId, telegramUserId);
       return true;
     }
 
@@ -1157,16 +1714,7 @@ async function processTelegramUpdate(update) {
 
     // 4. "👤 Profilim"
     if (text === "👤 Profilim" || text.toLowerCase().includes("profil")) {
-      const granted = await getGrantedCourses(supabase, user.id);
-      const isPrem = granted.length > 0;
-      await sendTelegramMessage(
-        chatId,
-        `👤 <b>Kabinet:</b>\n\n` +
-          `🆔 <b>ID:</b> <code>${user.customer_code}</code>\n` +
-          `👤 <b>Ism:</b> ${user.name}\n` +
-          `📱 <b>Tel:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
-          `💎 <b>Status:</b> ${isPrem ? "✅ Premium" : "⏳ Oddiy"}`
-      );
+      await handleProfilim(chatId, user, telegramUserId);
       return true;
     }
 
