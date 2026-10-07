@@ -947,12 +947,12 @@ export default async function handler(req, res) {
       const { name, phone, courseId, status } = body;
 
       const customerCode = await generateNextCustomerCode(supabase);
-      const newUserId = `u_${Date.now()}`;
+      const syntheticTgId = body.telegramUserId ? Number(body.telegramUserId) : Date.now();
 
       const { data: newUser, error: userErr } = await supabase
         .from("users")
         .insert({
-          id: newUserId,
+          telegram_user_id: syntheticTgId,
           name: (name || "Talaba").trim(),
           phone: (phone || "").trim(),
           customer_code: customerCode,
@@ -972,7 +972,7 @@ export default async function handler(req, res) {
       if (courseId && status === "Faol") {
         await supabase.from("academy_access").upsert(
           {
-            user_id: newUserId,
+            user_id: newUser.id,
             course_id: String(courseId),
             status: "granted",
             granted_at: new Date().toISOString(),
@@ -991,7 +991,8 @@ export default async function handler(req, res) {
 
       const createdUser = {
         id: customerCode,
-        supabaseId: newUserId,
+        supabaseId: newUser.id,
+        telegramId: newUser.telegram_user_id,
         name: newUser.name,
         initials,
         phone: newUser.phone,
