@@ -449,21 +449,31 @@ const server = http.createServer(async (req, res) => {
         return;
       }
 
-      // Direct binary stream
+      // Direct binary stream (Streamed directly to disk, supports 200-300MB+ with zero RAM overhead)
       console.log(`[UPLOAD] Receiving binary upload: ${uniqueName}`);
+      req.setTimeout(0); // Disable request timeout for large files
       const fileStream = fs.createWriteStream(localFilePath);
-      fileStream.on("error", (err) => console.error("[UPLOAD] File write error:", err));
-      const chunks = [];
+      let totalBytes = 0;
+
       req.on("data", (chunk) => {
-        fileStream.write(chunk);
-        chunks.push(chunk);
+        totalBytes += chunk.length;
       });
-      req.on("end", async () => {
-        fileStream.end();
-        const buffer = Buffer.concat(chunks);
-        console.log(`[UPLOAD] Completed stream: ${uniqueName} (${buffer.length} bytes)`);
+
+      req.pipe(fileStream);
+
+      fileStream.on("error", (err) => {
+        console.error("[UPLOAD] File write error:", err);
+        return sendJson(res, 500, { success: false, error: "Faylni diskka yozishda xatolik" });
+      });
+
+      fileStream.on("finish", async () => {
+        const sizeMB = (totalBytes / (1024 * 1024)).toFixed(1);
+        console.log(`[UPLOAD] Saved to disk: ${uniqueName} (${sizeMB} MB)`);
+        
         let supabasePublicUrl = null;
-        if (supabase) {
+        const MAX_SUPABASE_SIZE = 50 * 1024 * 1024; // Supabase free tier maximum is 50MB
+
+        if (supabase && totalBytes <= MAX_SUPABASE_SIZE) {
           try {
             console.log(`[UPLOAD] Uploading to Supabase Storage: ${uniqueName}...`);
             const ext = path.extname(uniqueName).toLowerCase();
@@ -474,9 +484,10 @@ const server = http.createServer(async (req, res) => {
                 ? "video/quicktime"
                 : "video/mp4";
 
+            const fileBuffer = fs.readFileSync(localFilePath);
             const { error: upErr } = await supabase.storage
               .from("videos")
-              .upload(uniqueName, buffer, {
+              .upload(uniqueName, fileBuffer, {
                 contentType: mimeType,
                 upsert: true,
               });
@@ -488,21 +499,23 @@ const server = http.createServer(async (req, res) => {
               supabasePublicUrl = pubData?.publicUrl || null;
               console.log(`[UPLOAD] Supabase Storage success: ${supabasePublicUrl}`);
             } else {
-              console.warn("[UPLOAD] Supabase storage upload notice:", upErr.message);
+              console.warn("[UPLOAD] Supabase storage notice:", upErr.message);
             }
           } catch (sErr) {
             console.warn("[UPLOAD] Supabase upload exception:", sErr.message);
           }
+        } else if (totalBytes > MAX_SUPABASE_SIZE) {
+          console.log(`[UPLOAD] File size (${sizeMB} MB) exceeds Supabase free tier limit (50MB). Stored locally on high-speed HTTP 206 streaming engine.`);
         }
 
         const localUrl = `http://${req.headers.host || "localhost:5000"}/uploads/${uniqueName}`;
-        console.log(`[UPLOAD] Returning URL: ${supabasePublicUrl || localUrl}`);
+        console.log(`[UPLOAD] Video URL: ${supabasePublicUrl || localUrl}`);
         return sendJson(res, 200, {
           success: true,
           url: supabasePublicUrl || localUrl,
           localUrl,
           filename: uniqueName,
-          size: buffer.length,
+          size: totalBytes,
         });
       });
       req.on("error", (err) => {
@@ -1127,6 +1140,11 @@ const server = http.createServer(async (req, res) => {
   // 404
   return sendJson(res, 404, { error: "Endpoint not found" });
 });
+
+server.timeout = 0; // Disable timeout for large 200-300MB video uploads
+server.requestTimeout = 0; // Disable request timeout
+server.keepAliveTimeout = 600000; // 10 minutes keep-alive
+server.headersTimeout = 60000;
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`Yukla Go Sync Server running at http://localhost:${PORT}`);

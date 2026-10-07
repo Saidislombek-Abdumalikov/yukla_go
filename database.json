@@ -1,6 +1,22 @@
 {
   "users": [
     {
+      "id": "YK-105",
+      "supabaseId": "d3e21502-951e-4361-a3b0-4debc446624a",
+      "telegramId": 7232597769,
+      "name": "Abduraxmon",
+      "initials": "A",
+      "phone": "+998339480542",
+      "registeredAt": "07/10/2026",
+      "coursesAccess": {
+        "1791305084906": "Faol"
+      },
+      "access": "Faol",
+      "progress": 0,
+      "done": "0 / 1",
+      "activity": "Faol"
+    },
+    {
       "id": "YK-104",
       "supabaseId": "89abdc64-3e77-40ad-be3e-77e7bb5f1b3f",
       "telegramId": 5059829001,
@@ -32,13 +48,13 @@
   ],
   "lessons": [
     {
-      "id": 1791346085588,
+      "id": 1791346459979,
       "courseId": 1791305084906,
-      "title": "qwe",
+      "title": "wertyuio",
       "description": "",
       "duration": "00:21",
       "durationSeconds": 21,
-      "videoUrl": "",
+      "videoUrl": "https://dajlwaqoqcnwrrhyvmtw.supabase.co/storage/v1/object/public/videos/1791346411990_Screen_Recording_20250511_102334_Instagram.mp4",
       "videoFormat": "shorts",
       "status": "Faol",
       "thumbnailUrl": "",
@@ -55,5 +71,14 @@
     "dynamicWatermark": true,
     "watermarkFormat": "id-brand"
   },
-  "progress": {}
+  "progress": {
+    "YK-105": {
+      "1791346459979": {
+        "current": 2,
+        "maxWatched": 21,
+        "completed": true,
+        "lastUpdated": 1791346682047
+      }
+    }
+  }
 }
