@@ -323,16 +323,12 @@ async function findUserByAnyId(supabase, uid) {
 }
 
 // --- Bot Menus & Action Handlers ---
-function getHomeScreenKeyboard(telegramUserId = null) {
-  const keyboard = [
+function getHomeScreenKeyboard() {
+  return [
     ["🆔 Id Ko'd olish", "📍 Xitoy manzili"],
     ["💰 Kargo narxlari", "🚫 Taqiqlangan yuklar"],
     ["🎬 Video darslar", "👤 Profilim"],
   ];
-  if (isAdmin(telegramUserId)) {
-    keyboard.push(["⚙️ Admin"]);
-  }
-  return keyboard;
 }
 
 async function handleIdKodOlish(chatId, user, telegramUserId) {
@@ -351,10 +347,10 @@ async function handleIdKodOlish(chatId, user, telegramUserId) {
       `详细地址: <code>广州市白云区龙归街道南村三姓十巷3号一楼档口 ${code}</code>\n\n` +
       `‼️ <b>SKLAD KIRGIZGANINGIZDAN SO'NG SKRINSHOTINI TASHLAB BERING!</b>\n` +
       `Sklad kiritib va tekshirtirmay zakaz qilsangiz, u holatda biz yukingizga javob bermaymiz.\n\n` +
-      `🔗 Endi siz ushbu ID kodni adminga skrinshot qilib ko'rsatishingiz zarur (@AbdumalikovSaidislombek).`;
+      `🔗 Endi siz ushbu ID kodni adminga skrinshot qilib ko'rsatishingiz zarur (@nothing_related).`;
 
     await sendTelegramMessage(chatId, text, {
-      keyboard: getHomeScreenKeyboard(telegramUserId),
+      keyboard: getHomeScreenKeyboard(),
       resize_keyboard: true,
     });
     return;
@@ -367,7 +363,7 @@ async function handleIdKodOlish(chatId, user, telegramUserId) {
       chatId,
       `⏳ <b>Arizangiz ko'rib chiqilmoqda.</b> Iltimos, admin javobini kuting.`,
       {
-        keyboard: getHomeScreenKeyboard(telegramUserId),
+        keyboard: getHomeScreenKeyboard(),
         resize_keyboard: true,
       }
     );
@@ -382,7 +378,7 @@ async function handleIdKodOlish(chatId, user, telegramUserId) {
 
   const introText =
     `Bizning mijozimizga aylanish uchun avval <b>Ishlash shartlari va qo'shimcha ma'lumotlar</b> bilan tanishib chiqing, to'g'ri kelsa ro'yxatdan o'ting!\n\n` +
-    `Agar tushunmasangiz admin bilan bog'laning: @AbdumalikovSaidislombek`;
+    `Agar tushunmasangiz admin bilan bog'laning: @nothing_related`;
 
   await sendTelegramMessage(chatId, introText, {
     keyboard: [
@@ -405,7 +401,7 @@ async function handleKargoNarxlari(chatId, telegramUserId) {
     `📤 GABARIT: <b>8$ – 10$</b>\n` +
     `✅ Seriya urish — xohlaganingizcha (cheksiz)\n` +
     `❌ Pasport limiti umuman yo'q!\n\n` +
-    `⚖️ Yaxlit tijorat yuklari, zapchast, kiyim seriya yuklariga mahsulot turi hajmiga qarab kelishtirilgan tariflarda yetkazib beramiz: @AbdumalikovSaidislombek\n\n` +
+    `⚖️ Yaxlit tijorat yuklari, zapchast, kiyim seriya yuklariga mahsulot turi hajmiga qarab kelishtirilgan tariflarda yetkazib beramiz: @nothing_related\n\n` +
     `‼️ <b>MUHIM:</b>\n` +
     `Yukingiz O'zbekistonga yetib kelgandan keyin omborda bepul saqlash kuni — <b>3 kun</b>.\n` +
     `3 kundan keyin kunlik 2$ jarima qo'shiladi. 5 kundan keyin yuk musodara qilinadi.\n\n` +
@@ -414,7 +410,7 @@ async function handleKargoNarxlari(chatId, telegramUserId) {
     `Bir jo'natma uchun 10 000 so'm to'lovi mavjud. Agar yukingiz 10 kg dan oshsa uyingizgacha bepul yetkaziladi.`;
 
   await sendTelegramMessage(chatId, text, {
-    keyboard: getHomeScreenKeyboard(telegramUserId),
+    keyboard: getHomeScreenKeyboard(),
     resize_keyboard: true,
   });
 }
@@ -1234,10 +1230,10 @@ async function processTelegramUpdate(update) {
         `详细地址: <code>广州市白云区龙归街道南村三姓十巷3号一楼档口 ${newCode}</code>\n\n` +
         `‼️ <b>SKLAD KIRGIZGANINGIZDAN SO'NG SKRINSHOTINI TASHLAB BERING!</b>\n` +
         `Sklad kiritib va tekshirtirmay zakaz qilsangiz, u holatda biz yukingizga javob bermaymiz.\n\n` +
-        `🔗 Endi siz ushbu ID kodni adminga skrinshot qilib ko'rsatishingiz zarur (@AbdumalikovSaidislombek).`;
+        `🔗 Endi siz ushbu ID kodni adminga skrinshot qilib ko'rsatishingiz zarur: @nothing_related`;
 
       await sendTelegramMessage(targetTgId, userSuccessText, {
-        keyboard: getHomeScreenKeyboard(targetTgId),
+        keyboard: getHomeScreenKeyboard(),
         resize_keyboard: true,
       });
 
@@ -1263,10 +1259,10 @@ async function processTelegramUpdate(update) {
       await sendTelegramMessage(
         targetTgId,
         `❌ <b>Afsuski, arizangiz rad etildi.</b>\n\n` +
-          `Qo'shimcha ma'lumot uchun admin bilan bog'laning: @AbdumalikovSaidislombek\n\n` +
+          `Qo'shimcha ma'lumot uchun admin bilan bog'laning: @nothing_related\n\n` +
           `Qaytadan urinish uchun «🆔 Id Ko'd olish» tugmasini bosing.`,
         {
-          keyboard: getHomeScreenKeyboard(targetTgId),
+          keyboard: getHomeScreenKeyboard(),
           resize_keyboard: true,
         }
       );
@@ -1704,9 +1700,9 @@ async function processTelegramUpdate(update) {
           chatId,
           `💎 <b>PREMIUM TA’LIM</b> 🌟\n\n` +
             `💰 <b>Narxi:</b> 39 000 so'm\n` +
-            `💳 <b>Karta:</b> <code>9860170713411376</code>\n` +
-            `👤 <b>Egasi:</b> Abdumalikov Saidislombek\n\n` +
-            `📸 To‘lov chekini shu yerga yuboring, darhol ruxsat beramiz! ✨`
+            `💳 <b>Karta:</b> <code>9860170713411376</code>\n\n` +
+            `📸 To‘lov chekini shu yerga yuboring, darhol ruxsat beramiz! ✨\n` +
+            `Savollar bo‘lsa: @nothing_related`
         );
       }
       return true;
@@ -1715,39 +1711,6 @@ async function processTelegramUpdate(update) {
     // 4. "👤 Profilim"
     if (text === "👤 Profilim" || text.toLowerCase().includes("profil")) {
       await handleProfilim(chatId, user, telegramUserId);
-      return true;
-    }
-
-    // 4.5. "⚙️ Admin" / "/admin"
-    if (text === "⚙️ Admin" || text === "/admin" || text.toLowerCase() === "admin") {
-      if (!isAdmin(telegramUserId)) {
-        await sendTelegramMessage(chatId, "🔒 <b>Ushbu bo‘lim faqat administratorlar uchun!</b>");
-        return true;
-      }
-
-      const courses = await getCachedCourses(supabase);
-      const lessons = await getCachedLessons(supabase);
-      const { count: usersCount } = await supabase
-        .from("users")
-        .select("id", { count: "exact", head: true });
-      const { count: enrollmentsCount } = await supabase
-        .from("academy_enrollments")
-        .select("id", { count: "exact", head: true });
-
-      await sendTelegramMessage(
-        chatId,
-        `⚙️ <b>ADMIN BOSHQARUV PANELI</b> 🛠\n\n` +
-          `📊 <b>Statistika:</b>\n` +
-          `• 👥 Jami foydalanuvchilar: <b>${usersCount || 0} ta</b>\n` +
-          `• 💎 Faol obunalar: <b>${enrollmentsCount || 0} ta</b>\n` +
-          `• 📚 Kurslar: <b>${courses?.length || 0} ta</b>\n` +
-          `• 🎬 Darslar: <b>${lessons?.length || 0} ta</b>\n\n` +
-          `💻 <b>Web Admin Panel:</b>\n` +
-          `🔗 http://localhost:5174/\n` +
-          `🔑 Parol: <code>admin</code>\n\n` +
-          `📹 <b>Video yuklash:</b>\n` +
-          `Istalgan videoni (2 GB gacha) to‘g‘ridan-to‘g‘ri shu botga yuborsangiz, bot darsga biriktirib beradi.`
-      );
       return true;
     }
 
