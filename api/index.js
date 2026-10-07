@@ -219,8 +219,8 @@ Darslarni davom ettirish uchun quyidagi tugmani bosing:`,
           inline_keyboard: [
             [
               {
-                text: "\u{1F680} Darslarni boshlash",
-                web_app: { url: MINI_APP_URL2 }
+                text: "📚 Kurslarni boshlash",
+                callback_data: "menu_courses"
               }
             ]
           ]
@@ -291,8 +291,8 @@ Darslarni davom ettirish uchun quyidagi tugmani bosing:`,
         inline_keyboard: [
           [
             {
-              text: "🚀 Darslarni boshlash",
-              web_app: { url: MINI_APP_URL2 }
+              text: "📚 Kurslarni boshlash",
+              callback_data: "menu_courses"
             }
           ]
         ]
@@ -377,8 +377,8 @@ async function completeRegistration(chatId, telegramUserId, from, userName, phon
       inline_keyboard: [
         [
           {
-            text: "🚀 Darslarni boshlash",
-            web_app: { url: MINI_APP_URL2 }
+            text: "📚 Kurslarni boshlash",
+            callback_data: "menu_courses"
           }
         ]
       ]

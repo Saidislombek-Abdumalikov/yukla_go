@@ -541,7 +541,13 @@ async function handleStartCommand(chatId, from) {
     return;
   }
 
-  // Case 3: Registered & Approved -> Show Courses
+  // Case 3: Registered & Approved -> Remove any legacy keyboard and show Courses
+  await callTelegram("sendMessage", {
+    chat_id: chatId,
+    text: "📚 <b>Yukla Go ta’lim platformasi</b>",
+    parse_mode: "HTML",
+    reply_markup: { remove_keyboard: true },
+  });
   await showCoursesMenu(chatId, null, user);
 }
 
@@ -697,6 +703,10 @@ async function handleCallbackQuery(callbackQuery) {
   }
 
   // B. Open Specific Course
+  if (data.startsWith("course_view_")) {
+    const courseId = data.replace("course_view_", "");
+    return showCourseLessons(chatId, messageId, user, courseId);
+  }
   if (data.startsWith("course_")) {
     const courseId = data.replace("course_", "");
     return showCourseLessons(chatId, messageId, user, courseId);
@@ -826,6 +836,7 @@ async function pollUpdates() {
 
         if (update.message) {
           const msg = update.message;
+          console.log(`📩 Xabar [${msg.from?.first_name || ""} ID:${msg.from?.id}]:`, msg.text || (msg.contact ? "Contact" : (msg.video ? "Video" : "Media")));
           if (msg.contact) {
             await handleContactReceived(msg.chat.id, msg.contact, msg.from);
           } else if (msg.video) {
@@ -834,6 +845,7 @@ async function pollUpdates() {
             await handleTextMessage(msg.chat.id, msg.text, msg.from);
           }
         } else if (update.callback_query) {
+          console.log(`🔘 Callback [${update.callback_query.from?.first_name || ""} ID:${update.callback_query.from?.id}]:`, update.callback_query.data);
           await handleCallbackQuery(update.callback_query);
         }
       }

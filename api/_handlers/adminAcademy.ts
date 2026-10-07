@@ -65,7 +65,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
         await sendTelegramMessage(
           user.telegramUserId,
           `🎉 <b>Tabriklaymiz!</b>\n\nSizga <b>${escapeHtml(title)}</b> kursini tomosha qilish uchun ruxsat berildi!\n\nQuyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin:`,
-          { inline_keyboard: [[{ text: '▶️ Darslarni ochish (Mini App)', web_app: { url: academyUrl } }]] }
+          { inline_keyboard: [[{ text: '📚 Kurs darslarini boshlash', callback_data: `course_view_${cId}` }]] }
         ).catch(() => {});
 
         return res.status(200).json({

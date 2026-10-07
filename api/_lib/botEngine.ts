@@ -153,8 +153,8 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
           inline_keyboard: [
             [
               {
-                text: '🚀 Darslarni boshlash',
-                web_app: { url: MINI_APP_URL },
+                text: '📚 Kurslarni boshlash',
+                callback_data: 'menu_courses',
               },
             ],
           ],
@@ -233,8 +233,8 @@ export async function processTelegramUpdate(update: any): Promise<boolean> {
         inline_keyboard: [
           [
             {
-              text: '🚀 Darslarni boshlash',
-              web_app: { url: MINI_APP_URL },
+              text: '📚 Kurslarni boshlash',
+              callback_data: 'menu_courses',
             },
           ],
         ],
@@ -346,8 +346,8 @@ async function completeRegistration(
       inline_keyboard: [
         [
           {
-            text: '🚀 Darslarni boshlash',
-            web_app: { url: MINI_APP_URL },
+            text: '📚 Kurslarni boshlash',
+            callback_data: 'menu_courses',
           },
         ],
       ],
