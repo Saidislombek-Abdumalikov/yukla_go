@@ -151,6 +151,27 @@ async function generateNextCustomerCode(supabase) {
   return `YK${maxNum + 1}`;
 }
 
+function isUUID(str) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(str || ""));
+}
+
+async function findUserByAnyId(supabase, uid) {
+  if (!uid) return null;
+  const str = String(uid).trim();
+  if (isUUID(str)) {
+    const { data } = await supabase.from("users").select("*").eq("id", str).maybeSingle();
+    if (data) return data;
+  }
+  const { data: byCode } = await supabase.from("users").select("*").eq("customer_code", str).maybeSingle();
+  if (byCode) return byCode;
+  const num = Number(str);
+  if (!isNaN(num) && num > 0) {
+    const { data: byTg } = await supabase.from("users").select("*").eq("telegram_user_id", num).maybeSingle();
+    if (byTg) return byTg;
+  }
+  return null;
+}
+
 // --- Bot Menus & Action Handlers ---
 async function showCoursesMenu(chatId, user, messageId = null) {
   const supabase = getSupabase();
@@ -1016,12 +1037,7 @@ export default async function handler(req, res) {
       }
 
       for (const uid of userIds) {
-        // Find user by customer_code or uuid
-        const { data: user } = await supabase
-          .from("users")
-          .select("*")
-          .or(`customer_code.eq.${uid},id.eq.${uid},telegram_user_id.eq.${isNaN(Number(uid)) ? 0 : Number(uid)}`)
-          .maybeSingle();
+        const user = await findUserByAnyId(supabase, uid);
 
         if (user) {
           if (access === "Faol") {
@@ -1083,16 +1099,16 @@ export default async function handler(req, res) {
       const body = await parseBody();
       const uid = body.userId || body.id;
       if (uid) {
-        const { data: u } = await supabase
-          .from("users")
-          .select("id")
-          .or(`customer_code.eq.${uid},id.eq.${uid}`)
-          .maybeSingle();
-
-        const dbId = u?.id || uid;
-        await supabase.from("academy_access").delete().eq("user_id", dbId);
-        await supabase.from("academy_user_progress").delete().eq("user_id", dbId);
-        await supabase.from("users").delete().or(`customer_code.eq.${uid},id.eq.${dbId}`);
+        const user = await findUserByAnyId(supabase, uid);
+        if (user) {
+          await supabase.from("academy_access").delete().eq("user_id", user.id);
+          await supabase.from("academy_user_progress").delete().eq("user_id", user.id);
+          await supabase.from("users").delete().eq("id", user.id);
+        } else if (isUUID(uid)) {
+          await supabase.from("users").delete().eq("id", uid);
+        } else {
+          await supabase.from("users").delete().eq("customer_code", uid);
+        }
       }
       return sendSafeJson(res, 200, { success: true });
     }
