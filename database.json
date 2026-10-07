@@ -30,7 +30,23 @@
       "tone": "blue"
     }
   ],
-  "lessons": [],
+  "lessons": [
+    {
+      "id": 1791346085588,
+      "courseId": 1791305084906,
+      "title": "qwe",
+      "description": "",
+      "duration": "00:21",
+      "durationSeconds": 21,
+      "videoUrl": "",
+      "videoFormat": "shorts",
+      "status": "Faol",
+      "thumbnailUrl": "",
+      "color": "lesson-blue",
+      "viewers": 0,
+      "completion": 0
+    }
+  ],
   "settings": {
     "adminPassword": "admin123",
     "defaultCompletionPercent": 95,

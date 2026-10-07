@@ -278,17 +278,24 @@ function sendJson(res, statusCode, data) {
     "Content-Type": "application/json",
     "Access-Control-Allow-Origin": "*",
     "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    "Access-Control-Allow-Headers": "*",
+    "Access-Control-Expose-Headers": "*",
   });
   res.end(JSON.stringify(data));
 }
 
 const server = http.createServer(async (req, res) => {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "*");
+  res.setHeader("Access-Control-Expose-Headers", "*");
+
   if (req.method === "OPTIONS") {
     res.writeHead(204, {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      "Access-Control-Allow-Headers": "*",
+      "Access-Control-Expose-Headers": "*",
     });
     res.end();
     return;
@@ -443,7 +450,9 @@ const server = http.createServer(async (req, res) => {
       }
 
       // Direct binary stream
+      console.log(`[UPLOAD] Receiving binary upload: ${uniqueName}`);
       const fileStream = fs.createWriteStream(localFilePath);
+      fileStream.on("error", (err) => console.error("[UPLOAD] File write error:", err));
       const chunks = [];
       req.on("data", (chunk) => {
         fileStream.write(chunk);
@@ -452,9 +461,11 @@ const server = http.createServer(async (req, res) => {
       req.on("end", async () => {
         fileStream.end();
         const buffer = Buffer.concat(chunks);
+        console.log(`[UPLOAD] Completed stream: ${uniqueName} (${buffer.length} bytes)`);
         let supabasePublicUrl = null;
         if (supabase) {
           try {
+            console.log(`[UPLOAD] Uploading to Supabase Storage: ${uniqueName}...`);
             const ext = path.extname(uniqueName).toLowerCase();
             const mimeType =
               ext === ".webm"
@@ -475,13 +486,17 @@ const server = http.createServer(async (req, res) => {
                 .from("videos")
                 .getPublicUrl(uniqueName);
               supabasePublicUrl = pubData?.publicUrl || null;
+              console.log(`[UPLOAD] Supabase Storage success: ${supabasePublicUrl}`);
+            } else {
+              console.warn("[UPLOAD] Supabase storage upload notice:", upErr.message);
             }
           } catch (sErr) {
-            console.warn("Supabase upload error:", sErr.message);
+            console.warn("[UPLOAD] Supabase upload exception:", sErr.message);
           }
         }
 
         const localUrl = `http://${req.headers.host || "localhost:5000"}/uploads/${uniqueName}`;
+        console.log(`[UPLOAD] Returning URL: ${supabasePublicUrl || localUrl}`);
         return sendJson(res, 200, {
           success: true,
           url: supabasePublicUrl || localUrl,
