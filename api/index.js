@@ -895,13 +895,13 @@ export default async function handler(req, res) {
 
       const lessons = (dbLessons || []).map((l) => {
         let videoUrl = l.youtube_video_id || "";
-        let videoFormat = "standard";
+        let videoFormat = "shorts";
         let thumbnailUrl = "";
         try {
           if (videoUrl.startsWith("{")) {
             const parsed = JSON.parse(videoUrl);
             videoUrl = parsed.url || "";
-            videoFormat = parsed.format || "standard";
+            videoFormat = parsed.format || "shorts";
             thumbnailUrl = parsed.thumb || "";
           }
         } catch {}
@@ -1239,6 +1239,26 @@ export default async function handler(req, res) {
             format: body.videoFormat || "shorts",
             thumb: body.thumbnailUrl || "",
           });
+        } else if (!body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
+          const { data: cur } = await supabase
+            .from("academy_lessons")
+            .select("youtube_video_id")
+            .eq("id", String(lessonId))
+            .maybeSingle();
+          let curRaw = cur?.youtube_video_id || "";
+          try {
+            if (curRaw.startsWith("{")) {
+              const p = JSON.parse(curRaw);
+              curRaw = p.url || curRaw;
+            }
+          } catch {}
+          if (curRaw) {
+            videoIdToSave = JSON.stringify({
+              url: curRaw,
+              format: body.videoFormat || "shorts",
+              thumb: body.thumbnailUrl || "",
+            });
+          }
         }
 
         const updateData = {
