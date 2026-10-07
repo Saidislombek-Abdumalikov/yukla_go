@@ -572,7 +572,7 @@ async function processTelegramUpdate(update) {
           name: fullName,
           phone,
           customer_code: customerCode,
-          status: existingUser?.status || "pending", // PENDING UNTIL ADMIN APPROVAL
+          status: "active",
           onboarding_completed: true,
           onboarding_step: "completed",
           phone_verified_at: new Date().toISOString(),
@@ -659,9 +659,9 @@ async function processTelegramUpdate(update) {
               name: fullName,
               phone: "",
               customer_code: customerCode,
-              status: "pending",
+              status: "active",
               onboarding_completed: false,
-              onboarding_step: "start",
+              onboarding_step: "phone",
             },
             { onConflict: "telegram_user_id" }
           )
@@ -932,6 +932,9 @@ export default async function handler(req, res) {
             .toUpperCase()
             .slice(0, 2) || "YG";
 
+        const uCourses = accessMap[u.id] || {};
+        const hasAnyGranted = Object.values(uCourses).some((st) => st === "Faol");
+
         return {
           id: u.customer_code || u.id,
           supabaseId: u.id,
@@ -939,8 +942,8 @@ export default async function handler(req, res) {
           name: u.name || "Talaba",
           initials,
           phone: u.phone || "",
-          access: u.status === "active" ? "Faol" : "Kutilmoqda",
-          coursesAccess: accessMap[u.id] || {},
+          access: hasAnyGranted ? "Faol" : "Kutilmoqda",
+          coursesAccess: uCourses,
           progress: 0,
           done: `0 / ${lessons.length}`,
           activity: "Faol",
@@ -977,7 +980,7 @@ export default async function handler(req, res) {
           name: (name || "Talaba").trim(),
           phone: (phone || "").trim(),
           customer_code: customerCode,
-          status: status === "Faol" ? "active" : "pending",
+          status: "active",
           onboarding_completed: true,
           onboarding_step: "completed",
         })
@@ -1036,10 +1039,12 @@ export default async function handler(req, res) {
         return sendSafeJson(res, 400, { error: "Parametrlar noto‘g‘ri" });
       }
 
+      const processedUsers = new Set();
       for (const uid of userIds) {
         const user = await findUserByAnyId(supabase, uid);
 
-        if (user) {
+        if (user && !processedUsers.has(user.id)) {
+          processedUsers.add(user.id);
           if (access === "Faol") {
             // Grant course access
             if (courseId) {
@@ -1052,19 +1057,41 @@ export default async function handler(req, res) {
                 },
                 { onConflict: "user_id,course_id" }
               );
+            } else {
+              const { data: allCourses } = await supabase.from("academy_courses").select("id");
+              if (allCourses && allCourses.length > 0) {
+                for (const c of allCourses) {
+                  await supabase.from("academy_access").upsert(
+                    {
+                      user_id: user.id,
+                      course_id: String(c.id),
+                      status: "granted",
+                      granted_at: new Date().toISOString(),
+                    },
+                    { onConflict: "user_id,course_id" }
+                  );
+                }
+              }
             }
             // Set user status to active
             await supabase.from("users").update({ status: "active" }).eq("id", user.id);
 
             // INSTANT TELEGRAM NOTIFICATION TO STUDENT
             if (user.telegram_user_id) {
-              const { data: courseRow } = await supabase
-                .from("academy_courses")
-                .select("title")
-                .eq("id", String(courseId))
-                .maybeSingle();
+              let courseTitle = "Video darslar";
+              if (courseId) {
+                const { data: courseRow } = await supabase
+                  .from("academy_courses")
+                  .select("title")
+                  .eq("id", String(courseId))
+                  .maybeSingle();
 
-              const courseTitle = courseRow?.title || "Video darslar";
+                if (courseRow?.title) courseTitle = courseRow.title;
+              }
+
+              const button = courseId
+                ? [{ text: "📚 Kurs darslarini boshlash", callback_data: `course_${courseId}` }]
+                : [{ text: "📚 Kurslar ro‘yxati", callback_data: "menu_courses" }];
 
               await sendTelegramMessage(
                 user.telegram_user_id,
@@ -1072,9 +1099,7 @@ export default async function handler(req, res) {
                   `Administrator sizga <b>«${courseTitle}»</b> darslarini ko‘rish uchun ruxsat berdi!\n\n` +
                   `Quyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin 👇`,
                 {
-                  inline_keyboard: [
-                    [{ text: "📚 Kurs darslarini boshlash", callback_data: `course_${courseId}` }],
-                  ],
+                  inline_keyboard: [button],
                 }
               );
             }
@@ -1086,6 +1111,11 @@ export default async function handler(req, res) {
                 .delete()
                 .eq("user_id", user.id)
                 .eq("course_id", String(courseId));
+            } else {
+              await supabase
+                .from("academy_access")
+                .delete()
+                .eq("user_id", user.id);
             }
           }
         }
