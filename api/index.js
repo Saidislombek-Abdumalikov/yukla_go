@@ -326,7 +326,7 @@ async function sendMainMenu(chatId, user) {
 
   await sendTelegramMessage(
     chatId,
-    `🏠 <b>Kerakli bo'limni tanlang:</b>`,
+    `🏠 <b>Bo‘limni tanlang:</b>`,
     {
       keyboard,
       resize_keyboard: true,
@@ -357,7 +357,7 @@ async function sendCourseLessonsMenu(chatId, user, course) {
 
   await sendTelegramMessage(
     chatId,
-    `<b>${course.title.toLowerCase()} bo'yicha videolar:</b>`,
+    `🎬 <b>${course.title} darslari:</b> 📚`,
     {
       keyboard,
       resize_keyboard: true,
@@ -667,12 +667,16 @@ async function processTelegramUpdate(update) {
         );
 
         if (targetUser.telegram_user_id) {
+          const mainKb = await getMainMenuKeyboard(supabase);
           await sendTelegramMessage(
             targetUser.telegram_user_id,
-            `💎 <b>Tabriklaymiz!</b>\n\n` +
-              `Sizga Premium a'zolik berildi! Endi barcha darslarni ko‘rishingiz mumkin.`
+            `💎 <b>Tabriklaymiz!</b> ✨\n\n` +
+              `Sizga Premium ruxsat berildi! Barcha darslar ochiq 🚀`,
+            {
+              keyboard: mainKb,
+              resize_keyboard: true,
+            }
           );
-          await sendMainMenu(targetUser.telegram_user_id, targetUser);
         }
       }
       return true;
@@ -773,9 +777,10 @@ async function processTelegramUpdate(update) {
     // Send confirmation and immediately show physical Main Menu keyboard
     await sendTelegramMessage(
       chatId,
-      `✅ <b>Raqamingiz tasdiqlandi:</b> <code>${phone}</code>\n\n` +
-        `👤 <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
-        `📱 <b>Ism:</b> ${fullName}`
+      `✅ <b>Raqamingiz tasdiqlandi!</b> ✨\n\n` +
+        `🆔 <b>ID:</b> <code>${customerCode}</code>\n` +
+        `👤 <b>Ism:</b> ${fullName}\n` +
+        `📱 <code>${phone}</code>`
     );
     await sendMainMenu(chatId, userRow);
     return true;
@@ -789,8 +794,8 @@ async function processTelegramUpdate(update) {
 
     await sendTelegramMessage(
       chatId,
-      `✅ <b>To‘lov skrinshoti qabul qilindi!</b>\n\n` +
-        `Administrator tekshirib, tez orada sizga premium ruxsat beradi!`
+      `🧾 <b>To‘lov cheki qabul qilindi!</b> ⏳\n\n` +
+        `Tez orada tekshirib, Premium beramiz ✨`
     );
 
     const adminText =
@@ -901,9 +906,9 @@ async function processTelegramUpdate(update) {
       // A. Not registered phone yet -> Ask for contact button
       if (!user || !user.phone) {
         const welcomeText =
-          `👋 <b>Assalomu alaykum, ${from.first_name || "Talaba"}!</b>\n\n` +
-          `Yukla Go video ta’lim platformasiga xush kelibsiz.\n\n` +
-          `Kurs darslariga ro‘yxatdan o‘tish uchun quyidagi tugmani bosib <b>telefon raqamingizni tasdiqlang</b>:`;
+          `👋 <b>Assalomu alaykum, ${from.first_name || "do‘st"}!</b> 🚀\n\n` +
+          `Yukla Go platformasiga xush kelibsiz!\n` +
+          `Boshlash uchun telefon raqamingizni yuboring 👇`;
 
         await sendTelegramMessage(chatId, welcomeText, {
           keyboard: [
@@ -923,7 +928,7 @@ async function processTelegramUpdate(update) {
     if (!user) {
       await sendTelegramMessage(
         chatId,
-        `Assalomu alaykum! Iltimos, /start buyrug‘ini bosing va ro‘yxatdan o‘ting.`
+        `👋 Assalomu alaykum! Iltimos, /start bosing 🚀`
       );
       return true;
     }
@@ -961,20 +966,16 @@ async function processTelegramUpdate(update) {
       if (granted.length > 0) {
         await sendTelegramMessage(
           chatId,
-          `💎 <b>Sizda Premium obuna faol!</b>\n\nBarcha darslar siz uchun ochiq. Istalgan bo‘limni tanlab darslarni ko‘rishingiz mumkin.`
+          `💎 <b>Sizda Premium faol!</b> 🚀\n\nBarcha darslar ochiq, tomosha qilishingiz mumkin.`
         );
       } else {
         await sendTelegramMessage(
           chatId,
-          `💎 <b>PREMIUM VERSIYA</b>\n\n` +
-            `💰 <b>Narxi:</b> 15,000 so'm\n` +
-            `ℹ️ <b>To'lov usullari:</b>\n` +
-            `• KARTA <code>9860010123637026</code>\n` +
-            `• Zokirjonov Abduqahhor\n` +
-            `• Muammo bo'lsa @ZokirjonovAbduqahhor ga yozing\n\n` +
-            `💎 <b>Imkoniyatlar:</b>\n` +
-            `• Barcha darslarga cheksiz bir umrlik ruxsat\n\n` +
-            `To'lov qilganingizdan so'ng skrinshotini, shu yerga yuboring, tekshirib sizga premium topshiraman`
+          `💎 <b>PREMIUM TA’LIM</b> 🌟\n\n` +
+            `💰 <b>Narxi:</b> 39 000 so'm\n` +
+            `💳 <b>Karta:</b> <code>9860170713411376</code>\n` +
+            `👤 <b>Egasi:</b> Abdumalikov Saidislombek\n\n` +
+            `📸 To‘lov chekini shu yerga yuboring, darhol ruxsat beramiz! ✨`
         );
       }
       return true;
@@ -986,11 +987,11 @@ async function processTelegramUpdate(update) {
       const isPrem = granted.length > 0;
       await sendTelegramMessage(
         chatId,
-        `👤 <b>Mening profilim:</b>\n\n` +
+        `👤 <b>Kabinet:</b>\n\n` +
+          `🆔 <b>ID:</b> <code>${user.customer_code}</code>\n` +
           `👤 <b>Ism:</b> ${user.name}\n` +
-          `🆔 <b>Mijoz kodi:</b> <code>${user.customer_code}</code>\n` +
-          `📱 <b>Telefon:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
-          `💎 <b>Obuna holati:</b> ${isPrem ? "✅ Faol (Premium)" : "⏳ Kutilmoqda (Oddiy)"}`
+          `📱 <b>Tel:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
+          `💎 <b>Status:</b> ${isPrem ? "✅ Premium" : "⏳ Oddiy"}`
       );
       return true;
     }
@@ -1033,8 +1034,7 @@ async function processTelegramUpdate(update) {
       if (!hasAccess) {
         await sendTelegramMessage(
           chatId,
-          `🔒 <b>Ushbu video faqat Premium a'zolar uchun!</b>\n` +
-            `Premium obuna bo'lish uchun admin bilan bog'laning`
+          `🔒 <b>Faqat Premium a'zolar uchun!</b>\n\n💎 Premium bo‘limi orqali ruxsat oling.`
         );
         return true;
       }
@@ -1420,9 +1420,9 @@ export default async function handler(req, res) {
               const mainKb = await getMainMenuKeyboard(supabase);
               await sendTelegramMessage(
                 user.telegram_user_id,
-                `💎 <b>Tabriklaymiz, ${user.name || "Talaba"}!</b>\n\n` +
-                  `Administrator sizga <b>«${courseTitle}»</b> darslarini ko‘rish uchun ruxsat berdi!\n\n` +
-                  `Quyidagi bo‘limlardan darslarni boshlashingiz mumkin 👇`,
+                `💎 <b>Tabriklaymiz!</b> ✨\n\n` +
+                  `Sizga <b>«${courseTitle}»</b> uchun Premium ruxsat berildi! 🚀\n\n` +
+                  `Darslarni boshlashingiz mumkin 👇`,
                 {
                   keyboard: mainKb,
                   resize_keyboard: true,
