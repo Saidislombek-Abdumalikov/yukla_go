@@ -1,710 +1,1010 @@
-// api/_lib/supabase.ts
 import { createClient } from "@supabase/supabase-js";
-var DEFAULT_SUPABASE_URL = "https://dajlwaqoqcnwrrhyvmtw.supabase.co";
-var DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhamx3YXFvcWNud3JyaHl2bXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTIwOTk4NSwiZXhwIjoyMTA2Nzg1OTg1fQ.12KfEAK7aU17B2bidfcxeag8P0yLlKJq8QAhoq5mhAs";
-var clientInstance = null;
-var override = null;
-var getSupabase = () => {
-  if (override) return override;
-  if (clientInstance) return clientInstance;
+
+// --- Configuration & Constants ---
+const DEFAULT_SUPABASE_URL = "https://dajlwaqoqcnwrrhyvmtw.supabase.co";
+const DEFAULT_SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhamx3YXFvcWNud3JyaHl2bXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTIwOTk4NSwiZXhwIjoyMTA2Nzg1OTg1fQ.12KfEAK7aU17B2bidfcxeag8P0yLlKJq8QAhoq5mhAs";
+const DEFAULT_BOT_TOKEN = "8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo";
+const WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "yukla_go_secret_webhook_token_2026";
+const ADMIN_TELEGRAM_IDS = [5059829001, 7232597769];
+
+function getBotToken() {
+  return process.env.BOT_TOKEN || process.env.TELEGRAM_BOT_TOKEN || DEFAULT_BOT_TOKEN;
+}
+
+let supabaseClient = null;
+function getSupabase() {
+  if (supabaseClient) return supabaseClient;
   const url = process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY || DEFAULT_SUPABASE_KEY;
-  clientInstance = createClient(url, key, {
-    auth: { persistSession: false, autoRefreshToken: false }
+  supabaseClient = createClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
-  return clientInstance;
-};
-
-// api/_lib/auth.ts
-import jwt from "jsonwebtoken";
-var DEFAULT_ADMIN_TELEGRAM_IDS = [];
-function loadAdminIds() {
-  const fromEnv = (process.env.ADMIN_TELEGRAM_IDS || "").split(",").map((s) => Number(s.trim())).filter((n) => Number.isInteger(n) && n > 0);
-  return Array.from(/* @__PURE__ */ new Set([...DEFAULT_ADMIN_TELEGRAM_IDS, ...fromEnv]));
+  return supabaseClient;
 }
-var ADMIN_TELEGRAM_IDS = loadAdminIds();
-function isTelegramAdmin(telegramUserId) {
+
+function isAdmin(telegramUserId) {
   if (!telegramUserId) return false;
-  const numId = Number(telegramUserId);
-  return ADMIN_TELEGRAM_IDS.includes(numId);
-}
-function getJwtSecret() {
-  const secret = process.env.JWT_SECRET || "";
-  if (secret.length < 32) {
-    throw new Error("JWT_SECRET is missing or shorter than 32 characters");
-  }
-  return secret;
-}
-function createSessionToken(payload, expiresIn = "7d") {
-  return jwt.sign(payload, getJwtSecret(), { algorithm: "HS256", expiresIn });
-}
-function verifySessionToken(authHeader) {
-  if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    return null;
-  }
-  const token = authHeader.substring(7).trim();
-  try {
-    const decoded = jwt.verify(token, getJwtSecret(), { algorithms: ["HS256"] });
-    if (!decoded || typeof decoded.telegramUserId !== "number" || !decoded.userId) return null;
-    return decoded;
-  } catch {
-    return null;
-  }
+  const id = Number(telegramUserId);
+  const envAdmins = (process.env.ADMIN_TELEGRAM_IDS || "")
+    .split(",")
+    .map((s) => Number(s.trim()))
+    .filter((n) => Number.isInteger(n) && n > 0);
+  return ADMIN_TELEGRAM_IDS.includes(id) || envAdmins.includes(id);
 }
 
-// api/_lib/botNotifications.ts
-import fs from "fs";
-import path from "path";
-var MINI_APP_URL = process.env.MINI_APP_URL || "https://yuklago.vercel.app";
-function getBotToken() {
-  if (process.env.BOT_TOKEN) return process.env.BOT_TOKEN;
-  try {
-    const envPath = path.resolve(process.cwd(), ".env");
-    if (fs.existsSync(envPath)) {
-      const content = fs.readFileSync(envPath, "utf-8");
-      const match = content.match(/^BOT_TOKEN=(.+)$/m);
-      if (match && match[1]) {
-        const val = match[1].trim();
-        process.env.BOT_TOKEN = val;
-        return val;
-      }
-    }
-  } catch {
-  }
-  return "8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo";
-}
-async function sendTelegramMessage(chatId, text, replyMarkup) {
+// --- Telegram API Utilities ---
+async function callTelegram(method, params = {}) {
   const token = getBotToken();
-  if (!token) {
-    console.log(`[BOT DEV NOTIFY] No BOT_TOKEN. Message to ${chatId}: ${text}`);
-    return false;
-  }
+  if (!token) return null;
   try {
-    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: JSON.stringify(params),
+    });
+    return await res.json();
+  } catch (err) {
+    console.error(`Telegram API error [${method}]:`, err?.message || err);
+    return null;
+  }
+}
+
+async function sendTelegramMessage(chatId, text, replyMarkup, protectContent = false) {
+  return await callTelegram("sendMessage", {
+    chat_id: chatId,
+    text,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    protect_content: protectContent,
+  });
+}
+
+async function sendTelegramVideo(chatId, video, caption, replyMarkup, protectContent = true) {
+  // Try sending native video with DRM protect_content
+  const sent = await callTelegram("sendVideo", {
+    chat_id: chatId,
+    video,
+    caption,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+    protect_content: protectContent, // 🔒 NATIVE OS-LEVEL DRM
+  });
+
+  if (!sent || !sent.ok) {
+    console.warn("sendVideo fallback to sendMessage:", sent?.description);
+    return await callTelegram("sendMessage", {
+      chat_id: chatId,
+      text: `${caption}\n\n🎥 <b>Video havolasi:</b>\n${video}`,
+      parse_mode: "HTML",
+      reply_markup: replyMarkup,
+      protect_content: protectContent,
+    });
+  }
+  return sent;
+}
+
+async function answerTelegramCallbackQuery(callbackQueryId, text, showAlert = false) {
+  return await callTelegram("answerCallbackQuery", {
+    callback_query_id: callbackQueryId,
+    text,
+    show_alert: showAlert,
+  });
+}
+
+// --- Supabase Query Helpers ---
+async function findUserByTelegramId(supabase, telegramUserId) {
+  const { data } = await supabase
+    .from("users")
+    .select("*")
+    .eq("telegram_user_id", Number(telegramUserId))
+    .maybeSingle();
+  return data;
+}
+
+async function getGrantedCourses(supabase, userId) {
+  const { data: accessRows } = await supabase
+    .from("academy_access")
+    .select("course_id")
+    .eq("user_id", userId)
+    .eq("status", "granted");
+
+  if (!accessRows || accessRows.length === 0) return [];
+  const courseIds = accessRows.map((r) => String(r.course_id));
+
+  const { data: courses } = await supabase
+    .from("academy_courses")
+    .select("*")
+    .in("id", courseIds)
+    .eq("active", true)
+    .order("order", { ascending: true });
+
+  return courses || [];
+}
+
+async function hasAccessToCourse(supabase, userId, courseId) {
+  const { data } = await supabase
+    .from("academy_access")
+    .select("id")
+    .eq("user_id", userId)
+    .eq("course_id", String(courseId))
+    .eq("status", "granted")
+    .maybeSingle();
+  return Boolean(data);
+}
+
+// --- Bot Menus & Action Handlers ---
+async function showCoursesMenu(chatId, user, messageId = null) {
+  const supabase = getSupabase();
+  const granted = await getGrantedCourses(supabase, user.id);
+
+  if (granted.length === 0) {
+    const text =
+      `⏳ <b>Hurmatli ${user.name}!</b>\n\n` +
+      `👤 <b>Mijoz kodi:</b> <code>${user.customer_code}</code>\n` +
+      `📱 <b>Telefon:</b> <code>${user.phone}</code>\n\n` +
+      `⚠️ <b>Holat: Administrator ruxsati kutilmoqda.</b>\n` +
+      `Administrator darslarni ko‘rish uchun ruxsat bergach, ushbu bot orqali xabar keladi va darslar ochiladi.`;
+
+    if (messageId) {
+      await callTelegram("editMessageText", {
         chat_id: chatId,
+        message_id: messageId,
         text,
         parse_mode: "HTML",
-        reply_markup: replyMarkup
-      })
-    });
-    const json = await res.json().catch(() => ({}));
-    if (!res.ok) {
-      console.error(`Telegram API error for chat ${chatId}:`, json);
-      return false;
+      });
+    } else {
+      await sendTelegramMessage(chatId, text);
     }
-    return true;
-  } catch (err) {
-    console.error("Failed to send Telegram notification:", err);
-    return false;
+    return;
   }
-}
-async function answerTelegramCallbackQuery(callbackQueryId, text) {
-  const token = getBotToken();
-  if (!token) return false;
-  try {
-    await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        callback_query_id: callbackQueryId,
-        text
-      })
+
+  const buttons = granted.map((c) => [
+    { text: `📚 ${c.title}`, callback_data: `course_${c.id}` },
+  ]);
+
+  const text =
+    `🎓 <b>Mening kurslarim</b>\n\n` +
+    `Darslarni tomosha qilish uchun kursni tanlang 👇`;
+
+  if (messageId) {
+    await callTelegram("editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: buttons },
     });
-    return true;
-  } catch {
-    return false;
+  } else {
+    await sendTelegramMessage(chatId, text, { inline_keyboard: buttons });
   }
 }
 
-// api/_lib/botEngine.ts
-var MINI_APP_URL2 = process.env.MINI_APP_URL || "https://yuklago.vercel.app";
-var userSessions = /* @__PURE__ */ new Map();
-function getTelegramName(from) {
-  const parts = [from?.first_name, from?.last_name].filter(Boolean);
-  if (parts.length > 0) return parts.join(" ").trim();
-  if (from?.username) return `@${from.username}`;
-  return "Hurmatli talaba";
+async function showCourseLessons(chatId, user, courseId, messageId = null) {
+  const supabase = getSupabase();
+
+  // 1. Strict Security Gating: verify access
+  const hasAccess = await hasAccessToCourse(supabase, user.id, courseId);
+  if (!hasAccess) {
+    await sendTelegramMessage(
+      chatId,
+      `🔒 <b>Ushbu kursga ruxsat berilmagan!</b>\n\nIltimos, administrator bilan bog‘laning.`
+    );
+    return;
+  }
+
+  // 2. Fetch course & lessons
+  const { data: course } = await supabase
+    .from("academy_courses")
+    .select("*")
+    .eq("id", String(courseId))
+    .maybeSingle();
+
+  const { data: lessons } = await supabase
+    .from("academy_lessons")
+    .select("*")
+    .eq("course_id", String(courseId))
+    .order("order", { ascending: true });
+
+  if (!course || !lessons || lessons.length === 0) {
+    const text = `📖 <b>${course?.title || "Kurs"}</b>\n\nUshbu kursda hozircha darslar mavjud emas.`;
+    const backBtn = { inline_keyboard: [[{ text: "🔙 Kurslarga qaytish", callback_data: "menu_courses" }]] };
+    if (messageId) {
+      await callTelegram("editMessageText", { chat_id: chatId, message_id: messageId, text, parse_mode: "HTML", reply_markup: backBtn });
+    } else {
+      await sendTelegramMessage(chatId, text, backBtn);
+    }
+    return;
+  }
+
+  // 3. Fetch user progress for this course's lessons
+  const lessonIds = lessons.map((l) => String(l.id));
+  const { data: progressRows } = await supabase
+    .from("academy_user_progress")
+    .select("lesson_id, completed")
+    .eq("user_id", user.id)
+    .in("lesson_id", lessonIds);
+
+  const completedMap = {};
+  if (progressRows) {
+    for (const p of progressRows) {
+      if (p.completed) completedMap[String(p.lesson_id)] = true;
+    }
+  }
+
+  // 4. Build sequential lock buttons
+  const buttons = [];
+  let canAccessNext = true;
+
+  for (let i = 0; i < lessons.length; i++) {
+    const l = lessons[i];
+    const isCompleted = Boolean(completedMap[String(l.id)]);
+    let icon = "🔒";
+    let cb = `locked_${i + 1}`;
+
+    if (isCompleted) {
+      icon = "✅";
+      cb = `play_${l.id}`;
+    } else if (canAccessNext) {
+      icon = "▶️";
+      cb = `play_${l.id}`;
+    }
+
+    buttons.push([{ text: `${icon} ${i + 1}-dars: ${l.title}`, callback_data: cb }]);
+    canAccessNext = isCompleted;
+  }
+
+  buttons.push([{ text: "🔙 Kurslarga qaytish", callback_data: "menu_courses" }]);
+
+  const completedCount = Object.keys(completedMap).length;
+  const pct = Math.round((completedCount / lessons.length) * 100);
+
+  const text =
+    `📖 <b>${course.title}</b>\n\n` +
+    (course.description ? `<i>${course.description}</i>\n\n` : "") +
+    `📊 <b>Kurs jarayoni:</b> ${completedCount}/${lessons.length} dars (${pct}%)\n\n` +
+    `👇 Darsni tanlang:`;
+
+  if (messageId) {
+    await callTelegram("editMessageText", {
+      chat_id: chatId,
+      message_id: messageId,
+      text,
+      parse_mode: "HTML",
+      reply_markup: { inline_keyboard: buttons },
+    });
+  } else {
+    await sendTelegramMessage(chatId, text, { inline_keyboard: buttons });
+  }
 }
-function formatPhoneNumber(raw) {
-  const digits = raw.replace(/\D/g, "");
-  if (digits.length === 9) {
-    return `+998${digits}`;
+
+async function playLessonVideo(chatId, user, lessonId) {
+  const supabase = getSupabase();
+
+  const { data: lesson } = await supabase
+    .from("academy_lessons")
+    .select("*")
+    .eq("id", String(lessonId))
+    .maybeSingle();
+
+  if (!lesson) {
+    await sendTelegramMessage(chatId, "⚠️ Dars topilmadi.");
+    return;
   }
-  if (digits.length === 12 && digits.startsWith("998")) {
-    return `+${digits}`;
+
+  // Strict Security Check: Verify user course access
+  const hasAccess = await hasAccessToCourse(supabase, user.id, lesson.course_id);
+  if (!hasAccess) {
+    await sendTelegramMessage(chatId, "🔒 Ushbu darsga ruxsatingiz yo‘q.");
+    return;
   }
-  if (digits.length >= 7) {
-    return `+${digits}`;
+
+  // Extract video URL / Telegram file_id
+  let videoSource = lesson.youtube_video_id || "";
+  try {
+    if (videoSource.startsWith("{")) {
+      const parsed = JSON.parse(videoSource);
+      videoSource = parsed.url || videoSource;
+    }
+  } catch {}
+
+  const m = Math.floor((lesson.duration_seconds || 600) / 60);
+  const s = (lesson.duration_seconds || 600) % 60;
+  const durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+
+  const buttons = [
+    [{ text: "✅ Darsni ko‘rib bo‘ldim (Tugatish)", callback_data: `finish_${lesson.id}` }],
+    [{ text: "📋 Darslar ro‘yxatiga qaytish", callback_data: `course_${lesson.course_id}` }],
+  ];
+
+  if (!videoSource) {
+    await sendTelegramMessage(
+      chatId,
+      `🎬 <b>${lesson.title}</b>\n\nUshbu dars uchun video hali biriktirilmagan. Tez orada yuklanadi!`,
+      { inline_keyboard: buttons }
+    );
+    return;
   }
-  return raw.trim();
+
+  const caption =
+    `🎬 <b>${lesson.title}</b>\n\n` +
+    `⏱ <b>Davomiyligi:</b> ${durationStr}\n` +
+    (lesson.description ? `📖 <b>Tavsif:</b> ${lesson.description}\n\n` : "\n") +
+    `🔒 <i>Xavfsizlik: Ushbu video himoyalangan. Saqlash, ulashish va ekran yozib olish (screen recording) bloklangan.</i>`;
+
+  // Send protected video (DRM)
+  await sendTelegramVideo(chatId, videoSource, caption, { inline_keyboard: buttons }, true);
 }
+
+async function finishLesson(chatId, user, lessonId) {
+  const supabase = getSupabase();
+
+  const { data: lesson } = await supabase
+    .from("academy_lessons")
+    .select("*")
+    .eq("id", String(lessonId))
+    .maybeSingle();
+
+  if (!lesson) return;
+
+  // Persist progress to Supabase
+  await supabase.from("academy_user_progress").upsert(
+    {
+      user_id: user.id,
+      lesson_id: String(lesson.id),
+      completed: true,
+      max_watched_seconds: lesson.duration_seconds || 60,
+      last_sync_timestamp: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,lesson_id" }
+  );
+
+  // Find next lesson
+  const { data: allLessons } = await supabase
+    .from("academy_lessons")
+    .select("*")
+    .eq("course_id", lesson.course_id)
+    .order("order", { ascending: true });
+
+  const currentIndex = (allLessons || []).findIndex((l) => String(l.id) === String(lesson.id));
+  const nextLesson = allLessons && currentIndex >= 0 ? allLessons[currentIndex + 1] : null;
+
+  if (nextLesson) {
+    await sendTelegramMessage(
+      chatId,
+      `🎉 <b>Ajoyib, ${user.name}!</b>\n\n` +
+        `Siz <b>«${lesson.title}»</b> darsini muvaffaqiyatli yakunladingiz!\n\n` +
+        `Keyingi dars ochildi: <b>«${nextLesson.title}»</b> 👇`,
+      {
+        inline_keyboard: [
+          [{ text: `▶️ Keyingi dars: ${nextLesson.title}`, callback_data: `play_${nextLesson.id}` }],
+          [{ text: "📋 Darslar ro‘yxati", callback_data: `course_${lesson.course_id}` }],
+        ],
+      }
+    );
+  } else {
+    await sendTelegramMessage(
+      chatId,
+      `🏆 <b>TABRIKLAYMIZ, ${user.name}!</b>\n\n` +
+        `Siz kursdagi barcha darslarni to‘liq yakunladingiz! (100%)\n\n` +
+        `Bilimlaringizni amalda qo‘llashingizda muvaffaqiyat tilaymiz!`,
+      {
+        inline_keyboard: [
+          [{ text: "📋 Kurslar ro‘yxatiga qaytish", callback_data: "menu_courses" }],
+        ],
+      }
+    );
+  }
+}
+
+// --- Main Webhook Update Processor ---
 async function processTelegramUpdate(update) {
+  const supabase = getSupabase();
   const message = update.message;
   const callbackQuery = update.callback_query;
   const from = message?.from || callbackQuery?.from;
   const chatId = message?.chat?.id || callbackQuery?.message?.chat?.id;
+
   if (!from || !chatId) return false;
   const telegramUserId = from.id;
-  const supabase = getSupabase();
+
+  // 1. Handle Callback Queries (Buttons)
   if (callbackQuery) {
     const data = callbackQuery.data;
-    await answerTelegramCallbackQuery(callbackQuery.id);
-    if (data === "accept_oferta") {
-      userSessions.set(telegramUserId, { step: "phone" });
-      await sendTelegramMessage(
-        chatId,
-        "✅ <b>Oferta shartlari qabul qilindi.</b>\n\n📱 Ro‘yxatdan o‘tishni yakunlash uchun pastdagi <b>«Telefon raqamni yuborish»</b> tugmasini bosing:",
-        {
-          keyboard: [
-            [
-              {
-                text: "📱 Telefon raqamni yuborish",
-                request_contact: true
-              }
-            ]
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true
-        }
+    const messageId = callbackQuery.message?.message_id;
+
+    if (data.startsWith("locked_")) {
+      await answerTelegramCallbackQuery(
+        callbackQuery.id,
+        "🔒 Ushbu dars qulflangan! Avvalgi darsni ko‘rib bo‘lishingiz kerak.",
+        true
       );
       return true;
     }
+
+    await answerTelegramCallbackQuery(callbackQuery.id);
+
+    const user = await findUserByTelegramId(supabase, telegramUserId);
+    if (!user) {
+      await sendTelegramMessage(
+        chatId,
+        "Iltimos, avval /start buyrug‘ini yuborib telefon raqamingizni tasdiqlang."
+      );
+      return true;
+    }
+
+    if (data === "menu_courses") {
+      await showCoursesMenu(chatId, user, messageId);
+      return true;
+    }
+
+    if (data.startsWith("course_view_") || data.startsWith("course_")) {
+      const courseId = data.replace("course_view_", "").replace("course_", "");
+      await showCourseLessons(chatId, user, courseId, messageId);
+      return true;
+    }
+
+    if (data.startsWith("play_")) {
+      const lessonId = data.replace("play_", "");
+      await playLessonVideo(chatId, user, lessonId);
+      return true;
+    }
+
+    if (data.startsWith("finish_")) {
+      const lessonId = data.replace("finish_", "");
+      await finishLesson(chatId, user, lessonId);
+      return true;
+    }
+
+    // Admin attaching video to lesson
+    if (data.startsWith("attach_") && isAdmin(telegramUserId)) {
+      const parts = data.split("_");
+      const lessonId = parts[1];
+      const fileId = parts.slice(2).join("_");
+
+      await supabase
+        .from("academy_lessons")
+        .update({ youtube_video_id: fileId, updated_at: new Date().toISOString() })
+        .eq("id", String(lessonId));
+
+      await sendTelegramMessage(
+        chatId,
+        `✅ <b>Video muvaffaqiyatli biriktirildi!</b>\n\nEndi ushbu dars barcha ruxsat berilgan talabalar uchun himoyalangan (DRM) ko‘rinishda taqdim etiladi.`
+      );
+      return true;
+    }
+
+    // Admin creating new lesson with video
+    if (data.startsWith("newlesson_") && isAdmin(telegramUserId)) {
+      const parts = data.split("_");
+      const fileId = parts[1];
+      const durationSec = Number(parts[3]) || 600;
+
+      const { data: firstCourse } = await supabase
+        .from("academy_courses")
+        .select("id")
+        .limit(1)
+        .maybeSingle();
+
+      const newId = String(Date.now());
+      await supabase.from("academy_lessons").insert({
+        id: newId,
+        course_id: firstCourse?.id || "1791305084906",
+        title: `Yangi dars (${new Date().toLocaleDateString("uz-UZ")})`,
+        description: "Telegram orqali yuklangan dars",
+        youtube_video_id: fileId,
+        duration_seconds: durationSec,
+        order: 99,
+      });
+
+      await sendTelegramMessage(
+        chatId,
+        `✅ <b>Yangi dars yaratildi va video biriktirildi!</b>\n\nAdmin panelda uning nomini va tavsifini o‘zgartirishingiz mumkin.`
+      );
+      return true;
+    }
+
     return true;
   }
+
+  // 2. Handle Contact Received (Native Phone Registration)
   if (message?.contact) {
     const contact = message.contact;
-    const phone = contact.phone_number.startsWith("+") ? contact.phone_number : `+${contact.phone_number}`;
-    const userName = getTelegramName(from);
-    return await completeRegistration(chatId, telegramUserId, from, userName, phone, supabase);
+    let phone = contact.phone_number.trim();
+    if (!phone.startsWith("+")) phone = `+${phone}`;
+
+    const fullName =
+      `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
+      contact.first_name ||
+      "Talaba";
+
+    let existingUser = await findUserByTelegramId(supabase, telegramUserId);
+    const customerCode = existingUser?.customer_code || `YK-${Math.floor(100 + Math.random() * 900)}`;
+
+    const { data: userRow } = await supabase
+      .from("users")
+      .upsert(
+        {
+          telegram_user_id: telegramUserId,
+          name: fullName,
+          phone,
+          customer_code: customerCode,
+          status: existingUser?.status || "pending", // PENDING UNTIL ADMIN APPROVAL
+          onboarding_completed: true,
+          onboarding_step: "completed",
+          phone_verified_at: new Date().toISOString(),
+        },
+        { onConflict: "telegram_user_id" }
+      )
+      .select()
+      .single();
+
+    // Remove keyboard and send waiting status message
+    await sendTelegramMessage(
+      chatId,
+      `✅ <b>Raqamingiz tasdiqlandi:</b> <code>${phone}</code>\n\n` +
+        `👤 <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
+        `📱 <b>Ism:</b> ${fullName}\n\n` +
+        `⏳ <b>Sizning arizangiz qabul qilindi.</b>\n` +
+        `Administrator darslarni ko‘rish uchun ruxsat bergach, ushbu bot orqali darhol xabarnoma olasiz va darslar ochiladi!`,
+      { remove_keyboard: true }
+    );
+    return true;
   }
-  const rawText = message?.text?.trim() || "";
-  const session = userSessions.get(telegramUserId);
-  if (rawText.startsWith("/start")) {
-    let existingUser2 = null;
-    if (supabase) {
-      try {
-        const { data } = await supabase.from("users").select("*").eq("telegram_user_id", telegramUserId).maybeSingle();
-        existingUser2 = data;
-      } catch (err) {
-        console.warn("Error checking existing user:", err);
-      }
+
+  // 3. Handle Admin Video Upload (200-300MB+ Direct Upload via Telegram)
+  if (message?.video) {
+    if (!isAdmin(telegramUserId)) {
+      await sendTelegramMessage(chatId, "⚠️ Videoni faqat administratorlar yuklashi mumkin.");
+      return true;
     }
-    if (existingUser2 && existingUser2.onboarding_completed) {
-      const customerCode = existingUser2.customer_code || "YK-100";
-      const userId = existingUser2.id;
-      let token = "";
-      try {
-        token = createSessionToken({
-          userId,
-          telegramUserId,
-          customerCode,
-          role: isTelegramAdmin(telegramUserId) ? "admin" : "customer"
-        }, "30d");
-      } catch {
+
+    const video = message.video;
+    const fileId = video.file_id;
+    const durationSec = video.duration || 0;
+    const m = Math.floor(durationSec / 60);
+    const s = durationSec % 60;
+    const durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    const sizeMB = (video.file_size / (1024 * 1024)).toFixed(1);
+
+    const { data: lessons } = await supabase
+      .from("academy_lessons")
+      .select("id, title")
+      .order("order", { ascending: true })
+      .limit(8);
+
+    const buttons = (lessons || []).map((l) => [
+      { text: `🎬 «${l.title}» darsiga biriktirish`, callback_data: `attach_${l.id}_${fileId}` },
+    ]);
+
+    buttons.push([
+      { text: "➕ Yangi dars qilib yaratish", callback_data: `newlesson_${fileId}_${durationStr}_${durationSec}` },
+    ]);
+
+    await sendTelegramMessage(
+      chatId,
+      `🎬 <b>Video Telegram serveriga qabul qilindi!</b>\n\n` +
+        `📁 <b>Telegram File ID:</b>\n<code>${fileId}</code>\n\n` +
+        `⏱ <b>Davomiyligi:</b> ${durationStr}\n` +
+        `💾 <b>Hajmi:</b> ${sizeMB} MB\n\n` +
+        `Ushbu videoni qaysi darsga biriktiramiz?`,
+      { inline_keyboard: buttons }
+    );
+    return true;
+  }
+
+  // 4. Handle Text Messages (/start, /courses, etc.)
+  if (message?.text) {
+    const text = message.text.trim();
+
+    if (text.startsWith("/start")) {
+      const user = await findUserByTelegramId(supabase, telegramUserId);
+
+      // A. Not registered yet -> Ask for contact button
+      if (!user || !user.phone) {
+        const welcomeText =
+          `👋 <b>Assalomu alaykum, ${from.first_name || "Talaba"}!</b>\n\n` +
+          `Yukla Go video ta’lim platformasiga xush kelibsiz.\n\n` +
+          `Kurs darslariga ro‘yxatdan o‘tish uchun quyidagi tugmani bosib <b>telefon raqamingizni tasdiqlang</b>:`;
+
+        await sendTelegramMessage(chatId, welcomeText, {
+          keyboard: [
+            [{ text: "📱 Telefon raqamimni yuborish", request_contact: true }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: true,
+        });
+        return true;
       }
+
+      // B. Registered -> Remove legacy keyboards and show status/courses
       await sendTelegramMessage(
         chatId,
-        `\u{1F44B} <b>Assalomu alaykum, ${existingUser2.name || from.first_name}!</b>
+        `📚 <b>Yukla Go ta’lim platformasi</b>`,
+        { remove_keyboard: true }
+      );
+      await showCoursesMenu(chatId, user);
+      return true;
+    }
 
-Siz Yukla Go ta\u2019lim platformasidan muvaffaqiyatli ro\u2018yxatdan o\u2018tgansiz.
+    if (text.startsWith("/courses") || text === "📚 Kurslar" || text === "Darslar") {
+      const user = await findUserByTelegramId(supabase, telegramUserId);
+      if (user) {
+        await showCoursesMenu(chatId, user);
+        return true;
+      }
+    }
 
-\u{1F464} <b>Mijoz kodi:</b> <code>${customerCode}</code>
-\u{1F4DE} <b>Telefon:</b> <code>${existingUser2.phone || "Kiritilgan"}</code>
-
-Darslarni davom ettirish uchun quyidagi tugmani bosing:`,
-        {
-          inline_keyboard: [
-            [
-              {
-                text: "📚 Kurslarni boshlash",
-                callback_data: "menu_courses"
-              }
-            ]
-          ]
-        }
+    // Default fallback
+    const user = await findUserByTelegramId(supabase, telegramUserId);
+    if (!user) {
+      await sendTelegramMessage(
+        chatId,
+        `Assalomu alaykum! Iltimos, /start buyrug‘ini bosing va ro‘yxatdan o‘ting.`
       );
       return true;
     }
-    userSessions.set(telegramUserId, { step: "phone" });
-    const userName = getTelegramName(from);
-    const welcomeText =
-      `👋 <b>Assalomu alaykum, ${userName}!</b>\n\n` +
-      `Yukla Go yopiq video ta’lim platformasiga xush kelibsiz.\n\n` +
-      `Platformamiz orqali Xitoydan tovar olib kelish, 1688, Taobao va xavfsiz import sirlarini bosqichma-bosqich o‘rganasiz.\n\n` +
-      `Kursni boshlashdan oldin ommaviy oferta (foydalanish shartlari) bilan tanishib chiqing:\n` +
-      `📄 <a href="https://telegra.ph/Yukla-Go-Ommaviy-Oferta-01-01">Ommaviy Oferta shartlarini o‘qish</a>\n\n` +
-      `📱 Ro‘yxatdan o‘tish va darslarga kirish uchun pastdagi <b>«Telefon raqamni yuborish»</b> tugmasini bosing:`;
-
-    await sendTelegramMessage(
-      chatId,
-      welcomeText,
-      {
-        keyboard: [
-          [
-            {
-              text: "📱 Telefon raqamni yuborish",
-              request_contact: true,
-            },
-          ],
-        ],
-        resize_keyboard: true,
-        one_time_keyboard: true,
-      }
-    );
+    await showCoursesMenu(chatId, user);
     return true;
   }
 
-  // Fallback: If user typed phone number manually as text
-  const formattedPhone = formatPhoneNumber(rawText);
-  if (formattedPhone.replace(/\D/g, "").length >= 7) {
-    const userName = getTelegramName(from);
-    return await completeRegistration(chatId, telegramUserId, from, userName, formattedPhone, supabase);
-  }
-
-  let existingUser = null;
-  if (supabase) {
-    try {
-      const { data } = await supabase.from("users").select("*").eq("telegram_user_id", telegramUserId).maybeSingle();
-      existingUser = data;
-    } catch {
-    }
-  }
-  if (existingUser && existingUser.onboarding_completed) {
-    const customerCode = existingUser.customer_code || "YK-100";
-    let token = "";
-    try {
-      token = createSessionToken({
-        userId: existingUser.id,
-        telegramUserId,
-        customerCode,
-        role: isTelegramAdmin(telegramUserId) ? "admin" : "customer"
-      }, "30d");
-    } catch {
-    }
-    await sendTelegramMessage(
-      chatId,
-      `Siz ro‘yxatdan o‘tgansiz. Darslarga kirish uchun quyidagi tugmani bosing:`,
-      {
-        inline_keyboard: [
-          [
-            {
-              text: "📚 Kurslarni boshlash",
-              callback_data: "menu_courses"
-            }
-          ]
-        ]
-      }
-    );
-    return true;
-  }
-  await sendTelegramMessage(
-    chatId,
-    "Ro‘yxatdan o‘tish uchun pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosing:",
-    {
-      keyboard: [
-        [
-          {
-            text: "📱 Telefon raqamni yuborish",
-            request_contact: true
-          }
-        ]
-      ],
-      resize_keyboard: true,
-      one_time_keyboard: true
-    }
-  );
-  return true;
-}
-async function completeRegistration(chatId, telegramUserId, from, userName, phone, supabase) {
-  let customerCode = `YK-${Math.floor(100 + Math.random() * 900)}`;
-  let userId = `usr_${telegramUserId}`;
-  if (supabase) {
-    try {
-      try {
-        const { data: rpcCode } = await supabase.rpc("generate_customer_code");
-        if (rpcCode) customerCode = rpcCode;
-      } catch {
-      }
-      const { data: userRow } = await supabase.from("users").upsert(
-        {
-          telegram_user_id: telegramUserId,
-          name: userName.trim(),
-          phone: phone.trim(),
-          customer_code: customerCode,
-          onboarding_completed: true,
-          onboarding_step: "completed",
-          status: "active",
-          phone_verified_at: (/* @__PURE__ */ new Date()).toISOString()
-        },
-        { onConflict: "telegram_user_id" }
-      ).select().single();
-      if (userRow) {
-        userId = userRow.id;
-      }
-    } catch (err) {
-      console.error("Supabase user insert error:", err);
-    }
-  }
-  userSessions.delete(telegramUserId);
-  let token = "";
-  try {
-    token = createSessionToken({
-      userId,
-      telegramUserId,
-      customerCode,
-      role: isTelegramAdmin(telegramUserId) ? "admin" : "customer"
-    }, "30d");
-  } catch {
-  }
-  await sendTelegramMessage(
-    chatId,
-    "✅ Rahmat, ma‘lumotlaringiz qabul qilindi.",
-    { remove_keyboard: true }
-  );
-  const successMessage = `🎉 <b>Tabriklaymiz, ${userName}!</b>\n\n` +
-    `Siz Yukla Go ta‘lim platformasidan muvaffaqiyatli ro‘yxatdan o‘tdingiz.\n\n` +
-    `📋 <b>Sizning ma‘lumotlaringiz:</b>\n` +
-    `• <b>Mijoz kodi:</b> <code>${customerCode}</code>\n` +
-    `• <b>Telefon:</b> <code>${phone}</code>\n\n` +
-    `👇 Shaxsiy o‘quv kabinetingizga kirish uchun quyidagi tugmani bosing:`;
-  await sendTelegramMessage(
-    chatId,
-    successMessage,
-    {
-      inline_keyboard: [
-        [
-          {
-            text: "📚 Kurslarni boshlash",
-            callback_data: "menu_courses"
-          }
-        ]
-      ]
-    }
-  );
   return true;
 }
 
-// api/_handlers/botWebhook.ts
-var WEBHOOK_SECRET = process.env.TELEGRAM_WEBHOOK_SECRET || "yukla_go_secret_webhook_token_2026";
-async function handler(req, res) {
-  if (req.method !== "POST") {
-    return sendSafeJson(res, 405, { error: "Method not allowed" });
-  }
-  if (WEBHOOK_SECRET) {
-    const receivedSecret = req.headers?.["x-telegram-bot-api-secret-token"];
-    if (!receivedSecret || receivedSecret !== WEBHOOK_SECRET) {
-      return sendSafeJson(res, 401, { error: "Invalid secret token" });
-    }
-  }
-  let update = req.body;
-  if (typeof update === "string") {
-    try {
-      update = JSON.parse(update);
-    } catch {
-    }
-  }
-  if (!update && req.on) {
-    try {
-      const buffers = [];
-      for await (const chunk of req) {
-        buffers.push(chunk);
-      }
-      const raw = Buffer.concat(buffers).toString("utf-8");
-      if (raw) update = JSON.parse(raw);
-    } catch {
-    }
-  }
-  if (!update) {
-    return sendSafeJson(res, 200, { ok: true });
-  }
-  try {
-    await processTelegramUpdate(update);
-  } catch (err) {
-    console.error("Webhook update handling error:", err);
-  }
-  return sendSafeJson(res, 200, { ok: true });
-}
-
-// api/_handlers/state.ts
-function formatDuration(seconds) {
-  const m = Math.floor(seconds / 60);
-  const s = seconds % 60;
-  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-}
-async function handler2(req, res) {
+// --- Admin Panel API Handler ---
+export function sendSafeJson(res, statusCode, data) {
   try {
     if (res.setHeader) {
       res.setHeader("Access-Control-Allow-Origin", "*");
-      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+      res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS, PUT, DELETE");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, x-telegram-bot-api-secret-token");
     }
-    if (req.method === "OPTIONS") {
-      return res.status ? res.status(200).end() : res.end();
+    if (typeof res.status === "function" && typeof res.json === "function") {
+      return res.status(statusCode).json(data);
     }
-    const supabase = getSupabase();
-    let courses = [];
-    let lessons = [];
-    let users = [];
-    let settings = {
-      adminPassword: "admin",
-      defaultCompletionPercent: 95,
-      autoSaveProgress: true,
-      sequentialLessons: true,
-      dynamicWatermark: true,
-      watermarkFormat: "id-brand"
-    };
-    if (supabase) {
-      try {
-        const { data: dbCourses } = await supabase.from("academy_courses").select("*").order("order", { ascending: true });
-        if (dbCourses && Array.isArray(dbCourses)) {
-          courses = dbCourses.map((c) => ({
-            id: c.id,
-            title: c.title,
-            description: c.description || "",
-            lessons: 0,
-            users: 0,
-            completion: 0,
-            status: c.active ? "Faol" : "Qoralama",
-            updated: "Bugun",
-            tone: c.icon || "blue"
-          }));
-        }
-        const { data: dbLessons } = await supabase.from("academy_lessons").select("*").order("order", { ascending: true });
-        if (dbLessons && Array.isArray(dbLessons)) {
-          lessons = dbLessons.map((l) => {
-            let videoUrl = l.youtube_video_id || "";
-            let videoFormat = "auto";
-            let thumbnailUrl = "";
-            try {
-              if (videoUrl.startsWith("{")) {
-                const parsed = JSON.parse(videoUrl);
-                videoUrl = parsed.url || "";
-                videoFormat = parsed.format || "auto";
-                thumbnailUrl = parsed.thumb || "";
-              }
-            } catch {
-            }
-            return {
-              id: l.id,
-              courseId: l.course_id,
-              title: l.title,
-              description: l.description || "",
-              duration: formatDuration(l.duration_seconds || 600),
-              durationSeconds: l.duration_seconds || 600,
-              videoUrl,
-              videoFormat,
-              status: "Faol",
-              thumbnailUrl,
-              color: "lesson-blue",
-              viewers: 0,
-              completion: 0
-            };
-          });
-          courses = courses.map((c) => {
-            const count = lessons.filter((l) => String(l.courseId) === String(c.id)).length;
-            return { ...c, lessons: count };
-          });
-        }
-        const { data: dbUsers } = await supabase.from("users").select("*").order("created_at", { ascending: false });
-        if (dbUsers && Array.isArray(dbUsers)) {
-          const { data: dbAccess } = await supabase.from("academy_access").select("*");
-          const accessMap = {};
-          if (dbAccess) {
-            for (const a of dbAccess) {
-              if (!accessMap[a.user_id]) accessMap[a.user_id] = {};
-              accessMap[a.user_id][a.course_id] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
-            }
-          }
-          users = dbUsers.map((u) => {
-            const initials = (u.name || "U").trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "YG";
-            const userCourseAccess = accessMap[u.id] || {};
-            return {
-              id: u.customer_code || u.id,
-              name: u.name || "Hurmatli talaba",
-              initials,
-              phone: u.phone || "",
-              access: u.status === "blocked" ? "To\u2018xtatilgan" : "Faol",
-              coursesAccess: userCourseAccess,
-              progress: 0,
-              done: "0 / " + lessons.length,
-              activity: "Hozirgina"
-            };
-          });
-        }
-      } catch (err) {
-        console.error("Supabase state query error:", err);
-      }
+    if (res.writeHead) {
+      res.writeHead(statusCode, { "Content-Type": "application/json" });
+      return res.end(JSON.stringify(data));
     }
-    const payload = {
-      courses,
-      lessons,
-      users,
-      settings,
-      progress: {}
-    };
-    if (typeof res.json === "function") {
-      return res.status(200).json(payload);
-    }
-    res.writeHead(200, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify(payload));
-  } catch (error) {
-    console.error("State handler critical error:", error);
-    if (typeof res.json === "function") {
-      return res.status(500).json({ error: error?.message || "Server error" });
-    }
-    res.writeHead(500, { "Content-Type": "application/json" });
-    return res.end(JSON.stringify({ error: error?.message || "Server error" }));
+    return res.end(JSON.stringify(data));
+  } catch {
+    try {
+      res.end(JSON.stringify(data));
+    } catch {}
   }
 }
 
-// api/_handlers/user.ts
-async function handler3(req, res) {
+export default async function handler(req, res) {
   if (req.method === "OPTIONS") {
     return sendSafeJson(res, 200, { ok: true });
   }
+
   const rawUrl = req.url || "";
   const urlObj = new URL(rawUrl, "http://localhost");
-  const query = req.query || {};
-  const token = query.token || urlObj.searchParams.get("token");
-  const code = query.code || urlObj.searchParams.get("code");
-  const u = query.u || urlObj.searchParams.get("u");
-  const tg_id = query.tg_id || urlObj.searchParams.get("tg_id");
-  const supabase = getSupabase();
-  if (!token && !code && !u && !tg_id) {
-    return sendSafeJson(res, 400, { error: "Foydalanuvchi parametri kiritilmagan" });
-  }
-  let customerCode = code ? String(code).trim() : null;
-  let userId = u ? String(u).trim() : null;
-  let telegramUserId = tg_id ? Number(tg_id) : null;
-  if (token) {
-    try {
-      const decoded = verifySessionToken(String(token));
-      if (decoded) {
-        customerCode = decoded.customerCode || customerCode;
-        userId = decoded.userId || userId;
-        if (decoded.telegramUserId) telegramUserId = decoded.telegramUserId;
-      }
-    } catch {
-    }
-  }
-  if (supabase) {
-    try {
-      let query2 = supabase.from("users").select("*");
-      if (telegramUserId && !isNaN(telegramUserId)) {
-        query2 = query2.eq("telegram_user_id", telegramUserId);
-      } else if (customerCode) {
-        query2 = query2.eq("customer_code", customerCode);
-      } else if (userId) {
-        query2 = query2.eq("id", userId);
-      }
-      const { data: userRow } = await query2.maybeSingle();
-      if (userRow) {
-        if (!userRow.onboarding_completed) {
-          return sendSafeJson(res, 403, {
-            success: false,
-            notRegistered: true,
-            error: "Ro\u2018yxatdan o\u2018tish yakunlanmagan. Iltimos, botda ro\u2018yxatdan o\u2018tishni yakunlang."
-          });
-        }
-        const initials = (userRow.name || "U").trim().split(" ").map((w) => w[0]).join("").toUpperCase().slice(0, 2) || "YG";
-        const { data: dbAccess } = await supabase.from("academy_access").select("course_id, status").eq("user_id", userRow.id);
-        const coursesAccess = {};
-        if (dbAccess) {
-          for (const a of dbAccess) {
-            coursesAccess[String(a.course_id)] = a.status === "granted" ? "Faol" : "To\u2018xtatilgan";
-          }
-        }
-        return sendSafeJson(res, 200, {
-          success: true,
-          user: {
-            id: userRow.customer_code || userRow.id,
-            rawId: userRow.id,
-            telegramUserId: userRow.telegram_user_id,
-            name: userRow.name || "Hurmatli talaba",
-            initials,
-            phone: userRow.phone || "",
-            access: userRow.status === "blocked" ? "To\u2018xtatilgan" : "Faol",
-            coursesAccess,
-            progress: 0,
-            done: "0 / 8",
-            activity: "Hozirgina"
-          }
-        });
-      }
-    } catch (err) {
-      console.error("Supabase user lookup error:", err);
-    }
-  }
-  return sendSafeJson(res, 404, {
-    success: false,
-    notRegistered: true,
-    error: "Foydalanuvchi topilmadi. Iltimos, @yuklakargobot orqali ro\u2018yxatdan o\u2018ting."
-  });
-}
+  let pathname = urlObj.pathname.replace(/\/$/, "");
 
-// api/_router.ts
-function sendSafeJson(res, statusCode, data) {
-  try {
-    if (typeof res.status === "function") {
-      if (typeof res.json === "function") {
-        return res.status(statusCode).json(data);
-      }
-      res.status(statusCode);
-      if (res.setHeader) res.setHeader("Content-Type", "application/json");
-      return res.end(JSON.stringify(data));
+  if (!req.query) req.query = {};
+  for (const [key, value] of urlObj.searchParams.entries()) {
+    req.query[key] = value;
+  }
+  const pathParam = req.query?.__path || urlObj.searchParams.get("__path");
+  const normalizedPath =
+    (pathname === "/api" || pathname === "") && pathParam
+      ? `/api/${String(pathParam).replace(/^\//, "").split("?")[0]}`
+      : pathname;
+
+  const supabase = getSupabase();
+
+  // Helper to parse POST body safely
+  async function parseBody() {
+    if (req.body && typeof req.body === "object") return req.body;
+    if (typeof req.body === "string") {
+      try { return JSON.parse(req.body); } catch {}
     }
-    res.writeHead(statusCode, {
-      "Content-Type": "application/json",
-      "Access-Control-Allow-Origin": "*",
-      "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization"
-    });
-    return res.end(JSON.stringify(data));
-  } catch (e) {
     try {
-      res.end(JSON.stringify(data));
-    } catch {
-    }
+      const buffers = [];
+      for await (const chunk of req) buffers.push(chunk);
+      const raw = Buffer.concat(buffers).toString("utf-8");
+      if (raw) return JSON.parse(raw);
+    } catch {}
+    return {};
   }
-}
-async function handler4(req, res) {
+
   try {
-    const rawUrl = req.url || "";
-    const urlObj = new URL(rawUrl, "http://localhost");
-    let pathname = urlObj.pathname.replace(/\/$/, "");
-    if (!req.query) req.query = {};
-    for (const [key, value] of urlObj.searchParams.entries()) {
-      req.query[key] = value;
+    // 1. TELEGRAM BOT WEBHOOK
+    if (normalizedPath === "/api/bot/webhook") {
+      if (req.method !== "POST") {
+        return sendSafeJson(res, 405, { error: "Method not allowed" });
+      }
+
+      // Secret validation if provided
+      const secret = req.headers?.["x-telegram-bot-api-secret-token"];
+      if (secret && WEBHOOK_SECRET && secret !== WEBHOOK_SECRET) {
+        return sendSafeJson(res, 401, { error: "Unauthorized webhook secret" });
+      }
+
+      const update = await parseBody();
+      if (update && (update.message || update.callback_query)) {
+        await processTelegramUpdate(update);
+      }
+      return sendSafeJson(res, 200, { ok: true });
     }
-    const pathParam = req.query?.__path || urlObj.searchParams.get("__path");
-    const normalizedPath = (pathname === "/api" || pathname === "") && pathParam ? `/api/${String(pathParam).replace(/^\//, "").split("?")[0]}` : pathname;
-    switch (normalizedPath) {
-      case "/api/bot/webhook":
-        return await handler(req, res);
-      case "/api/state":
-      case "/api":
-      case "":
-        return await handler2(req, res);
-      case "/api/user":
-        return await handler3(req, res);
-      default:
-        if (normalizedPath.includes("state") || normalizedPath.includes("academy")) {
-          return await handler2(req, res);
+
+    // 2. STATE ENDPOINT (Used by Admin Panel)
+    if (normalizedPath === "/api/state" || normalizedPath === "/api" || normalizedPath === "") {
+      const { data: dbCourses } = await supabase
+        .from("academy_courses")
+        .select("*")
+        .order("order", { ascending: true });
+
+      const { data: dbLessons } = await supabase
+        .from("academy_lessons")
+        .select("*")
+        .order("order", { ascending: true });
+
+      const { data: dbUsers } = await supabase
+        .from("users")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      const { data: dbAccess } = await supabase.from("academy_access").select("*");
+
+      const accessMap = {};
+      if (dbAccess) {
+        for (const a of dbAccess) {
+          if (!accessMap[a.user_id]) accessMap[a.user_id] = {};
+          accessMap[a.user_id][a.course_id] = a.status === "granted" ? "Faol" : "To‘xtatilgan";
         }
-        return sendSafeJson(res, 404, {
-          error: "API endpoint topilmadi",
-          path: normalizedPath
-        });
+      }
+
+      const courses = (dbCourses || []).map((c) => ({
+        id: c.id,
+        title: c.title,
+        description: c.description || "",
+        lessons: (dbLessons || []).filter((l) => String(l.course_id) === String(c.id)).length,
+        users: 0,
+        completion: 0,
+        status: c.active ? "Faol" : "Qoralama",
+        updated: "Bugun",
+        tone: c.icon || "blue",
+      }));
+
+      const lessons = (dbLessons || []).map((l) => {
+        let videoUrl = l.youtube_video_id || "";
+        let videoFormat = "standard";
+        let thumbnailUrl = "";
+        try {
+          if (videoUrl.startsWith("{")) {
+            const parsed = JSON.parse(videoUrl);
+            videoUrl = parsed.url || "";
+            videoFormat = parsed.format || "standard";
+            thumbnailUrl = parsed.thumb || "";
+          }
+        } catch {}
+        const m = Math.floor((l.duration_seconds || 600) / 60);
+        const s = (l.duration_seconds || 600) % 60;
+        return {
+          id: l.id,
+          courseId: l.course_id,
+          title: l.title,
+          description: l.description || "",
+          duration: `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`,
+          durationSeconds: l.duration_seconds || 600,
+          videoUrl,
+          videoFormat,
+          thumbnailUrl,
+          status: "Faol",
+          color: "lesson-blue",
+        };
+      });
+
+      const users = (dbUsers || []).map((u) => {
+        const initials =
+          (u.name || "U")
+            .trim()
+            .split(" ")
+            .map((w) => w[0])
+            .join("")
+            .toUpperCase()
+            .slice(0, 2) || "YG";
+
+        return {
+          id: u.customer_code || u.id,
+          supabaseId: u.id,
+          telegramId: u.telegram_user_id,
+          name: u.name || "Talaba",
+          initials,
+          phone: u.phone || "",
+          access: u.status === "active" ? "Faol" : "Kutilmoqda",
+          coursesAccess: accessMap[u.id] || {},
+          progress: 0,
+          done: `0 / ${lessons.length}`,
+          activity: "Faol",
+        };
+      });
+
+      return sendSafeJson(res, 200, {
+        courses,
+        lessons,
+        users,
+        settings: {
+          adminPassword: "admin",
+          defaultCompletionPercent: 95,
+          autoSaveProgress: true,
+          sequentialLessons: true,
+          dynamicWatermark: true,
+          watermarkFormat: "id-brand",
+        },
+      });
     }
+
+    // 3. ADMIN ACCESS PERMISSION ENDPOINT (/api/users/access)
+    if (normalizedPath === "/api/users/access" && req.method === "POST") {
+      const body = await parseBody();
+      const { userIds, courseId, access } = body;
+
+      if (!Array.isArray(userIds) || !access) {
+        return sendSafeJson(res, 400, { error: "Parametrlar noto‘g‘ri" });
+      }
+
+      for (const uid of userIds) {
+        // Find user by customer_code or uuid
+        const { data: user } = await supabase
+          .from("users")
+          .select("*")
+          .or(`customer_code.eq.${uid},id.eq.${uid},telegram_user_id.eq.${isNaN(Number(uid)) ? 0 : Number(uid)}`)
+          .maybeSingle();
+
+        if (user) {
+          if (access === "Faol") {
+            // Grant course access
+            if (courseId) {
+              await supabase.from("academy_access").upsert(
+                {
+                  user_id: user.id,
+                  course_id: String(courseId),
+                  status: "granted",
+                  granted_at: new Date().toISOString(),
+                },
+                { onConflict: "user_id,course_id" }
+              );
+            }
+            // Set user status to active
+            await supabase.from("users").update({ status: "active" }).eq("id", user.id);
+
+            // INSTANT TELEGRAM NOTIFICATION TO STUDENT
+            if (user.telegram_user_id) {
+              const { data: courseRow } = await supabase
+                .from("academy_courses")
+                .select("title")
+                .eq("id", String(courseId))
+                .maybeSingle();
+
+              const courseTitle = courseRow?.title || "Video darslar";
+
+              await sendTelegramMessage(
+                user.telegram_user_id,
+                `🎉 <b>Ajoyib yangilik, ${user.name || "Talaba"}!</b>\n\n` +
+                  `Administrator sizga <b>«${courseTitle}»</b> darslarini ko‘rish uchun ruxsat berdi!\n\n` +
+                  `Quyidagi tugma orqali darslarni hoziroq boshlashingiz mumkin 👇`,
+                {
+                  inline_keyboard: [
+                    [{ text: "📚 Kurs darslarini boshlash", callback_data: `course_${courseId}` }],
+                  ],
+                }
+              );
+            }
+          } else {
+            // Revoke access
+            if (courseId) {
+              await supabase
+                .from("academy_access")
+                .delete()
+                .eq("user_id", user.id)
+                .eq("course_id", String(courseId));
+            }
+          }
+        }
+      }
+
+      return sendSafeJson(res, 200, { success: true });
+    }
+
+    // 4. ADMIN USER DELETE ENDPOINT (/api/users/delete)
+    if (normalizedPath === "/api/users/delete" && req.method === "POST") {
+      const { userId } = await parseBody();
+      if (userId) {
+        await supabase
+          .from("users")
+          .delete()
+          .or(`customer_code.eq.${userId},id.eq.${userId}`);
+      }
+      return sendSafeJson(res, 200, { success: true });
+    }
+
+    // 5. ADMIN COURSES CRUD
+    if (normalizedPath === "/api/courses/add" && req.method === "POST") {
+      const { title, description } = await parseBody();
+      const id = String(Date.now());
+      await supabase.from("academy_courses").insert({
+        id,
+        title: title || "Yangi kurs",
+        description: description || "",
+        active: true,
+        order: 1,
+      });
+      return sendSafeJson(res, 200, { success: true, courseId: id });
+    }
+
+    if (normalizedPath === "/api/courses/update" && req.method === "POST") {
+      const { id, title, description, status } = await parseBody();
+      if (id) {
+        await supabase
+          .from("academy_courses")
+          .update({
+            title,
+            description,
+            active: status === "Faol",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", String(id));
+      }
+      return sendSafeJson(res, 200, { success: true });
+    }
+
+    if (normalizedPath === "/api/courses/delete" && req.method === "POST") {
+      const { id } = await parseBody();
+      if (id) {
+        await supabase.from("academy_courses").delete().eq("id", String(id));
+        await supabase.from("academy_lessons").delete().eq("course_id", String(id));
+      }
+      return sendSafeJson(res, 200, { success: true });
+    }
+
+    // 6. ADMIN LESSONS CRUD
+    if (normalizedPath === "/api/lessons/add" && req.method === "POST") {
+      const body = await parseBody();
+      const id = String(Date.now());
+      await supabase.from("academy_lessons").insert({
+        id,
+        course_id: String(body.courseId),
+        title: body.title || "Yangi dars",
+        description: body.description || "",
+        youtube_video_id: body.videoUrl || "",
+        duration_seconds: body.durationSeconds || 600,
+        order: 1,
+      });
+      return sendSafeJson(res, 200, { success: true, lessonId: id });
+    }
+
+    if (normalizedPath === "/api/lessons/update" && req.method === "POST") {
+      const body = await parseBody();
+      if (body.id) {
+        await supabase
+          .from("academy_lessons")
+          .update({
+            title: body.title,
+            description: body.description,
+            youtube_video_id: body.videoUrl,
+            duration_seconds: body.durationSeconds,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", String(body.id));
+      }
+      return sendSafeJson(res, 200, { success: true });
+    }
+
+    if (normalizedPath === "/api/lessons/delete" && req.method === "POST") {
+      const { id } = await parseBody();
+      if (id) {
+        await supabase.from("academy_lessons").delete().eq("id", String(id));
+      }
+      return sendSafeJson(res, 200, { success: true });
+    }
+
+    return sendSafeJson(res, 404, { error: "API endpoint topilmadi", path: normalizedPath });
   } catch (err) {
-    console.error("Fatal API router error:", err);
-    return sendSafeJson(res, 500, { error: err.message || "Server error" });
+    console.error("API Error:", err);
+    return sendSafeJson(res, 500, { error: err?.message || "Server error" });
   }
 }
-export {
-  handler4 as default,
-  sendSafeJson
-};
