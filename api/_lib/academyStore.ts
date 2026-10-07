@@ -380,13 +380,13 @@ export async function deleteCourse(courseId: string): Promise<boolean> {
 
 export async function addLesson(
   courseId: string,
-  data: { title: string; youtubeUrlOrId: string; durationSeconds?: number; description?: string }
+  data: { title: string; videoUrl?: string; youtubeUrlOrId?: string; durationSeconds?: number; description?: string }
 ) {
   assertId(courseId, 'courseId');
   const course = check(await db().from('academy_courses').select('id').eq('id', courseId).maybeSingle());
   if (!course) throw new StoreError('Kurs topilmadi', 404);
-  const videoId = extractYouTubeId(data.youtubeUrlOrId);
-  if (!videoId) throw new StoreError('YouTube havolasi yoki video ID noto\'g\'ri', 400);
+  const video = String(data.videoUrl || data.youtubeUrlOrId || '').trim();
+  if (!video) throw new StoreError('Video havolasi talab qilinadi', 400);
   const title = String(data.title || '').trim().slice(0, 200);
   if (!title) throw new StoreError('Dars nomi talab qilinadi', 400);
   const duration = Math.min(86400, Math.max(10, Math.floor(Number(data.durationSeconds) || 360)));
@@ -399,11 +399,11 @@ export async function addLesson(
     order,
     title,
     description: String(data.description || '').trim().slice(0, 2000),
-    youtube_video_id: videoId,
+    youtube_video_id: video,
     duration_seconds: duration,
   };
   check(await db().from('academy_lessons').insert(row));
-  return { id: row.id, courseId, order, title, description: row.description, youtubeVideoId: videoId, durationSeconds: duration };
+  return { id: row.id, courseId, order, title, description: row.description, youtubeVideoId: video, durationSeconds: duration };
 }
 
 export async function deleteLesson(lessonId: string): Promise<boolean> {

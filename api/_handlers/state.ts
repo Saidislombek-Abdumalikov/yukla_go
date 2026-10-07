@@ -75,10 +75,6 @@ export default async function handler(req: any, res: any) {
               }
             } catch {}
 
-            if (/^[a-zA-Z0-9_-]{11}$/.test(videoUrl)) {
-              videoUrl = `https://youtu.be/${videoUrl}`;
-            }
-
             return {
               id: l.id,
               courseId: l.course_id,

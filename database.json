@@ -30,23 +30,7 @@
       "tone": "blue"
     }
   ],
-  "lessons": [
-    {
-      "id": 1791307566366,
-      "courseId": 1791305084906,
-      "title": "Ilovani yuklash va ro'yxatdan o'tish.",
-      "description": "",
-      "duration": "4:40",
-      "durationSeconds": 280,
-      "videoUrl": "https://youtu.be/hh-paiINYrk",
-      "videoFormat": "auto",
-      "status": "Faol",
-      "thumbnailUrl": "https://img.youtube.com/vi/ykRrTt4oD9w/hqdefault.jpg",
-      "color": "lesson-blue",
-      "viewers": 0,
-      "completion": 0
-    }
-  ],
+  "lessons": [],
   "settings": {
     "adminPassword": "admin123",
     "defaultCompletionPercent": 95,

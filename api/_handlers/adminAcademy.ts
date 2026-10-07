@@ -83,11 +83,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       }
 
       if (body.action === 'add_lesson') {
-        const { courseId: cId, title, youtubeUrlOrId, durationSeconds, description } = body;
-        if (!cId || !title || !youtubeUrlOrId) {
-          return res.status(400).json({ error: 'courseId, title va youtubeUrlOrId talab qilinadi' });
+        const { courseId: cId, title, videoUrl, youtubeUrlOrId, durationSeconds, description } = body;
+        const video = videoUrl || youtubeUrlOrId;
+        if (!cId || !title || !video) {
+          return res.status(400).json({ error: 'courseId, title va video havolasi talab qilinadi' });
         }
-        const lesson = await addLesson(String(cId), { title, youtubeUrlOrId, durationSeconds, description });
+        const lesson = await addLesson(String(cId), { title, videoUrl: video, durationSeconds, description });
         await audit(session, 'ACADEMY_ADD_LESSON', 'academy_lessons', lesson.id, { courseId: cId });
         return res.status(201).json({ success: true, message: 'Yangi dars muvaffaqiyatli qo\'shildi', lesson });
       }

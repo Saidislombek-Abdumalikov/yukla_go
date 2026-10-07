@@ -31,7 +31,7 @@
         },
         {
           "key": "Content-Security-Policy",
-          "value": "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; frame-src 'self' https://www.youtube.com https://www.youtube-nocookie.com;"
+          "value": "frame-ancestors 'self' https://web.telegram.org https://*.telegram.org; media-src 'self' blob: data: https:;"
         }
       ]
     }

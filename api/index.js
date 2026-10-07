@@ -487,9 +487,6 @@ async function handler2(req, res) {
               }
             } catch {
             }
-            if (/^[a-zA-Z0-9_-]{11}$/.test(videoUrl)) {
-              videoUrl = `https://youtu.be/${videoUrl}`;
-            }
             return {
               id: l.id,
               courseId: l.course_id,

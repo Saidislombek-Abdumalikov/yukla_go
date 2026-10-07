@@ -9,6 +9,10 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DB_FILE = path.join(__dirname, "database.json");
 const PORT = 5000;
+const UPLOADS_DIR = path.join(__dirname, "uploads");
+if (!fs.existsSync(UPLOADS_DIR)) {
+  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+}
 
 const SUPABASE_URL = "https://dajlwaqoqcnwrrhyvmtw.supabase.co";
 const SUPABASE_SERVICE_ROLE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRhamx3YXFvcWNud3JyaHl2bXR3Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTIwOTk4NSwiZXhwIjoyMTA2Nzg1OTg1fQ.12KfEAK7aU17B2bidfcxeag8P0yLlKJq8QAhoq5mhAs";
@@ -292,6 +296,210 @@ const server = http.createServer(async (req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
   const pathname = url.pathname;
+
+  // 0. Static Video & File Streaming (Supports HTTP 206 Partial Content Range Requests for Video Seeking)
+  if (pathname.startsWith("/uploads/") && req.method === "GET") {
+    const filename = path.basename(pathname);
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (!fs.existsSync(filePath)) {
+      res.writeHead(404, {
+        "Access-Control-Allow-Origin": "*",
+        "Content-Type": "text/plain",
+      });
+      return res.end("File not found");
+    }
+    const stat = fs.statSync(filePath);
+    const range = req.headers.range;
+    const ext = path.extname(filename).toLowerCase();
+    const contentType =
+      ext === ".mp4"
+        ? "video/mp4"
+        : ext === ".webm"
+        ? "video/webm"
+        : ext === ".mov"
+        ? "video/quicktime"
+        : ext === ".jpg" || ext === ".jpeg"
+        ? "image/jpeg"
+        : ext === ".png"
+        ? "image/png"
+        : "application/octet-stream";
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : stat.size - 1;
+      const chunksize = end - start + 1;
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${stat.size}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunksize,
+        "Content-Type": contentType,
+        "Access-Control-Allow-Origin": "*",
+      });
+      fs.createReadStream(filePath, { start, end }).pipe(res);
+    } else {
+      res.writeHead(200, {
+        "Content-Length": stat.size,
+        "Content-Type": contentType,
+        "Accept-Ranges": "bytes",
+        "Access-Control-Allow-Origin": "*",
+      });
+      fs.createReadStream(filePath).pipe(res);
+    }
+    return;
+  }
+
+  // 0.1 Video / Asset Upload Endpoint (Saves to local uploads/ and uploads to Supabase Storage)
+  if (pathname === "/api/upload" && req.method === "POST") {
+    try {
+      const contentTypeHeader = req.headers["content-type"] || "";
+      const rawName =
+        req.headers["x-filename"] ||
+        url.searchParams.get("name") ||
+        `video_${Date.now()}.mp4`;
+      const cleanBaseName = path
+        .basename(decodeURIComponent(rawName))
+        .replace(/[^a-zA-Z0-9_.-]/g, "_");
+      const uniqueName = `${Date.now()}_${cleanBaseName}`;
+      const localFilePath = path.join(UPLOADS_DIR, uniqueName);
+
+      // Support multipart or direct binary stream
+      if (contentTypeHeader.includes("multipart/form-data")) {
+        const boundaryMatch = contentTypeHeader.match(/boundary=(?:"([^"]+)"|([^;]+))/i);
+        const boundary = boundaryMatch ? boundaryMatch[1] || boundaryMatch[2] : null;
+
+        const chunks = [];
+        req.on("data", (c) => chunks.push(c));
+        req.on("end", async () => {
+          try {
+            const buffer = Buffer.concat(chunks);
+            let fileData = buffer;
+
+            if (boundary) {
+              const boundaryBuf = Buffer.from(`--${boundary}`);
+              const startIdx = buffer.indexOf(boundaryBuf);
+              if (startIdx !== -1) {
+                const headerEnd = buffer.indexOf(Buffer.from("\r\n\r\n"), startIdx);
+                if (headerEnd !== -1) {
+                  const dataStart = headerEnd + 4;
+                  const nextBoundary = buffer.indexOf(boundaryBuf, dataStart);
+                  const dataEnd = nextBoundary !== -1 ? nextBoundary - 2 : buffer.length;
+                  fileData = buffer.slice(dataStart, dataEnd);
+                }
+              }
+            }
+
+            fs.writeFileSync(localFilePath, fileData);
+
+            let supabasePublicUrl = null;
+            if (supabase) {
+              try {
+                const ext = path.extname(uniqueName).toLowerCase();
+                const mimeType =
+                  ext === ".webm"
+                    ? "video/webm"
+                    : ext === ".mov"
+                    ? "video/quicktime"
+                    : ext === ".jpg" || ext === ".jpeg"
+                    ? "image/jpeg"
+                    : ext === ".png"
+                    ? "image/png"
+                    : "video/mp4";
+
+                const { error: upErr } = await supabase.storage
+                  .from("videos")
+                  .upload(uniqueName, fileData, {
+                    contentType: mimeType,
+                    upsert: true,
+                  });
+
+                if (!upErr) {
+                  const { data: pubData } = supabase.storage
+                    .from("videos")
+                    .getPublicUrl(uniqueName);
+                  supabasePublicUrl = pubData?.publicUrl || null;
+                } else {
+                  console.warn("Supabase storage upload error:", upErr.message);
+                }
+              } catch (sErr) {
+                console.warn("Supabase upload exception:", sErr.message);
+              }
+            }
+
+            const localUrl = `http://${req.headers.host || "localhost:5000"}/uploads/${uniqueName}`;
+            return sendJson(res, 200, {
+              success: true,
+              url: supabasePublicUrl || localUrl,
+              localUrl,
+              filename: uniqueName,
+              size: fileData.length,
+            });
+          } catch (e) {
+            console.error("Multipart process error:", e);
+            return sendJson(res, 500, { success: false, error: e.message });
+          }
+        });
+        return;
+      }
+
+      // Direct binary stream
+      const fileStream = fs.createWriteStream(localFilePath);
+      const chunks = [];
+      req.on("data", (chunk) => {
+        fileStream.write(chunk);
+        chunks.push(chunk);
+      });
+      req.on("end", async () => {
+        fileStream.end();
+        const buffer = Buffer.concat(chunks);
+        let supabasePublicUrl = null;
+        if (supabase) {
+          try {
+            const ext = path.extname(uniqueName).toLowerCase();
+            const mimeType =
+              ext === ".webm"
+                ? "video/webm"
+                : ext === ".mov"
+                ? "video/quicktime"
+                : "video/mp4";
+
+            const { error: upErr } = await supabase.storage
+              .from("videos")
+              .upload(uniqueName, buffer, {
+                contentType: mimeType,
+                upsert: true,
+              });
+
+            if (!upErr) {
+              const { data: pubData } = supabase.storage
+                .from("videos")
+                .getPublicUrl(uniqueName);
+              supabasePublicUrl = pubData?.publicUrl || null;
+            }
+          } catch (sErr) {
+            console.warn("Supabase upload error:", sErr.message);
+          }
+        }
+
+        const localUrl = `http://${req.headers.host || "localhost:5000"}/uploads/${uniqueName}`;
+        return sendJson(res, 200, {
+          success: true,
+          url: supabasePublicUrl || localUrl,
+          localUrl,
+          filename: uniqueName,
+          size: buffer.length,
+        });
+      });
+      req.on("error", (err) => {
+        console.error("Upload error:", err);
+        return sendJson(res, 500, { success: false, error: err.message });
+      });
+      return;
+    } catch (err) {
+      console.error("Upload route error:", err);
+      return sendJson(res, 500, { success: false, error: err.message });
+    }
+  }
 
   // 1. SSE Real-time Events Stream
   if (pathname === "/api/events" && req.method === "GET") {

@@ -321,9 +321,8 @@ function LessonCard({
 
   const totalSeconds = lesson.durationSeconds || 600;
 
-  const parsedYt = useMemo(() => parseYouTubeVideo(lesson.videoUrl), [lesson.videoUrl]);
-  const thumbnailSrc = lesson.thumbnailUrl || parsedYt.thumbnailUrl;
-  const isShort = lesson.videoFormat === "shorts" || parsedYt.isShort;
+  const thumbnailSrc = lesson.thumbnailUrl || "";
+  const isShort = lesson.videoFormat === "shorts";
 
   return (
     <button
@@ -646,56 +645,6 @@ function VideoError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
-export function parseYouTubeVideo(url?: string): {
-  videoId: string | null;
-  isShort: boolean;
-  embedUrl: string | null;
-  thumbnailUrl: string | null;
-} {
-  if (!url || typeof url !== "string") {
-    return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
-  }
-  const trimmed = url.trim();
-
-  let videoId: string | null = null;
-  const isShort = trimmed.includes("/shorts/");
-
-  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) {
-    videoId = trimmed;
-  } else {
-    const match = trimmed.match(
-      /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?(?:.*&)?v=|v\/|embed\/|shorts\/|live\/))([a-zA-Z0-9_-]{11})/i
-    );
-    if (match && match[1]) {
-      videoId = match[1];
-    }
-  }
-
-  if (videoId) {
-    // enablejsapi=1 allows our custom player to control the video
-    // controls=0 & modestbranding=1 & fs=0 & iv_load_policy=3 completely removes YouTube branding, logo, and controls
-    const params = new URLSearchParams({
-      enablejsapi: "1",
-      controls: "0",
-      modestbranding: "1",
-      rel: "0",
-      playsinline: "1",
-      iv_load_policy: "3",
-      disablekb: "1",
-      fs: "0",
-      vq: "hd720",
-    });
-    return {
-      videoId,
-      isShort,
-      embedUrl: `https://www.youtube-nocookie.com/embed/${videoId}?${params.toString()}`,
-      thumbnailUrl: `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`,
-    };
-  }
-
-  return { videoId: null, isShort: false, embedUrl: null, thumbnailUrl: null };
-}
-
 type VideoQuality = "1080p" | "720p" | "480p" | "auto";
 
 function VideoPlayer({
@@ -723,12 +672,6 @@ function VideoPlayer({
   onNextLesson?: () => void;
   hasNextLesson: boolean;
 }) {
-  const parsedYt = useMemo(() => parseYouTubeVideo(lesson.videoUrl), [lesson.videoUrl]);
-  const youtubeEmbedUrl = parsedYt.embedUrl;
-  const isDirectVideo = useMemo(
-    () => Boolean(lesson.videoUrl && !youtubeEmbedUrl && (lesson.videoUrl.endsWith(".mp4") || lesson.videoUrl.includes("video"))),
-    [lesson.videoUrl, youtubeEmbedUrl]
-  );
 
   // Default to 9:16 (Phone Mode) unless lesson is explicitly standard 16:9
   const [aspectRatio, setAspectRatio] = useState<"9:16" | "16:9">(() => {
@@ -764,7 +707,6 @@ function VideoPlayer({
   const [scrubNotice, setScrubNotice] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const iframeRef = useRef<HTMLIFrameElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const scrubberTrackRef = useRef<HTMLDivElement>(null);
   const controlsTimeoutRef = useRef<number | undefined>(undefined);
@@ -803,79 +745,11 @@ function VideoPlayer({
     splashTimerRef.current = window.setTimeout(() => setDoubleTapSplash(null), 600);
   };
 
-  // Post commands to YouTube iframe API
-  const postToYouTube = (func: string, args: any[] = []) => {
-    if (!iframeRef.current || !iframeRef.current.contentWindow) return;
-    try {
-      iframeRef.current.contentWindow.postMessage(
-        JSON.stringify({
-          event: "command",
-          func,
-          args,
-        }),
-        "*"
-      );
-    } catch {}
-  };
-
-  // Set Quality in YouTube iframe
-  const ytQualityMap: Record<VideoQuality, string> = {
-    "1080p": "hd1080",
-    "720p": "hd720",
-    "480p": "large",
-    auto: "default",
-  };
-
   const handleSelectQuality = (q: VideoQuality) => {
     setQuality(q);
     setQualityMenuOpen(false);
-    const targetQ = ytQualityMap[q] || "hd720";
-    if (youtubeEmbedUrl) {
-      postToYouTube("setPlaybackQuality", [targetQ]);
-      postToYouTube("setPlaybackQualityRange", [targetQ, targetQ === "default" ? "highres" : targetQ]);
-    }
     showControlsTemporarily();
   };
-
-  // Listen to YouTube player messages
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      try {
-        if (!e.data || typeof e.data !== "string") return;
-        const data = JSON.parse(e.data);
-        if (data.event === "infoDelivery" || data.event === "initialDelivery") {
-          if (typeof data.info?.currentTime === "number") {
-            const t = Math.floor(data.info.currentTime);
-            setCurrent(t);
-            setMaxWatched((prev) => Math.max(prev, t));
-          }
-          if (typeof data.info?.duration === "number" && data.info.duration > 0) {
-            setDuration(Math.floor(data.info.duration));
-          }
-          if (data.info?.playerState === 1) {
-            setPlaying(true);
-          } else if (data.info?.playerState === 2) {
-            setPlaying(false);
-          } else if (data.info?.playerState === 0) {
-            setPlaying(false);
-            setCompleted(true);
-            onComplete(lesson.id);
-          }
-        } else if (data.event === "onStateChange") {
-          if (data.info === 1) setPlaying(true);
-          else if (data.info === 2) setPlaying(false);
-          else if (data.info === 0) {
-            setPlaying(false);
-            setCompleted(true);
-            onComplete(lesson.id);
-          }
-        }
-      } catch {}
-    };
-
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [lesson.id, onComplete]);
 
   // Fullscreen change listener
   useEffect(() => {
@@ -953,11 +827,7 @@ function VideoPlayer({
     if (pulseTimeoutRef.current) window.clearTimeout(pulseTimeoutRef.current);
     pulseTimeoutRef.current = window.setTimeout(() => setCenterPulse(null), 650);
 
-    if (youtubeEmbedUrl) {
-      postToYouTube(next ? "playVideo" : "pauseVideo");
-      // Reinforce HD quality on play
-      postToYouTube("setPlaybackQuality", [ytQualityMap[quality] || "hd720"]);
-    } else if (isDirectVideo && videoRef.current) {
+    if (videoRef.current) {
       if (next) videoRef.current.play().catch(() => {});
       else videoRef.current.pause();
     }
@@ -997,8 +867,7 @@ function VideoPlayer({
   const handleRewind10 = () => {
     const target = Math.max(0, current - 10);
     setCurrent(target);
-    if (youtubeEmbedUrl) postToYouTube("seekTo", [target, true]);
-    else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = target;
+    if (videoRef.current) videoRef.current.currentTime = target;
     showControlsTemporarily();
   };
 
@@ -1010,8 +879,7 @@ function VideoPlayer({
     }
     const target = Math.min(duration, current + 10);
     setCurrent(target);
-    if (youtubeEmbedUrl) postToYouTube("seekTo", [target, true]);
-    else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = target;
+    if (videoRef.current) videoRef.current.currentTime = target;
     showControlsTemporarily();
   };
 
@@ -1021,13 +889,11 @@ function VideoPlayer({
       showScrubWarning();
       const clamped = maxWatched;
       setCurrent(clamped);
-      if (youtubeEmbedUrl) postToYouTube("seekTo", [clamped, true]);
-      else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = clamped;
+      if (videoRef.current) videoRef.current.currentTime = clamped;
       return;
     }
     setCurrent(newTime);
-    if (youtubeEmbedUrl) postToYouTube("seekTo", [newTime, true]);
-    else if (isDirectVideo && videoRef.current) videoRef.current.currentTime = newTime;
+    if (videoRef.current) videoRef.current.currentTime = newTime;
     showControlsTemporarily();
   };
 
@@ -1045,8 +911,7 @@ function VideoPlayer({
     const idx = speeds.indexOf(speed);
     const nextSpeed = speeds[(idx + 1) % speeds.length];
     setSpeed(nextSpeed);
-    if (youtubeEmbedUrl) postToYouTube("setPlaybackRate", [nextSpeed]);
-    else if (isDirectVideo && videoRef.current) videoRef.current.playbackRate = nextSpeed;
+    if (videoRef.current) videoRef.current.playbackRate = nextSpeed;
     showControlsTemporarily();
   };
 
@@ -1107,13 +972,6 @@ function VideoPlayer({
   const watchedPercent = duration > 0 ? (maxWatched / duration) * 100 : 0;
   const currentPercent = duration > 0 ? (current / duration) * 100 : 0;
 
-  // Iframe load handler (Enforce 720p HD right from startup)
-  const handleIframeLoad = () => {
-    postToYouTube("listening");
-    postToYouTube("setPlaybackQuality", ["hd720"]);
-    postToYouTube("setPlaybackQualityRange", ["hd720", "highres"]);
-  };
-
   const isPhoneMode = aspectRatio === "9:16";
 
   // --- Quality Label ---
@@ -1133,7 +991,7 @@ function VideoPlayer({
       )}
 
       {/* --- Custom In-App Video Player --- */}
-      {youtubeEmbedUrl || isDirectVideo || lesson.videoUrl ? (
+      {lesson.videoUrl ? (
         <div
           ref={containerRef}
           className={`custom-video-player ${isPhoneMode ? "mode-phone" : "mode-wide"} ${isFullscreen ? "is-fullscreen" : ""} ${!controlsVisible && playing ? "hide-controls" : ""}`}
@@ -1254,46 +1112,34 @@ function VideoPlayer({
             </div>
           </div>
 
-          {/* Media Box (Crops YouTube top header and bottom watermark completely!) */}
+          {/* Media Box: 100% Native HTML5 Video Player */}
           <div className={`custom-player-media-box ${isPhoneMode ? `phone-box mode-${fitMode}` : "wide-box"}`}>
-            {youtubeEmbedUrl ? (
-              <iframe
-                ref={iframeRef}
-                src={youtubeEmbedUrl}
-                title={lesson.title}
-                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                allowFullScreen
-                className="custom-player-iframe"
-                onLoad={handleIframeLoad}
-              />
-            ) : isDirectVideo ? (
-              <video
-                ref={videoRef}
-                src={lesson.videoUrl}
-                playsInline
-                className="custom-player-native-video"
-                onLoadedMetadata={(e) => setDuration(Math.floor(e.currentTarget.duration))}
-                onTimeUpdate={(e) => {
-                  const t = Math.floor(e.currentTarget.currentTime);
-                  setCurrent(t);
-                  setMaxWatched((prev) => Math.max(prev, t));
-                }}
-                onEnded={() => {
-                  setPlaying(false);
-                  setCompleted(true);
-                  onComplete(lesson.id);
-                }}
-              />
-            ) : (
-              <iframe
-                ref={iframeRef}
-                src={lesson.videoUrl}
-                title={lesson.title}
-                allow="accelerometer; autoplay; encrypted-media; gyroscope; picture-in-picture; web-share; fullscreen"
-                allowFullScreen
-                className="custom-player-iframe"
-              />
-            )}
+            <video
+              ref={videoRef}
+              src={lesson.videoUrl}
+              playsInline
+              preload="auto"
+              className="custom-player-native-video"
+              onLoadedMetadata={(e) => {
+                const d = Math.floor(e.currentTarget.duration);
+                if (d > 0 && !isNaN(d)) setDuration(d);
+                if (initialPosition > 0) {
+                  e.currentTarget.currentTime = initialPosition;
+                }
+              }}
+              onTimeUpdate={(e) => {
+                const t = Math.floor(e.currentTarget.currentTime);
+                setCurrent(t);
+                setMaxWatched((prev) => Math.max(prev, t));
+              }}
+              onPlay={() => setPlaying(true)}
+              onPause={() => setPlaying(false)}
+              onEnded={() => {
+                setPlaying(false);
+                setCompleted(true);
+                onComplete(lesson.id);
+              }}
+            />
           </div>
 
           {/* Interactive Click Shield (Tap anywhere to play/pause, Double-tap left/right to rewind/forward) */}
