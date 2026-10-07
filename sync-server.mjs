@@ -35,88 +35,33 @@ const defaultState = {
     sequentialLessons: true,
     dynamicWatermark: true,
     watermarkFormat: "id-brand",
-    b2KeyId: "",
-    b2AppKey: "",
-    b2Bucket: "",
-    b2Endpoint: "s3.us-west-004.backblazeb2.com",
   },
   progress: {},
 };
 
-// --- Backblaze B2 S3-Compatible SigV4 Presigner (Pure Node.js crypto, zero dependencies) ---
-function generateB2PresignedUrl({
-  endpoint,
-  region,
-  bucket,
-  keyId,
-  appKey,
-  key,
-  expiresIn = 7200,
-}) {
-  const cleanEndpoint = endpoint.replace(/^https?:\/\//, "").replace(/\/$/, "");
-  const inferredRegion = region || cleanEndpoint.split(".")[1] || "us-west-004";
-
-  const now = new Date();
-  const dateStr = now.toISOString().replace(/[:-]|\.\d{3}/g, "").slice(0, 8); // YYYYMMDD
-  const amzDate = now.toISOString().replace(/[:-]|\.\d{3}/g, ""); // YYYYMMDDTHHMMSSZ
-
-  const host = `${bucket}.${cleanEndpoint}`;
-  const credentialScope = `${dateStr}/${inferredRegion}/s3/aws4_request`;
-
-  const queryParams = {
-    "X-Amz-Algorithm": "AWS4-HMAC-SHA256",
-    "X-Amz-Credential": `${keyId}/${credentialScope}`,
-    "X-Amz-Date": amzDate,
-    "X-Amz-Expires": String(expiresIn),
-    "X-Amz-SignedHeaders": "host",
-  };
-
-  const canonicalQueryString = Object.keys(queryParams)
-    .sort()
-    .map((k) => `${encodeURIComponent(k)}=${encodeURIComponent(queryParams[k])}`)
-    .join("&");
-
-  const cleanKey = key.replace(/^\/+/, "");
-  const canonicalUri = `/${encodeURIComponent(cleanKey).replace(/%2F/g, "/")}`;
-  const canonicalHeaders = `host:${host}\n`;
-  const signedHeaders = "host";
-  const payloadHash = "UNSIGNED-PAYLOAD";
-
-  const canonicalRequest = [
-    "PUT",
-    canonicalUri,
-    canonicalQueryString,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-
-  const hashedCanonicalRequest = crypto
-    .createHash("sha256")
-    .update(canonicalRequest, "utf8")
-    .digest("hex");
-
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    hashedCanonicalRequest,
-  ].join("\n");
-
-  const kDate = crypto.createHmac("sha256", "AWS4" + appKey).update(dateStr).digest();
-  const kRegion = crypto.createHmac("sha256", kDate).update(inferredRegion).digest();
-  const kService = crypto.createHmac("sha256", kRegion).update("s3").digest();
-  const kSigning = crypto.createHmac("sha256", kService).update("aws4_request").digest();
-
-  const signature = crypto.createHmac("sha256", kSigning).update(stringToSign, "utf8").digest("hex");
-
-  const uploadUrl = `https://${host}${canonicalUri}?${canonicalQueryString}&X-Amz-Signature=${signature}`;
-  const publicUrl = `https://${host}${canonicalUri}`;
-
-  return { uploadUrl, publicUrl, key: cleanKey };
-}
-
 let db = { ...defaultState };
+
+const BOT_TOKEN = "8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo";
+
+// Telegram API Helper for Instant Notifications
+async function sendTelegramNotification(chatId, text, replyMarkup = null) {
+  if (!chatId || !BOT_TOKEN) return;
+  try {
+    const payload = {
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+    };
+    if (replyMarkup) payload.reply_markup = replyMarkup;
+    await fetch(`https://api.telegram.org/bot${BOT_TOKEN}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch (err) {
+    console.warn("Telegram notification error:", err.message);
+  }
+}
 
 function loadDb() {
   try {
@@ -606,56 +551,6 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // 0.2 Backblaze B2 Presigned URL Endpoint (Direct Browser -> B2 Upload, Bypasses Vercel/Server limits)
-  if (pathname === "/api/b2/presign" && req.method === "GET") {
-    const rawName = url.searchParams.get("name") || `video_${Date.now()}.mp4`;
-    const cleanBaseName = path
-      .basename(decodeURIComponent(rawName))
-      .replace(/[^a-zA-Z0-9_.-]/g, "_");
-    const uniqueKey = `videos/${Date.now()}_${cleanBaseName}`;
-
-    // Read B2 configuration from settings or environment variables
-    const keyId = db.settings?.b2KeyId || process.env.B2_KEY_ID;
-    const appKey = db.settings?.b2AppKey || process.env.B2_APPLICATION_KEY;
-    const bucket = db.settings?.b2Bucket || process.env.B2_BUCKET_NAME;
-    const endpoint = (
-      db.settings?.b2Endpoint ||
-      process.env.B2_ENDPOINT ||
-      "s3.us-west-004.backblazeb2.com"
-    )
-      .replace(/^https?:\/\//, "")
-      .replace(/\/$/, "");
-
-    if (!keyId || !appKey || !bucket) {
-      return sendJson(res, 200, {
-        success: false,
-        configured: false,
-        error: "Backblaze B2 sozlanmagan. Admin panel sozlamalaridan B2 kalitlarini kiriting.",
-      });
-    }
-
-    try {
-      const presigned = generateB2PresignedUrl({
-        endpoint,
-        bucket,
-        keyId,
-        appKey,
-        key: uniqueKey,
-      });
-
-      return sendJson(res, 200, {
-        success: true,
-        configured: true,
-        uploadUrl: presigned.uploadUrl,
-        publicUrl: presigned.publicUrl,
-        key: presigned.key,
-      });
-    } catch (err) {
-      console.error("[B2 Presign Error]:", err);
-      return sendJson(res, 500, { success: false, error: err.message });
-    }
-  }
-
   // 1. SSE Real-time Events Stream
   if (pathname === "/api/events" && req.method === "GET") {
     res.writeHead(200, {
@@ -1086,8 +981,23 @@ const server = http.createServer(async (req, res) => {
                 }
               }
             } catch (err) {
-              console.warn("Supabase access update error:", err.message);
+              console.error("Supabase academy_access sync error:", err?.message || err);
             }
+          }
+          // Send real-time Telegram notification if user has telegramId
+          if (target && target.telegramId && access === "Faol") {
+            const courseTitle = courseId
+              ? db.courses.find((c) => String(c.id) === String(courseId))?.title || "Video kurs"
+              : "Barcha video kurslar";
+            sendTelegramNotification(
+              target.telegramId,
+              `🎉 <b>Ajoyib yangilik, ${target.name || "Talaba"}!</b>\n\nAdministrator sizga <b>"${courseTitle}"</b> darslarini ko‘rish uchun ruxsat berdi!\n\nQuyidagi tugma orqali darslarni boshlashingiz mumkin 👇`,
+              {
+                inline_keyboard: [
+                  [{ text: "📚 Kurs darslarini boshlash", callback_data: courseId ? `course_view_${courseId}` : "menu_courses" }],
+                ],
+              }
+            );
           }
         }
 
