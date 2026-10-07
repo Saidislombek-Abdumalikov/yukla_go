@@ -27,6 +27,9 @@ let cachedCourses = null;
 let cachedCoursesTime = 0;
 let cachedLessons = null;
 let cachedLessonsTime = 0;
+let cachedState = null;
+let cachedStateTime = 0;
+let highestCustomerCodeNumber = 0;
 const CACHE_TTL_MS = 60 * 1000; // 60s TTL
 
 const userCache = new Map(); // tgId -> { user, time }
@@ -38,6 +41,8 @@ function invalidateCatalogCache() {
   cachedCoursesTime = 0;
   cachedLessons = null;
   cachedLessonsTime = 0;
+  cachedState = null;
+  cachedStateTime = 0;
   accessCache.clear();
 }
 
@@ -75,7 +80,7 @@ async function getCachedUser(supabase, telegramUserId) {
   const key = Number(telegramUserId);
   const now = Date.now();
   const hit = userCache.get(key);
-  if (hit && now - hit.time < 30000) {
+  if (hit && now - hit.time < 60000) {
     return hit.user;
   }
   const user = await findUserByTelegramId(supabase, telegramUserId);
@@ -89,7 +94,7 @@ async function checkCachedAccess(supabase, userId, courseId) {
   const key = `${userId}_${courseId}`;
   const now = Date.now();
   const hit = accessCache.get(key);
-  if (hit && now - hit.time < 30000) {
+  if (hit && now - hit.time < 60000) {
     return hit.hasAccess;
   }
   const hasAccess = await hasAccessToCourse(supabase, userId, courseId);
@@ -107,15 +112,19 @@ function isAdmin(telegramUserId) {
   return ADMIN_TELEGRAM_IDS.includes(id) || envAdmins.includes(id);
 }
 
-// --- Telegram API Utilities ---
+// --- Telegram API Utilities (Persistent HTTP Keep-Alive) ---
 async function callTelegram(method, params = {}) {
   const token = getBotToken();
   if (!token) return null;
   try {
     const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Connection": "keep-alive",
+      },
       body: JSON.stringify(params),
+      keepalive: true,
     });
     return await res.json();
   } catch (err) {
@@ -210,23 +219,27 @@ async function findUserByTelegramId(supabase, telegramUserId) {
 }
 
 async function getGrantedCourses(supabase, userId) {
+  const now = Date.now();
+  const hit = accessCache.get(`granted_${userId}`);
+  if (hit && now - hit.time < 60000) {
+    return hit.courses;
+  }
+
   const { data: accessRows } = await supabase
     .from("academy_access")
     .select("course_id")
     .eq("user_id", userId)
     .eq("status", "granted");
 
-  if (!accessRows || accessRows.length === 0) return [];
-  const courseIds = accessRows.map((r) => String(r.course_id));
-
-  const { data: courses } = await supabase
-    .from("academy_courses")
-    .select("*")
-    .in("id", courseIds)
-    .eq("active", true)
-    .order("order", { ascending: true });
-
-  return courses || [];
+  if (!accessRows || accessRows.length === 0) {
+    accessCache.set(`granted_${userId}`, { courses: [], time: now });
+    return [];
+  }
+  const courseIds = new Set(accessRows.map((r) => String(r.course_id)));
+  const allCourses = await getCachedCourses(supabase);
+  const userCourses = (allCourses || []).filter((c) => courseIds.has(String(c.id)) && c.active);
+  accessCache.set(`granted_${userId}`, { courses: userCourses, time: now });
+  return userCourses;
 }
 
 async function hasAccessToCourse(supabase, userId, courseId) {
@@ -240,9 +253,19 @@ async function hasAccessToCourse(supabase, userId, courseId) {
   return Boolean(data);
 }
 
-// Generate sequential customer code: YK1, YK2, YK3...
+// Generate sequential customer code: YK1, YK2, YK3... (Fast in-memory counter)
 async function generateNextCustomerCode(supabase) {
-  const { data } = await supabase.from("users").select("customer_code");
+  if (highestCustomerCodeNumber > 0) {
+    highestCustomerCodeNumber++;
+    return `YK${highestCustomerCodeNumber}`;
+  }
+
+  const { data } = await supabase
+    .from("users")
+    .select("customer_code")
+    .order("created_at", { ascending: false })
+    .limit(100);
+
   let maxNum = 0;
   if (data && data.length > 0) {
     for (const u of data) {
@@ -256,7 +279,8 @@ async function generateNextCustomerCode(supabase) {
       }
     }
   }
-  return `YK${maxNum + 1}`;
+  highestCustomerCodeNumber = maxNum + 1;
+  return `YK${highestCustomerCodeNumber}`;
 }
 
 function isUUID(str) {
@@ -356,7 +380,7 @@ async function showCourseLessons(chatId, user, courseId) {
   }
 }
 
-async function playLessonVideo(chatId, user, lessonOrId) {
+async function playLessonVideo(chatId, user, lessonOrId, customCaption = null) {
   const supabase = getSupabase();
 
   let lesson = lessonOrId && typeof lessonOrId === "object" ? lessonOrId : null;
@@ -426,7 +450,7 @@ async function playLessonVideo(chatId, user, lessonOrId) {
     return;
   }
 
-  const caption = `🎬 <b>${lessonDisplayTitle}</b>`;
+  const caption = customCaption || `🎬 <b>${lessonDisplayTitle}</b>`;
 
   // Track user active lesson context in RAM for instant physical Tugatdim handler
   userContext.set(user.id, {
@@ -517,25 +541,27 @@ async function handlePhysicalTugatdim(chatId, user) {
       ? nextLesson.title
       : `${nextLesson.order ? `${nextLesson.order}-dars: ` : ""}${nextLesson.title}`;
 
-    await sendTelegramMessage(
-      chatId,
-      `🎉 <b>Barakalla, ${user.name}!</b>\n\n` +
-        `Siz <b>«${curDisplayTitle}»</b> darsini muvaffaqiyatli yakunladingiz!\n\n` +
-        `Navbatdagi dars yuborilmoqda: <b>«${nextDisplayTitle}»</b> 🚀`
-    );
+    const praiseCaption =
+      `🎉 <b>Barakalla, ${user.name}!</b> «${curDisplayTitle}» yakunlandi.\n\n` +
+      `🎬 <b>${nextDisplayTitle}</b> 🚀`;
 
-    // Send next lesson video immediately with physical keyboard!
-    await playLessonVideo(chatId, user, nextLesson);
+    // 1 single API call: Sends next lesson video immediately with congratulations in caption!
+    await playLessonVideo(chatId, user, nextLesson, praiseCaption);
   } else {
-    // All lessons finished
+    // All lessons finished: 1 single message with congratulations and main menu keyboard!
+    const mainKb = await getMainMenuKeyboard(supabase);
     await sendTelegramMessage(
       chatId,
       `🏆 <b>TABRIKLAYMIZ, ${user.name}!</b>\n\n` +
         `Siz ushbu kursdagi barcha darslarni to‘liq yakunladingiz! 🎉 (100%)\n\n` +
-        `Bilimlaringizni amalda muvaffaqiyatli qo‘llashingizni tilaymiz!`
+        `Bilimlaringizni amalda muvaffaqiyatli qo‘llashingizni tilaymiz!\n\n` +
+        `🏠 <b>Kerakli bo'limni tanlang:</b>`,
+      {
+        keyboard: mainKb,
+        resize_keyboard: true,
+      }
     );
     userContext.delete(user.id);
-    await sendMainMenu(chatId, user);
   }
 }
 
@@ -573,7 +599,7 @@ async function processTelegramUpdate(update) {
 
     await answerTelegramCallbackQuery(callbackQuery.id);
 
-    const user = await findUserByTelegramId(supabase, telegramUserId);
+    const user = await getCachedUser(supabase, telegramUserId);
     if (!user) {
       await sendTelegramMessage(
         chatId,
@@ -757,7 +783,7 @@ async function processTelegramUpdate(update) {
 
   // 3. Handle Payment Screenshot Upload (Photo)
   if (message?.photo) {
-    const user = await findUserByTelegramId(supabase, telegramUserId);
+    const user = await getCachedUser(supabase, telegramUserId);
     const photo = message.photo[message.photo.length - 1]; // Highest resolution
     const fileId = photo.file_id;
 
@@ -1157,24 +1183,24 @@ export default async function handler(req, res) {
       return res.end ? res.end("data: {}\n\n") : sendSafeJson(res, 200, { ok: true });
     }
 
-    // 6. STATE ENDPOINT (Used by Admin Panel)
+    // 6. STATE ENDPOINT (Used by Admin Panel) - High Performance Cache & Parallel Fetch
     if (normalizedPath === "/api/state" || normalizedPath === "/api" || normalizedPath === "") {
-      const { data: dbCourses } = await supabase
-        .from("academy_courses")
-        .select("*")
-        .order("order", { ascending: true });
+      const now = Date.now();
+      if (cachedState && now - cachedStateTime < 2500) {
+        return sendSafeJson(res, 200, cachedState);
+      }
 
-      const { data: dbLessons } = await supabase
-        .from("academy_lessons")
-        .select("*")
-        .order("order", { ascending: true });
-
-      const { data: dbUsers } = await supabase
-        .from("users")
-        .select("*")
-        .order("created_at", { ascending: false });
-
-      const { data: dbAccess } = await supabase.from("academy_access").select("*");
+      const [
+        dbCourses,
+        dbLessons,
+        { data: dbUsers },
+        { data: dbAccess },
+      ] = await Promise.all([
+        getCachedCourses(supabase),
+        getCachedLessons(supabase),
+        supabase.from("users").select("*").order("created_at", { ascending: false }),
+        supabase.from("academy_access").select("*"),
+      ]);
 
       const accessMap = {};
       if (dbAccess) {
@@ -1253,7 +1279,7 @@ export default async function handler(req, res) {
         };
       });
 
-      return sendSafeJson(res, 200, {
+      cachedState = {
         courses,
         lessons,
         users,
@@ -1265,7 +1291,10 @@ export default async function handler(req, res) {
           dynamicWatermark: true,
           watermarkFormat: "id-brand",
         },
-      });
+      };
+      cachedStateTime = now;
+
+      return sendSafeJson(res, 200, cachedState);
     }
 
     // 3. ADMIN USER MANUAL ADD (/api/users/add)
