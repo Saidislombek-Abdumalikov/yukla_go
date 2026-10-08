@@ -213,34 +213,29 @@ async function hasAccessToCourse(supabase, userId, courseId) {
   return Boolean(data);
 }
 
-// Generate sequential customer code: YK1, YK2, YK3... (Fast in-memory counter)
+// Generate sequential numeric user ID starting from 100: 100, 101, 102...
 async function generateNextCustomerCode(supabase) {
-  if (highestCustomerCodeNumber > 0) {
+  if (highestCustomerCodeNumber >= 100) {
     highestCustomerCodeNumber++;
-    return `YK${highestCustomerCodeNumber}`;
+    return String(highestCustomerCodeNumber);
   }
 
   const { data } = await supabase
     .from("users")
-    .select("customer_code")
-    .order("created_at", { ascending: false })
-    .limit(100);
+    .select("customer_code");
 
-  let maxNum = 0;
+  let maxNum = 99; // Defaults so first ID is 100
   if (data && data.length > 0) {
     for (const u of data) {
       if (!u.customer_code) continue;
-      const match = u.customer_code.match(/YK-?(\d+)/i);
-      if (match) {
-        const num = parseInt(match[1], 10);
-        if (!isNaN(num) && num > maxNum) {
-          maxNum = num;
-        }
+      const num = parseInt(String(u.customer_code).replace(/\D/g, ""), 10);
+      if (!isNaN(num) && num >= 100 && num > maxNum) {
+        maxNum = num;
       }
     }
   }
   highestCustomerCodeNumber = maxNum + 1;
-  return `YK${highestCustomerCodeNumber}`;
+  return String(highestCustomerCodeNumber);
 }
 
 function isUUID(str) {
@@ -515,21 +510,20 @@ async function handlePhysicalTugatdim(chatId, user) {
   const curIndex = courseLessons.findIndex((l) => String(l.id) === String(currentLesson.id));
   const nextLesson = curIndex >= 0 ? courseLessons[curIndex + 1] : null;
 
-  const curDisplayTitle = currentLesson.title.includes("-dars")
-    ? currentLesson.title
-    : `${currentLesson.order ? `${currentLesson.order}-dars: ` : ""}${currentLesson.title}`;
+  // Extract lesson number
+  let lessonNum = currentLesson.order || (curIndex + 1);
+  const match = currentLesson.title.match(/(\d+)\s*-\s*dars/i);
+  if (match) {
+    lessonNum = match[1];
+  }
+
+  // Send congratulations with exact lesson number
+  await sendTelegramMessage(
+    chatId,
+    `🎉 <b>Barakalla!</b> ${lessonNum}-darsni tugatdingiz ✅`
+  );
 
   if (nextLesson) {
-    const nextDisplayTitle = nextLesson.title.includes("-dars")
-      ? nextLesson.title
-      : `${nextLesson.order ? `${nextLesson.order}-dars: ` : ""}${nextLesson.title}`;
-
-    // Send congratulations as a separate message (NOT in video caption)
-    await sendTelegramMessage(
-      chatId,
-      `🎉 <b>Barakalla!</b> «${curDisplayTitle}» yakunlandi ✅`
-    );
-
     // Send next lesson video cleanly
     await playLessonVideo(chatId, user, nextLesson);
   } else {
