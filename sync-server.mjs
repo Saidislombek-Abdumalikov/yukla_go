@@ -41,7 +41,7 @@ const defaultState = {
 
 let db = { ...defaultState };
 
-const BOT_TOKEN = "8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo";
+const BOT_TOKEN = "8914852100:AAGsNZJmxhCnQCwROy7T7CmgFzrLpy46APQ";
 
 // Telegram API Helper for Instant Notifications
 async function sendTelegramNotification(chatId, text, replyMarkup = null) {

@@ -25,7 +25,7 @@ export function getBotToken(): string {
       }
     }
   } catch {}
-  return '8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo';
+  return '8914852100:AAGsNZJmxhCnQCwROy7T7CmgFzrLpy46APQ';
 }
 
 export const STATUS_MESSAGES: Record<string, { title: string; desc: string }> = {
