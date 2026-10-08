@@ -20,5 +20,3 @@ logs/
 /.plugins/
 /.opencode-skills/
 uploads/
-
-!.env.example

@@ -1,0 +1,26 @@
+{
+  "users": [],
+  "courses": [
+    {
+      "id": 1791305084906,
+      "title": "Xitoydan tovar olib kelish asoslari",
+      "description": "Boshlangich kurs",
+      "lessons": 0,
+      "users": 0,
+      "completion": 0,
+      "status": "Faol",
+      "updated": "Hozirgina",
+      "tone": "blue"
+    }
+  ],
+  "lessons": [],
+  "settings": {
+    "adminPassword": "admin",
+    "defaultCompletionPercent": 95,
+    "autoSaveProgress": true,
+    "sequentialLessons": true,
+    "dynamicWatermark": true,
+    "watermarkFormat": "id-brand"
+  },
+  "progress": {}
+}
