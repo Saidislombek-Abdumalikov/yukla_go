@@ -201,6 +201,16 @@ async function sendTelegramVideo(chatId, video, caption, replyMarkup, protectCon
   return sent;
 }
 
+async function sendTelegramDocument(chatId, document, caption, replyMarkup) {
+  return await callTelegram("sendDocument", {
+    chat_id: chatId,
+    document,
+    caption,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+  });
+}
+
 async function answerTelegramCallbackQuery(callbackQueryId, text, showAlert = false) {
   return await callTelegram("answerCallbackQuery", {
     callback_query_id: callbackQueryId,
@@ -312,6 +322,7 @@ async function getMainMenuKeyboard(supabase) {
     keyboard.push(row);
   }
 
+  keyboard.push(["📲 Ilovalar"]);
   keyboard.push(["💎 Premium", "👤 Profilim"]);
   return keyboard;
 }
@@ -326,6 +337,52 @@ async function sendMainMenu(chatId, user) {
     {
       keyboard,
       resize_keyboard: true,
+    }
+  );
+}
+
+async function sendAppsMenu(chatId, user) {
+  const supabase = getSupabase();
+  const { data: apkRow } = await supabase
+    .from("bot_media_uploads")
+    .select("file_id")
+    .eq("bound_lesson", "pinduoduo_apk")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const inlineButtons = [];
+
+  if (apkRow?.file_id) {
+    inlineButtons.push([
+      { text: "📦 Pinduoduo APK (Telegramdan yuklash)", callback_data: "download_pinduoduo_apk" },
+    ]);
+  }
+
+  inlineButtons.push([
+    { text: "🤖 Android uchun (Rasmiy sayt)", url: "https://app.pinduoduo.com/" },
+  ]);
+
+  inlineButtons.push([
+    { text: "🍏 iPhone (iOS) App Store", url: "https://apps.apple.com/app/pinduoduo/id1044283059" },
+  ]);
+
+  inlineButtons.push([
+    { text: "🌐 Pinduoduo Veb versiyasi", url: "https://mobile.yangkeduo.com/" },
+  ]);
+
+  await sendTelegramMessage(
+    chatId,
+    `📲 <b>RASMIY ILOVALAR</b> 🛍\n\n` +
+      `Xaridlar va buyurtmalar uchun rasmiy Pinduoduo ilovasi:\n\n` +
+      `🔴 <b>Pinduoduo (拼多多)</b>\n` +
+      `Xitoyning eng ommabop, tovarlarni arzon va ulgurji narxlarda to‘g‘ridan-to‘g‘ri ishlab chiqaruvchilardan xarid qilish ilovasi.\n\n` +
+      `📥 <b>O‘rnatish bo‘yicha qo‘llanma:</b>\n` +
+      `• <b>Android uchun:</b> «Android uchun» tugmasini bosib rasmiy APK faylni yuklab oling va telefonga o‘rnating.\n` +
+      `• <b>iPhone uchun:</b> «iPhone App Store» tugmasi orqali to‘g‘ridan-to‘g‘ri App Store dan o‘rnating.\n\n` +
+      `Kerakli versiyani tanlang 👇`,
+    {
+      inline_keyboard: inlineButtons,
     }
   );
 }
@@ -643,6 +700,30 @@ async function processTelegramUpdate(update) {
 
     if (data === "menu_courses") {
       await showCoursesMenu(chatId, user, messageId);
+      return true;
+    }
+
+    if (data === "download_pinduoduo_apk") {
+      const { data: apkRow } = await supabase
+        .from("bot_media_uploads")
+        .select("file_id")
+        .eq("bound_lesson", "pinduoduo_apk")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (apkRow?.file_id) {
+        await sendTelegramDocument(
+          chatId,
+          apkRow.file_id,
+          "📦 <b>Pinduoduo rasmiy ilovasi (Android APK)</b>\n\nYuklab olib, telefonga o‘rnating."
+        );
+      } else {
+        await sendTelegramMessage(
+          chatId,
+          `🤖 <b>Pinduoduo Android ilovasi:</b>\n\nQuyidagi rasmiy havola orqali yuklab oling:\n👉 https://app.pinduoduo.com/`
+        );
+      }
       return true;
     }
 
@@ -972,7 +1053,34 @@ async function processTelegramUpdate(update) {
     return true;
   }
 
-  // 5. Handle Text Messages (/start, courses, lessons, ⬅️ Orqaga, 💎 Premium, ✅ Tugatdim, etc.)
+  // 5. Handle Document Upload (e.g. Admin uploading .apk file)
+  if (message?.document && isAdmin(telegramUserId)) {
+    const doc = message.document;
+    if (doc.file_name && doc.file_name.toLowerCase().endsWith(".apk")) {
+      try {
+        await supabase.from("bot_media_uploads").insert({
+          admin_tg: Number(telegramUserId),
+          file_id: doc.file_id,
+          file_size: doc.file_size || 0,
+          bound_lesson: "pinduoduo_apk",
+        });
+      } catch (e) {
+        console.warn("Failed to record apk document in DB:", e);
+      }
+
+      const sizeMB = (doc.file_size / (1024 * 1024)).toFixed(1);
+      await sendTelegramMessage(
+        chatId,
+        `✅ <b>Pinduoduo APK fayli muvaffaqiyatli saqlandi!</b>\n\n` +
+          `📁 <b>Fayl:</b> <code>${doc.file_name}</code>\n` +
+          `💾 <b>Hajmi:</b> ${sizeMB} MB\n\n` +
+          `Endi talabalar «📲 Ilovalar» bo‘limida ushbu faylni to‘g‘ridan-to‘g‘ri Telegram orqali yuklab olishlari mumkin.`
+      );
+      return true;
+    }
+  }
+
+  // 6. Handle Text Messages (/start, courses, lessons, ⬅️ Orqaga, 💎 Premium, ✅ Tugatdim, etc.)
   if (message?.text) {
     const text = message.text.trim();
     let user = await getCachedUser(supabase, telegramUserId);
@@ -1099,6 +1207,20 @@ async function processTelegramUpdate(update) {
           `📱 <b>Tel:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
           `💎 <b>Status:</b> ${isPrem ? "✅ Premium" : "⏳ Oddiy"}`
       );
+      return true;
+    }
+
+    // 4.5. "📲 Ilovalar" / "Ilovalar"
+    const isIlovalarBtn =
+      text === "📲 Ilovalar" ||
+      text === "Ilovalar" ||
+      text.trim().toLowerCase() === "ilova" ||
+      text.trim().toLowerCase() === "ilovalari" ||
+      text.trim().toLowerCase() === "/apps" ||
+      text.trim().toLowerCase() === "/app";
+
+    if (isIlovalarBtn) {
+      await sendAppsMenu(chatId, user);
       return true;
     }
 
