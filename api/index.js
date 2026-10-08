@@ -211,6 +211,16 @@ async function sendTelegramDocument(chatId, document, caption, replyMarkup) {
   });
 }
 
+async function editTelegramMessageText(chatId, messageId, text, replyMarkup) {
+  return await callTelegram("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+  });
+}
+
 async function answerTelegramCallbackQuery(callbackQueryId, text, showAlert = false) {
   return await callTelegram("answerCallbackQuery", {
     callback_query_id: callbackQueryId,
@@ -341,50 +351,148 @@ async function sendMainMenu(chatId, user) {
   );
 }
 
-async function sendAppsMenu(chatId, user) {
+const APPS_CATALOG = [
+  {
+    id: "pinduoduo",
+    name: "Pinduoduo (拼多多)",
+    icon: "🔴",
+    description: "Xitoydan eng arzon ulgurji xaridlar va to‘g‘ridan-to‘g‘ri zavodlardan buyurtma berish ilovasi.",
+    iosUrl: "https://apps.apple.com/app/pinduoduo/id1044283059",
+    androidUrl: "https://app.pinduoduo.com/",
+    apkKey: "pinduoduo_apk",
+  },
+  {
+    id: "taobao",
+    name: "Taobao (淘宝)",
+    icon: "🟠",
+    description: "Katta assortimentdagi brend mahsulotlar va sifatli tovarlar platformasi.",
+    iosUrl: "https://apps.apple.com/app/taobao/id387682726",
+    androidUrl: "https://play.google.com/store/apps/details?id=com.taobao.taobao",
+    apkKey: "taobao_apk",
+  },
+  {
+    id: "yandex_keyboard",
+    name: "Yandex Klaviatura",
+    icon: "⌨️",
+    description: "Sotuvchilar bilan yozishganda klaviaturaning o‘zida xitoychaga avtomatik tarjima qiladi.",
+    iosUrl: "https://apps.apple.com/app/yandex-keyboard/id974640108",
+    androidUrl: "https://play.google.com/store/apps/details?id=ru.yandex.keyboard",
+    apkKey: "yandex_keyboard_apk",
+  },
+  {
+    id: "translator",
+    name: "Google Tarjimon",
+    icon: "🌐",
+    description: "Rasm va skrinshotlardagi xitoycha yozuvlarni bir zumda tarjima qiladi.",
+    iosUrl: "https://apps.apple.com/app/google-translate/id414706506",
+    androidUrl: "https://play.google.com/store/apps/details?id=com.google.android.apps.translate",
+    apkKey: "translator_apk",
+  },
+];
+
+async function sendAppsMenu(chatId, messageId = null) {
+  const text =
+    `📲 <b>QURILMANGIZ TURINI TANLANG</b> 📱\n\n` +
+    `Kerakli ilovalarni yuklab olish uchun telefoningiz operatsion tizimini tanlang:\n\n` +
+    `🍏 <b>iOS (iPhone / iPad)</b> — App Store orqali rasmiy o‘rnatish\n` +
+    `🤖 <b>Android</b> — APK fayl va to‘g‘ridan-to‘g‘ri yuklab olish\n\n` +
+    `<i>Tugmalardan birini tanlang 👇</i>`;
+
+  const replyMarkup = {
+    inline_keyboard: [
+      [
+        { text: "🍏 iOS (iPhone)", callback_data: "apps_os_ios" },
+        { text: "🤖 Android", callback_data: "apps_os_android" },
+      ],
+    ],
+  };
+
+  if (messageId) {
+    const edited = await editTelegramMessageText(chatId, messageId, text, replyMarkup);
+    if (edited && edited.ok) return;
+  }
+  await sendTelegramMessage(chatId, text, replyMarkup);
+}
+
+async function sendIosAppsMenu(chatId, messageId = null) {
+  const text =
+    `🍏 <b>iOS (iPhone) UCHUN ILOVALAR</b> 📲\n\n` +
+    `Xitoydan tovar buyurtma qilish va qulay xaridlar uchun barcha kerakli rasmiy ilovalar:\n\n` +
+    `🔴 <b>1. Pinduoduo (拼多多)</b> — Arzon narxlarda ulgurji xaridlar ilovasi\n` +
+    `🟠 <b>2. Taobao (淘宝)</b> — Keng turdagi mahsulotlar va brendlar platformasi\n` +
+    `⌨️ <b>3. Yandex Klaviatura</b> — Klaviaturada avtomatik xitoycha tarjimon\n` +
+    `🌐 <b>4. Google Tarjimon</b> — Rasm va skrinshotlarni tarjima qilish\n\n` +
+    `<i>O‘rnatish uchun kerakli ilovani bosing (App Store ochiladi) 👇</i>`;
+
+  const buttons = APPS_CATALOG.map((app) => [
+    { text: `${app.icon} ${app.name}`, url: app.iosUrl },
+  ]);
+
+  buttons.push([
+    { text: "⬅️ Boshqa qurilmani tanlash", callback_data: "menu_apps" },
+  ]);
+
+  const replyMarkup = { inline_keyboard: buttons };
+
+  if (messageId) {
+    const edited = await editTelegramMessageText(chatId, messageId, text, replyMarkup);
+    if (edited && edited.ok) return;
+  }
+  await sendTelegramMessage(chatId, text, replyMarkup);
+}
+
+async function sendAndroidAppsMenu(chatId, messageId = null) {
   const supabase = getSupabase();
-  const { data: apkRow } = await supabase
+  const { data: uploads } = await supabase
     .from("bot_media_uploads")
-    .select("file_id")
-    .eq("bound_lesson", "pinduoduo_apk")
-    .order("created_at", { ascending: false })
-    .limit(1)
-    .maybeSingle();
+    .select("bound_lesson, file_id")
+    .order("created_at", { ascending: false });
 
-  const inlineButtons = [];
-
-  if (apkRow?.file_id) {
-    inlineButtons.push([
-      { text: "📦 Pinduoduo APK (Telegramdan yuklash)", callback_data: "download_pinduoduo_apk" },
-    ]);
+  const apkMap = {};
+  if (uploads) {
+    for (const u of uploads) {
+      if (u.bound_lesson && !apkMap[u.bound_lesson]) {
+        apkMap[u.bound_lesson] = u.file_id;
+      }
+    }
   }
 
-  inlineButtons.push([
-    { text: "🤖 Android uchun (Rasmiy sayt)", url: "https://app.pinduoduo.com/" },
-  ]);
+  const text =
+    `🤖 <b>Android UCHUN ILOVALAR</b> 📲\n\n` +
+    `Xitoydan tovar buyurtma qilish va qulay xaridlar uchun barcha kerakli ilovalar:\n\n` +
+    `🔴 <b>1. Pinduoduo (拼多多)</b> — Arzon narxlarda ulgurji xaridlar ilovasi\n` +
+    `🟠 <b>2. Taobao (淘宝)</b> — Keng turdagi mahsulotlar va brendlar platformasi\n` +
+    `⌨️ <b>3. Yandex Klaviatura</b> — Klaviaturada avtomatik xitoycha tarjimon\n` +
+    `🌐 <b>4. Google Tarjimon</b> — Rasm va skrinshotlarni tarjima qilish\n\n` +
+    `<i>Kerakli ilovani tanlang 👇</i>`;
 
-  inlineButtons.push([
-    { text: "🍏 iPhone (iOS) App Store", url: "https://apps.apple.com/app/pinduoduo/id1044283059" },
-  ]);
+  const buttons = [];
 
-  inlineButtons.push([
-    { text: "🌐 Pinduoduo Veb versiyasi", url: "https://mobile.yangkeduo.com/" },
-  ]);
-
-  await sendTelegramMessage(
-    chatId,
-    `📲 <b>RASMIY ILOVALAR</b> 🛍\n\n` +
-      `Xaridlar va buyurtmalar uchun rasmiy Pinduoduo ilovasi:\n\n` +
-      `🔴 <b>Pinduoduo (拼多多)</b>\n` +
-      `Xitoyning eng ommabop, tovarlarni arzon va ulgurji narxlarda to‘g‘ridan-to‘g‘ri ishlab chiqaruvchilardan xarid qilish ilovasi.\n\n` +
-      `📥 <b>O‘rnatish bo‘yicha qo‘llanma:</b>\n` +
-      `• <b>Android uchun:</b> «Android uchun» tugmasini bosib rasmiy APK faylni yuklab oling va telefonga o‘rnating.\n` +
-      `• <b>iPhone uchun:</b> «iPhone App Store» tugmasi orqali to‘g‘ridan-to‘g‘ri App Store dan o‘rnating.\n\n` +
-      `Kerakli versiyani tanlang 👇`,
-    {
-      inline_keyboard: inlineButtons,
+  for (const app of APPS_CATALOG) {
+    const apkFileId = apkMap[app.apkKey];
+    if (apkFileId) {
+      buttons.push([
+        { text: `📦 ${app.name} (Telegram APK)`, callback_data: `sendapk_${app.id}` },
+        { text: `🔗 Saytdan yuklash`, url: app.androidUrl },
+      ]);
+    } else {
+      buttons.push([
+        { text: `${app.icon} ${app.name}`, url: app.androidUrl },
+      ]);
     }
-  );
+  }
+
+  buttons.push([
+    { text: "⬅️ Boshqa qurilmani tanlash", callback_data: "menu_apps" },
+  ]);
+
+  const replyMarkup = { inline_keyboard: buttons };
+
+  if (messageId) {
+    const edited = await editTelegramMessageText(chatId, messageId, text, replyMarkup);
+    if (edited && edited.ok) return;
+  }
+  await sendTelegramMessage(chatId, text, replyMarkup);
 }
 
 async function sendCourseLessonsMenu(chatId, user, course) {
@@ -703,26 +811,75 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
-    if (data === "download_pinduoduo_apk") {
-      const { data: apkRow } = await supabase
+    // Applications menu navigation
+    if (data === "menu_apps") {
+      await sendAppsMenu(chatId, messageId);
+      return true;
+    }
+
+    if (data === "apps_os_ios") {
+      await sendIosAppsMenu(chatId, messageId);
+      return true;
+    }
+
+    if (data === "apps_os_android") {
+      await sendAndroidAppsMenu(chatId, messageId);
+      return true;
+    }
+
+    if (data.startsWith("sendapk_") || data === "download_pinduoduo_apk") {
+      const appId = data.startsWith("sendapk_") ? data.replace("sendapk_", "") : "pinduoduo";
+      const app = APPS_CATALOG.find((a) => a.id === appId);
+      const apkKey = app?.apkKey || `${appId}_apk`;
+
+      const { data: uploadRow } = await supabase
         .from("bot_media_uploads")
         .select("file_id")
-        .eq("bound_lesson", "pinduoduo_apk")
+        .eq("bound_lesson", apkKey)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
 
-      if (apkRow?.file_id) {
+      if (uploadRow?.file_id) {
         await sendTelegramDocument(
           chatId,
-          apkRow.file_id,
-          "📦 <b>Pinduoduo rasmiy ilovasi (Android APK)</b>\n\nYuklab olib, telefonga o‘rnating."
+          uploadRow.file_id,
+          `📦 <b>${app ? app.name : "Ilova"} (Android APK)</b>\n\nFaylni yuklab olib, telefonga o‘rnating.`
         );
-      } else {
+      } else if (app?.androidUrl) {
         await sendTelegramMessage(
           chatId,
-          `🤖 <b>Pinduoduo Android ilovasi:</b>\n\nQuyidagi rasmiy havola orqali yuklab oling:\n👉 https://app.pinduoduo.com/`
+          `🤖 <b>${app ? app.name : "Ilova"}:</b>\n\nQuyidagi rasmiy havola orqali yuklab oling:\n👉 ${app.androidUrl}`
         );
+      }
+      return true;
+    }
+
+    if (data.startsWith("bindapk_") && isAdmin(telegramUserId)) {
+      const appId = data.replace("bindapk_", "");
+      const app = APPS_CATALOG.find((a) => a.id === appId);
+      const apkKey = app?.apkKey || `${appId}_apk`;
+
+      let fileId = null;
+      const mem = pendingAdminVideos.get(Number(telegramUserId));
+      if (mem && mem.fileId) {
+        fileId = mem.fileId;
+      }
+
+      if (fileId) {
+        await supabase.from("bot_media_uploads").insert({
+          admin_tg: Number(telegramUserId),
+          file_id: fileId,
+          bound_lesson: apkKey,
+        });
+
+        await sendTelegramMessage(
+          chatId,
+          `✅ <b>APK fayli «${app ? app.name : appId}» ilovasiga muvaffaqiyatli biriktirildi!</b>\n\n` +
+            `Endi talabalar «🤖 Android» bo‘limida ushbu faylni to‘g‘ridan-to‘g‘ri Telegram orqali yuklab olishlari mumkin.`
+        );
+      } else {
+        await sendTelegramMessage(chatId, "⚠️ Fayl topilmadi. Iltimos, APK faylni qaytadan yuboring.");
       }
       return true;
     }
@@ -1057,24 +1214,28 @@ async function processTelegramUpdate(update) {
   if (message?.document && isAdmin(telegramUserId)) {
     const doc = message.document;
     if (doc.file_name && doc.file_name.toLowerCase().endsWith(".apk")) {
-      try {
-        await supabase.from("bot_media_uploads").insert({
-          admin_tg: Number(telegramUserId),
-          file_id: doc.file_id,
-          file_size: doc.file_size || 0,
-          bound_lesson: "pinduoduo_apk",
-        });
-      } catch (e) {
-        console.warn("Failed to record apk document in DB:", e);
-      }
-
+      const fileId = doc.file_id;
       const sizeMB = (doc.file_size / (1024 * 1024)).toFixed(1);
+
+      pendingAdminVideos.set(Number(telegramUserId), {
+        fileId,
+        fileName: doc.file_name,
+        fileSize: doc.file_size,
+        type: "apk",
+        time: Date.now(),
+      });
+
+      const buttons = APPS_CATALOG.map((app) => [
+        { text: `${app.icon} «${app.name}»ga biriktirish`, callback_data: `bindapk_${app.id}` },
+      ]);
+
       await sendTelegramMessage(
         chatId,
-        `✅ <b>Pinduoduo APK fayli muvaffaqiyatli saqlandi!</b>\n\n` +
+        `📦 <b>APK fayl qabul qilindi!</b>\n\n` +
           `📁 <b>Fayl:</b> <code>${doc.file_name}</code>\n` +
           `💾 <b>Hajmi:</b> ${sizeMB} MB\n\n` +
-          `Endi talabalar «📲 Ilovalar» bo‘limida ushbu faylni to‘g‘ridan-to‘g‘ri Telegram orqali yuklab olishlari mumkin.`
+          `Ushbu APK faylni qaysi ilovaga biriktiramiz?`,
+        { inline_keyboard: buttons }
       );
       return true;
     }
@@ -1220,7 +1381,17 @@ async function processTelegramUpdate(update) {
       text.trim().toLowerCase() === "/app";
 
     if (isIlovalarBtn) {
-      await sendAppsMenu(chatId, user);
+      await sendAppsMenu(chatId);
+      return true;
+    }
+
+    if (text.trim().toLowerCase() === "ios" || text.trim().toLowerCase() === "iphone") {
+      await sendIosAppsMenu(chatId);
+      return true;
+    }
+
+    if (text.trim().toLowerCase() === "android") {
+      await sendAndroidAppsMenu(chatId);
       return true;
     }
 
