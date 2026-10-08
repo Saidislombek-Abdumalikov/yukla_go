@@ -387,10 +387,17 @@ async function playLessonVideo(chatId, user, lessonOrId, customCaption = null) {
     ? lesson.title
     : `${lesson.order ? `${lesson.order}-dars: ` : ""}${lesson.title}`;
 
+  // Extract lesson number for the button
+  let lessonNum = lesson.order || 1;
+  const match = (lesson.title || "").match(/(\d+)\s*-\s*dars/i);
+  if (match) {
+    lessonNum = match[1];
+  }
+
   // Physical Reply Keyboard at the bottom of the screen (NO INLINE / LINK BUTTONS!)
   const replyKeyboard = {
     keyboard: [
-      ["✅ Tugatdim"],
+      [`✅ ${lessonNum}-darsni tugatdim`],
       ["⬅️ Orqaga"],
     ],
     resize_keyboard: true,
@@ -1491,9 +1498,11 @@ export default async function handler(req, res) {
       const nextOrder = (countData?.length || 0) + 1;
 
       let videoIdToSave = body.videoUrl || "";
-      if (body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
+      const incomingFileId = body.fileId || body.file_id || undefined;
+      if (body.videoUrl && (body.videoFormat || body.thumbnailUrl || incomingFileId)) {
         videoIdToSave = JSON.stringify({
           url: body.videoUrl,
+          file_id: incomingFileId,
           format: body.videoFormat || "shorts",
           thumb: body.thumbnailUrl || "",
         });
@@ -1558,22 +1567,23 @@ export default async function handler(req, res) {
           }
         } catch {}
 
-        if (body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
-          const keepFileId = curParsed.url === body.videoUrl ? curParsed.file_id : undefined;
+        const incomingFileId = body.fileId || body.file_id || undefined;
+        if (body.videoUrl && (body.videoFormat || body.thumbnailUrl || incomingFileId)) {
+          const keepFileId = incomingFileId || (curParsed.url === body.videoUrl ? curParsed.file_id : undefined);
           videoIdToSave = JSON.stringify({
             url: body.videoUrl,
             format: body.videoFormat || "shorts",
             thumb: body.thumbnailUrl || "",
             ...(keepFileId ? { file_id: keepFileId } : {}),
           });
-        } else if (!body.videoUrl && (body.videoFormat || body.thumbnailUrl)) {
+        } else if (!body.videoUrl && (body.videoFormat || body.thumbnailUrl || incomingFileId)) {
           let curRaw = curParsed.url || cur?.youtube_video_id || "";
           if (curRaw) {
             videoIdToSave = JSON.stringify({
               url: curRaw,
               format: body.videoFormat || "shorts",
               thumb: body.thumbnailUrl || "",
-              ...(curParsed.file_id ? { file_id: curParsed.file_id } : {}),
+              ...((incomingFileId || curParsed.file_id) ? { file_id: incomingFileId || curParsed.file_id } : {}),
             });
           }
         }
