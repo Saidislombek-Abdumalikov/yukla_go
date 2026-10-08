@@ -35,6 +35,7 @@ const CACHE_TTL_MS = 60 * 1000; // 60s TTL
 const userCache = new Map(); // tgId -> { user, time }
 const accessCache = new Map(); // `${userId}_${courseId}` -> { hasAccess, time }
 const userContext = new Map(); // userId -> { currentCourseId, lastLessonId, lastActionTime }
+const pendingAdminVideos = new Map(); // tgId -> { fileId, durationSec, durationStr, time }
 
 function invalidateCatalogCache() {
   cachedCourses = null;
@@ -157,6 +158,46 @@ async function sendTelegramVideo(chatId, video, caption, replyMarkup, protectCon
   if (sent && sent.ok) return sent;
 
   console.warn("sendVideo direct param failed:", sent?.description || sent);
+
+  // 2. Fallback: If Telegram failed to fetch HTTP URL (e.g. Supabase Storage / Cloudflare blocked Telegram bot crawler)
+  if (typeof video === "string" && video.startsWith("http")) {
+    try {
+      console.log("Direct URL failed with Telegram crawler, downloading stream directly:", video);
+      const fileRes = await fetch(video);
+      if (fileRes.ok) {
+        const contentLength = Number(fileRes.headers.get("content-length") || 0);
+        // Telegram Bot API limit is 50MB for multipart POST
+        if (contentLength <= 50 * 1024 * 1024) {
+          const blob = await fileRes.blob();
+          const form = new FormData();
+          form.append("chat_id", String(chatId));
+          form.append("video", blob, "video.mp4");
+          if (caption) form.append("caption", caption);
+          form.append("parse_mode", "HTML");
+          if (replyMarkup) form.append("reply_markup", JSON.stringify(replyMarkup));
+          if (protectContent) form.append("protect_content", "true");
+
+          const token = getBotToken();
+          const res = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
+            method: "POST",
+            body: form,
+          });
+          const streamed = await res.json();
+          if (streamed && streamed.ok) {
+            console.log("Successfully streamed video directly to Telegram!");
+            return streamed;
+          } else {
+            console.warn("Telegram streamed sendVideo failed:", streamed?.description || streamed);
+          }
+        } else {
+          console.warn("Video file too large for Telegram HTTP Bot API upload (>50MB):", contentLength);
+        }
+      }
+    } catch (streamErr) {
+      console.warn("Buffer stream upload failed:", streamErr);
+    }
+  }
+
   return sent;
 }
 
@@ -437,12 +478,18 @@ async function playLessonVideo(chatId, user, lessonOrId, customCaption = null) {
   if (sent && sent.ok && sent.result?.video?.file_id) {
     const newFileId = sent.result.video.file_id;
     if (newFileId !== videoFileId) {
-      lesson.youtube_video_id = JSON.stringify({ url: videoUrl, file_id: newFileId });
+      let updatedYt = newFileId;
+      if (videoUrl) {
+        updatedYt = JSON.stringify({ url: videoUrl, file_id: newFileId });
+      }
+      lesson.youtube_video_id = updatedYt;
       supabase
         .from("academy_lessons")
-        .update({ youtube_video_id: lesson.youtube_video_id })
+        .update({ youtube_video_id: updatedYt, updated_at: new Date().toISOString() })
         .eq("id", String(lesson.id))
-        .then(() => {})
+        .then(() => {
+          invalidateCatalogCache();
+        })
         .catch((e) => console.warn("Failed to cache file_id in DB:", e));
     }
     return;
@@ -670,28 +717,96 @@ async function processTelegramUpdate(update) {
 
     // Admin attaching video to lesson
     if (data.startsWith("attach_") && isAdmin(telegramUserId)) {
-      const parts = data.split("_");
-      const lessonId = parts[1];
-      const fileId = parts.slice(2).join("_");
+      const lessonId = data.replace("attach_", "");
+      let fileId = null;
+
+      const mem = pendingAdminVideos.get(Number(telegramUserId));
+      if (mem && mem.fileId) {
+        fileId = mem.fileId;
+      } else {
+        const { data: uploadRow } = await supabase
+          .from("bot_media_uploads")
+          .select("file_id")
+          .eq("admin_tg", Number(telegramUserId))
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (uploadRow) fileId = uploadRow.file_id;
+      }
+
+      if (!fileId) {
+        await sendTelegramMessage(
+          chatId,
+          "⚠️ Video topilmadi yoki muddati o‘tgan. Iltimos, videoni qaytadan yuboring."
+        );
+        return true;
+      }
+
+      const { data: curLesson } = await supabase
+        .from("academy_lessons")
+        .select("youtube_video_id, title")
+        .eq("id", String(lessonId))
+        .maybeSingle();
+
+      let videoIdToSave = fileId;
+      try {
+        if (curLesson?.youtube_video_id?.startsWith("{")) {
+          const parsed = JSON.parse(curLesson.youtube_video_id);
+          parsed.file_id = fileId;
+          videoIdToSave = JSON.stringify(parsed);
+        }
+      } catch {}
 
       await supabase
         .from("academy_lessons")
-        .update({ youtube_video_id: fileId, updated_at: new Date().toISOString() })
+        .update({ youtube_video_id: videoIdToSave, updated_at: new Date().toISOString() })
         .eq("id", String(lessonId));
+
+      await supabase
+        .from("bot_media_uploads")
+        .update({ bound_lesson: String(lessonId) })
+        .eq("admin_tg", Number(telegramUserId))
+        .eq("file_id", fileId);
+
       invalidateCatalogCache();
 
       await sendTelegramMessage(
         chatId,
-        `✅ <b>Video muvaffaqiyatli biriktirildi!</b>\n\nEndi ushbu dars barcha ruxsat berilgan talabalar uchun himoyalangan (DRM) ko‘rinishda taqdim etiladi.`
+        `✅ <b>Video «${curLesson?.title || "Dars"}»ga muvaffaqiyatli biriktirildi!</b>\n\nEndi ushbu dars barcha ruxsat berilgan talabalar uchun himoyalangan (DRM) ko‘rinishda taqdim etiladi.`
       );
       return true;
     }
 
     // Admin creating new lesson with video
-    if (data.startsWith("newlesson_") && isAdmin(telegramUserId)) {
-      const parts = data.split("_");
-      const fileId = parts[1];
-      const durationSec = Number(parts[3]) || 600;
+    if ((data.startsWith("newlesson_") || data === "newlesson") && isAdmin(telegramUserId)) {
+      let fileId = null;
+      let durationSec = 600;
+
+      const mem = pendingAdminVideos.get(Number(telegramUserId));
+      if (mem && mem.fileId) {
+        fileId = mem.fileId;
+        durationSec = mem.durationSec || 600;
+      } else {
+        const { data: uploadRow } = await supabase
+          .from("bot_media_uploads")
+          .select("file_id, duration")
+          .eq("admin_tg", Number(telegramUserId))
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (uploadRow) {
+          fileId = uploadRow.file_id;
+          durationSec = uploadRow.duration || 600;
+        }
+      }
+
+      if (!fileId) {
+        await sendTelegramMessage(
+          chatId,
+          "⚠️ Video topilmadi yoki muddati o‘tgan. Iltimos, videoni qaytadan yuboring."
+        );
+        return true;
+      }
 
       const { data: firstCourse } = await supabase
         .from("academy_courses")
@@ -699,21 +814,35 @@ async function processTelegramUpdate(update) {
         .limit(1)
         .maybeSingle();
 
+      const { data: existingLessons } = await supabase
+        .from("academy_lessons")
+        .select("order")
+        .order("order", { ascending: false })
+        .limit(1);
+
+      const nextOrder = (existingLessons?.[0]?.order || 0) + 1;
       const newId = String(Date.now());
       await supabase.from("academy_lessons").insert({
         id: newId,
         course_id: firstCourse?.id || "1791305084906",
-        title: `Yangi dars (${new Date().toLocaleDateString("uz-UZ")})`,
+        title: `${nextOrder}-dars`,
         description: "Telegram orqali yuklangan dars",
         youtube_video_id: fileId,
         duration_seconds: durationSec,
-        order: 99,
+        order: nextOrder,
       });
+
+      await supabase
+        .from("bot_media_uploads")
+        .update({ bound_lesson: newId })
+        .eq("admin_tg", Number(telegramUserId))
+        .eq("file_id", fileId);
+
       invalidateCatalogCache();
 
       await sendTelegramMessage(
         chatId,
-        `✅ <b>Yangi dars yaratildi va video biriktirildi!</b>\n\nAdmin panelda uning nomini va tavsifini o‘zgartirishingiz mumkin.`
+        `✅ <b>${nextOrder}-dars yaratildi va video biriktirildi!</b>\n\nAdmin panelda uning nomini va tavsifini o‘zgartirishingiz mumkin.`
       );
       return true;
     }
@@ -797,18 +926,38 @@ async function processTelegramUpdate(update) {
     const durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
     const sizeMB = (video.file_size / (1024 * 1024)).toFixed(1);
 
+    // Save in memory cache
+    pendingAdminVideos.set(Number(telegramUserId), {
+      fileId,
+      durationSec,
+      durationStr,
+      time: Date.now(),
+    });
+
+    // Also persist to Supabase bot_media_uploads so it survives serverless cold starts
+    try {
+      await supabase.from("bot_media_uploads").insert({
+        admin_tg: Number(telegramUserId),
+        file_id: fileId,
+        duration: durationSec,
+        file_size: video.file_size || 0,
+      });
+    } catch (e) {
+      console.warn("Failed to record bot_media_upload in DB:", e);
+    }
+
     const { data: lessons } = await supabase
       .from("academy_lessons")
-      .select("id, title")
+      .select("id, title, order")
       .order("order", { ascending: true })
-      .limit(8);
+      .limit(10);
 
     const buttons = (lessons || []).map((l) => [
-      { text: `🎬 «${l.title}» darsiga biriktirish`, callback_data: `attach_${l.id}_${fileId}` },
+      { text: `🎬 «${l.title}» darsiga biriktirish`, callback_data: `attach_${l.id}` },
     ]);
 
     buttons.push([
-      { text: "➕ Yangi dars qilib yaratish", callback_data: `newlesson_${fileId}_${durationStr}_${durationSec}` },
+      { text: "➕ Yangi dars qilib yaratish", callback_data: "newlesson" },
     ]);
 
     await sendTelegramMessage(
