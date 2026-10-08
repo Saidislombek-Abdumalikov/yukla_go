@@ -156,48 +156,8 @@ async function sendTelegramVideo(chatId, video, caption, replyMarkup, protectCon
 
   if (sent && sent.ok) return sent;
 
-  console.warn("sendVideo direct param failed:", sent?.description);
-
-  // 2. If direct URL parameter failed, try uploading via multipart form data
-  if (typeof video === "string" && video.startsWith("http")) {
-    try {
-      console.log("Attempting multipart upload for video URL:", video);
-      const res = await fetch(video);
-      if (res.ok) {
-        const blob = await res.blob();
-        const formData = new FormData();
-        formData.append("chat_id", String(chatId));
-        formData.append("video", blob, "lesson.mp4");
-        if (caption) formData.append("caption", caption);
-        formData.append("parse_mode", "HTML");
-        if (replyMarkup) formData.append("reply_markup", JSON.stringify(replyMarkup));
-        if (protectContent) formData.append("protect_content", "true");
-
-        const token = getBotToken();
-        const tgRes = await fetch(`https://api.telegram.org/bot${token}/sendVideo`, {
-          method: "POST",
-          body: formData,
-        });
-        sent = await tgRes.json();
-        if (sent && sent.ok) return sent;
-      }
-    } catch (mErr) {
-      console.error("Multipart video upload error:", mErr);
-    }
-  }
-
-  // 3. NEVER SEND VIDEO LINK. Send clean error message with retry options.
-  console.error("Failed to send video natively:", sent?.description);
-  return await callTelegram("sendMessage", {
-    chat_id: chatId,
-    text:
-      `${caption}\n\n` +
-      `⚠️ <b>Videoni yuklashda vaqtinchalik uzilish yuz berdi.</b>\n` +
-      `Iltimos, quyidagi tugma orqali qaytadan urinib ko‘ring yoki administratorga murojaat qiling.`,
-    parse_mode: "HTML",
-    reply_markup: replyMarkup,
-    protect_content: protectContent,
-  });
+  console.warn("sendVideo direct param failed:", sent?.description || sent);
+  return sent;
 }
 
 async function answerTelegramCallbackQuery(callbackQueryId, text, showAlert = false) {
@@ -441,7 +401,7 @@ async function playLessonVideo(chatId, user, lessonOrId, customCaption = null) {
     resize_keyboard: true,
   };
 
-  if (!videoToSend) {
+  if (!videoFileId && !videoUrl) {
     await sendTelegramMessage(
       chatId,
       `🎬 <b>${lessonDisplayTitle}</b>\n\nUshbu dars uchun video hali biriktirilmagan. Tez orada yuklanadi!`,
@@ -459,19 +419,42 @@ async function playLessonVideo(chatId, user, lessonOrId, customCaption = null) {
     lastActionTime: Date.now(),
   });
 
-  // Send protected video (DRM) with Physical Reply Keyboard (NO INLINE / LINK BUTTONS)
-  const sent = await sendTelegramVideo(chatId, videoToSend, caption, replyKeyboard, true);
+  // 1. Try sending via cached file_id if present
+  let sent = null;
+  if (videoFileId) {
+    sent = await sendTelegramVideo(chatId, videoFileId, caption, replyKeyboard, true);
+  }
 
-  // If new Telegram file_id was generated and not yet cached, save it in RAM and Supabase asynchronously
-  if (sent && sent.ok && sent.result?.video?.file_id && !videoFileId) {
+  // 2. If file_id failed or missing, immediately fallback to videoUrl!
+  if ((!sent || !sent.ok) && videoUrl) {
+    console.log("Cached file_id invalid or absent, trying videoUrl directly:", videoUrl);
+    sent = await sendTelegramVideo(chatId, videoUrl, caption, replyKeyboard, true);
+  }
+
+  // 3. If video sent successfully, cache the new valid file_id
+  if (sent && sent.ok && sent.result?.video?.file_id) {
     const newFileId = sent.result.video.file_id;
-    lesson.youtube_video_id = JSON.stringify({ url: videoUrl, file_id: newFileId });
-    supabase
-      .from("academy_lessons")
-      .update({ youtube_video_id: lesson.youtube_video_id })
-      .eq("id", String(lesson.id))
-      .then(() => {})
-      .catch((e) => console.warn("Failed to cache file_id in DB:", e));
+    if (newFileId !== videoFileId) {
+      lesson.youtube_video_id = JSON.stringify({ url: videoUrl, file_id: newFileId });
+      supabase
+        .from("academy_lessons")
+        .update({ youtube_video_id: lesson.youtube_video_id })
+        .eq("id", String(lesson.id))
+        .then(() => {})
+        .catch((e) => console.warn("Failed to cache file_id in DB:", e));
+    }
+    return;
+  }
+
+  // 4. If all methods failed, send user-friendly retry message
+  if (!sent || !sent.ok) {
+    await sendTelegramMessage(
+      chatId,
+      `${caption}\n\n` +
+        `⚠️ <b>Videoni yuklashda vaqtinchalik uzilish yuz berdi.</b>\n` +
+        `Iltimos, quyidagi tugma orqali qaytadan urinib ko‘ring yoki administratorga murojaat qiling.`,
+      replyKeyboard
+    );
   }
 }
 
