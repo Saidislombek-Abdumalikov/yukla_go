@@ -541,12 +541,14 @@ async function handlePhysicalTugatdim(chatId, user) {
       ? nextLesson.title
       : `${nextLesson.order ? `${nextLesson.order}-dars: ` : ""}${nextLesson.title}`;
 
-    const praiseCaption =
-      `🎉 <b>Barakalla, ${user.name}!</b> «${curDisplayTitle}» yakunlandi.\n\n` +
-      `🎬 <b>${nextDisplayTitle}</b> 🚀`;
+    // Send congratulations as a separate message (NOT in video caption)
+    await sendTelegramMessage(
+      chatId,
+      `🎉 <b>Barakalla!</b> «${curDisplayTitle}» yakunlandi ✅`
+    );
 
-    // 1 single API call: Sends next lesson video immediately with congratulations in caption!
-    await playLessonVideo(chatId, user, nextLesson, praiseCaption);
+    // Send next lesson video cleanly
+    await playLessonVideo(chatId, user, nextLesson);
   } else {
     // All lessons finished: 1 single message with congratulations and main menu keyboard!
     const mainKb = await getMainMenuKeyboard(supabase);
@@ -788,41 +790,11 @@ async function processTelegramUpdate(update) {
 
   // 3. Handle Payment Screenshot Upload (Photo)
   if (message?.photo) {
-    const user = await getCachedUser(supabase, telegramUserId);
-    const photo = message.photo[message.photo.length - 1]; // Highest resolution
-    const fileId = photo.file_id;
-
     await sendTelegramMessage(
       chatId,
-      `🧾 <b>To‘lov cheki qabul qilindi!</b> ⏳\n\n` +
-        `Tez orada tekshirib, Premium beramiz ✨`
+      `📸 <b>To‘lov chekini adminga yuboring:</b> @nothing_related\n\n` +
+        `Admin tekshirib, hisobingizga ruxsat beradi ✨`
     );
-
-    const adminText =
-      `💳 <b>Yangi to‘lov skrinshoti keldi!</b>\n\n` +
-      `👤 <b>Talaba:</b> ${user?.name || from.first_name || "Talaba"}\n` +
-      `🆔 <b>Mijoz kodi:</b> <code>${user?.customer_code || "YK1"}</code>\n` +
-      `📱 <b>Telefon:</b> <code>${user?.phone || "Mavjud emas"}</code>\n` +
-      `💬 <b>Telegram ID:</b> <code>${telegramUserId}</code>`;
-
-    for (const adminId of ADMIN_TELEGRAM_IDS) {
-      await callTelegram("sendPhoto", {
-        chat_id: adminId,
-        photo: fileId,
-        caption: adminText,
-        parse_mode: "HTML",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "✅ Premium ruxsat berish",
-                callback_data: `quickgrant_${user?.id || telegramUserId}`,
-              },
-            ],
-          ],
-        },
-      });
-    }
     return true;
   }
 
@@ -975,7 +947,8 @@ async function processTelegramUpdate(update) {
             `💰 <b>Narxi:</b> 39 000 so'm\n` +
             `💳 <b>Karta:</b> <code>9860170713411376</code>\n` +
             `👤 <b>Egasi:</b> Abdumalikov Saidislombek\n\n` +
-            `📸 To‘lov chekini shu yerga yuboring, darhol ruxsat beramiz! ✨`
+            `📸 To‘lov qilgach, chekni adminga yuboring: @nothing_related\n` +
+            `Admin tekshirib, hisobingizga ruxsat beradi ✨`
         );
       }
       return true;
