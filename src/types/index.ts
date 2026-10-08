@@ -33,6 +33,8 @@ export interface LessonItem {
   durationSeconds: number; // in seconds
   status: "Faol" | "Tayyor" | "Qoralama" | "Yashirilgan";
   videoUrl?: string;
+  mediaKey?: string;
+  mediaExpiresAt?: number;
   videoFormat?: "auto" | "standard" | "shorts";
   thumbnailUrl?: string;
   color?: string;

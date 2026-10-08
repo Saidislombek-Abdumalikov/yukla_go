@@ -25,7 +25,7 @@ export function getBotToken(): string {
       }
     }
   } catch {}
-  return '8692358170:AAGvDJ9-5Ckuk8rGZSC6zAhsdM-mqTc0Ewo';
+  return 'REMOVED_ROTATE_BOT_TOKEN';
 }
 
 export const STATUS_MESSAGES: Record<string, { title: string; desc: string }> = {

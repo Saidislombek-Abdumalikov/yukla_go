@@ -187,7 +187,7 @@ function TelegramBotWelcomeScreen({ reason }: { reason?: string }) {
     <main className="screen login-screen">
       <BrandMark />
       <div className="login-heading">
-        <h1>Yukla Go Ta’lim</h1>
+        <h1>Yukla GO Ta’lim</h1>
         <p>Yopiq amaliy ta’lim platformasi</p>
       </div>
 
@@ -418,7 +418,7 @@ function Header({
       <div className="brand">
         <BrandMark />
         <div>
-          <div className="brand-name">Yukla Go</div>
+          <div className="brand-name">Yukla GO</div>
           <div className="private-label">
             <Icon name="shield" size={12} />
             Shaxsiy o‘quv hududi
@@ -513,7 +513,7 @@ function LessonsHome({
     );
   }
 
-  if (allowedCourses.length === 0) {
+  if (!activeCourse) {
     return (
       <main className="screen home-screen">
         <Header onOpenProfile={onOpenProfile} user={user} />
@@ -539,7 +539,7 @@ function LessonsHome({
           <label>Kursni tanlang:</label>
           <select
             value={activeCourse.id}
-            onChange={(e) => setActiveCourseId(Number(e.target.value))}
+            onChange={(e) => setActiveCourseId(e.target.value as unknown as number)}
           >
             {allowedCourses.map((c) => (
               <option key={c.id} value={c.id}>
@@ -779,49 +779,36 @@ function VideoPlayer({
           currentRef.current,
           maxWatchedRef.current,
           completedRef.current
-        );
+        ).catch(() => {});
       }
     };
   }, [user.id, lesson.id, settings.autoSaveProgress]);
 
-  // Playback ticker (smooth timer fallback & auto-save)
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const pendingSaveRef = useRef(false);
+  const completeRef = useRef(onComplete);
+  completeRef.current = onComplete;
+  const persist = async () => {
+    if (savingRef.current) { pendingSaveRef.current = true; return; }
+    savingRef.current = true;
+    setSaving(true);
+    try {
+      const result = await store.saveLessonProgress(user.id, lesson.id, currentRef.current, maxWatchedRef.current, false);
+      setSaveError("");
+      if (result.completed && !completedRef.current) {
+        completedRef.current = true; setCompleted(true); completeRef.current(lesson.id);
+      }
+    } catch { setSaveError("Progress saqlanmadi. Internetni tekshirib qayta saqlang."); }
+    finally { savingRef.current = false; setSaving(false); if (pendingSaveRef.current) { pendingSaveRef.current = false; void persistRef.current(); } }
+  };
+  const persistRef = useRef(persist); persistRef.current = persist;
   useEffect(() => {
     if (!playing) return;
-
-    const timer = window.setInterval(() => {
-      setCurrent((pos) => {
-        const next = Math.min(duration, pos + 1);
-        const newMax = Math.max(maxWatchedRef.current, next);
-        setMaxWatched(newMax);
-
-        const thresholdPercent = settings.defaultCompletionPercent || 95;
-        const targetSeconds = (duration * thresholdPercent) / 100;
-
-        if (next >= targetSeconds && !completedRef.current) {
-          setCompleted(true);
-          onComplete(lesson.id);
-        }
-
-        if (next >= duration) {
-          setPlaying(false);
-        }
-
-        if (settings.autoSaveProgress && next % 4 === 0) {
-          store.saveLessonProgress(
-            user.id,
-            lesson.id,
-            next,
-            newMax,
-            completedRef.current || next >= targetSeconds
-          );
-        }
-
-        return next;
-      });
-    }, 1000);
-
+    const timer = window.setInterval(() => { void persistRef.current(); }, 5000);
     return () => window.clearInterval(timer);
-  }, [playing, duration, lesson.id, user.id, settings, onComplete]);
+  }, [playing, lesson.id]);
 
   // Control Actions
   const togglePlay = () => {
@@ -919,13 +906,7 @@ function VideoPlayer({
     showControlsTemporarily();
   };
 
-  const handleFinishLesson = () => {
-    setCompleted(true);
-    onComplete(lesson.id);
-    if (hasNextLesson && onNextLesson) {
-      onNextLesson();
-    }
-  };
+  const handleFinishLesson = () => { void persistRef.current(); };
 
   // Smart tap handling (single tap: show controls / toggle play; double tap left/right: 10s seek)
   const handleShieldTap = (e: React.MouseEvent<HTMLDivElement>) => {
@@ -969,14 +950,14 @@ function VideoPlayer({
   const watermarkText = useMemo(() => {
     if (!settings.dynamicWatermark) return null;
     if (settings.watermarkFormat === "id") return user.id;
-    if (settings.watermarkFormat === "full") return `${user.name} (${user.id}) • Yukla Go`;
-    return `${user.id} • Yukla Go`;
+    if (settings.watermarkFormat === "full") return `${user.name} (${user.id}) • Yukla GO`;
+    return `${user.id} • Yukla GO`;
   }, [settings, user]);
 
   const watchedPercent = duration > 0 ? (maxWatched / duration) * 100 : 0;
   const currentPercent = duration > 0 ? (current / duration) * 100 : 0;
 
-  const isPhoneMode = aspectRatio === "9:16";
+  const isPhoneMode = videoDimensions?.isVertical === true;
 
   // --- Quality Label ---
   const qualityLabel = quality === "1080p" ? "1080p HD" : quality === "720p" ? "720p HD" : quality === "480p" ? "480p" : "Avto";
@@ -1112,15 +1093,20 @@ function VideoPlayer({
               }}
               onTimeUpdate={(e) => {
                 const t = Math.floor(e.currentTarget.currentTime);
-                setCurrent(t);
-                setMaxWatched((prev) => Math.max(prev, t));
+                currentRef.current = t;
+                maxWatchedRef.current = Math.max(maxWatchedRef.current, t);
+                setCurrent(t); setMaxWatched(maxWatchedRef.current);
               }}
+              onSeeking={(e) => { if (!completedRef.current && e.currentTarget.currentTime > maxWatchedRef.current + 0.5) e.currentTarget.currentTime = maxWatchedRef.current; }}
+              onError={() => setSaveError("Video ochilmadi. Admin video manzilini tekshirishi kerak.")}
+              onWaiting={() => setControlsVisible(true)}
               onPlay={() => setPlaying(true)}
-              onPause={() => setPlaying(false)}
+              onPause={() => { setPlaying(false); void persistRef.current(); }}
               onEnded={() => {
                 setPlaying(false);
-                setCompleted(true);
-                onComplete(lesson.id);
+                const video = videoRef.current;
+                if (video) { currentRef.current = Math.floor(video.currentTime); maxWatchedRef.current = Math.max(maxWatchedRef.current, currentRef.current); }
+                void persistRef.current();
               }}
             />
           </div>
@@ -1224,7 +1210,7 @@ function VideoPlayer({
                   <button
                     type="button"
                     className={`player-next-lesson-btn ${completed ? "highlighted" : ""}`}
-                    onClick={onNextLesson}
+                    onClick={() => { if (completed) onNextLesson?.(); }}
                     title="Keyingi darsga o‘tish"
                   >
                     <span>Keyingi dars</span>
@@ -1299,18 +1285,20 @@ function VideoPlayer({
                 <Icon name="check" size={15} />
               </span>
               <div>
-                <strong>Darsni ko‘rib bo‘lgach tasdiqlang</strong>
-                <span>Keyingi darsga o‘tish uchun quyidagi tugmani bosing</span>
+                <strong>Darsni oxirigacha tomosha qiling</strong>
+                <span>Progress saqlangach keyingi dars ochiladi</span>
               </div>
             </div>
           )}
 
+          {saveError && <p role="alert">{saveError}</p>}
+          {saving && <p role="status">Saqlanmoqda…</p>}
           <div className="player-actions">
             {completed && hasNextLesson ? (
-              <PrimaryButton onClick={onNextLesson}>Keyingi dars</PrimaryButton>
+              <PrimaryButton onClick={() => { if (completed) onNextLesson?.(); }}>Keyingi dars</PrimaryButton>
             ) : !completed ? (
               <PrimaryButton icon="check" onClick={handleFinishLesson}>
-                Darsni tugatish va keyingisiga o‘tish
+                Progressni saqlash / qayta urinish
               </PrimaryButton>
             ) : (
               <PrimaryButton onClick={onBack}>Barcha darslarga qaytish</PrimaryButton>
@@ -1518,37 +1506,36 @@ export default function App() {
 
   // Auto load user from Telegram Mini App or link + load courses synchronously
   useEffect(() => {
-    Promise.all([
-      store.loadUserFromUrlOrStorage(),
-      store.syncStateFromServer(),
-    ]).then(([{ user: loadedUser, error }, stateData]) => {
-      if (stateData) {
-        if (Array.isArray(stateData.courses)) setCourses(stateData.courses);
-        if (Array.isArray(stateData.lessons)) setLessons(stateData.lessons);
-        if (stateData.settings) setSettings(stateData.settings);
-      }
-      if (loadedUser) {
-        setUser(loadedUser);
-        setUserProgress(store.getUserProgress(loadedUser.id));
-      } else {
-        setUser(null);
-        setAuthError(error);
-      }
-      setAuthLoading(false);
-    });
+    let cancelled = false;
+    (async () => {
+      try {
+        const result = await store.loadUserFromUrlOrStorage();
+        if (cancelled) return;
+        if (result.user) {
+          setUser(result.user); setUserProgress(store.getUserProgress(result.user.id));
+          const data = await store.syncStateFromServer();
+          if (data && !cancelled) { setCourses(data.courses); setLessons(data.lessons); setSettings(data.settings); const first = data.courses.find(c => result.user?.coursesAccess?.[c.id] === "Faol"); if (first) setActiveCourseId(first.id); }
+        } else { setUser(null); setAuthError(result.error); }
+      } finally { if (!cancelled) setAuthLoading(false); }
+    })();
 
+    let syncing = false;
     const doSync = () => {
+      if (syncing || document.hidden) return;
+      syncing = true;
       store.syncStateFromServer().then((data) => {
         if (data) {
           if (Array.isArray(data.courses)) setCourses(data.courses);
           if (Array.isArray(data.lessons)) setLessons(data.lessons);
           if (data.settings) setSettings(data.settings);
+          const latest = store.getAuthUser();
+          if (latest) { setUser(latest); setUserProgress(store.getUserProgress(latest.id)); }
         }
-      });
+      }).finally(() => { syncing = false; });
     };
 
-    const interval = setInterval(doSync, 4000);
-    return () => clearInterval(interval);
+    const interval = setInterval(doSync, 30000);
+    return () => { cancelled = true; clearInterval(interval); };
   }, []);
 
   const handleLogout = () => {
@@ -1561,7 +1548,9 @@ export default function App() {
   // Real-time synchronization listener (SSE from sync-server)
   useEffect(() => {
     const unsubscribe = store.subscribe((message) => {
-      if (message.type === "UPDATE_LESSONS") {
+      if (message.type === "USER_PROGRESS_UPDATED" && user && message.payload.userId === user.id) {
+        setUserProgress(store.getUserProgress(user.id));
+      } else if (message.type === "UPDATE_LESSONS") {
         setLessons(message.payload);
       } else if (message.type === "UPDATE_COURSES") {
         setCourses(message.payload);
@@ -1644,12 +1633,10 @@ export default function App() {
     return { lessonStates: states, publishedLessons: published };
   }, [lessons, activeCourseId, userProgress, settings.sequentialLessons, user]);
 
-  const handleLessonComplete = (lessonId: number) => {
+  const handleLessonComplete = (_lessonId: number) => {
     if (!user) return;
-    const lesson = lessons.find((l) => String(l.id) === String(lessonId));
-    const total = lesson?.durationSeconds || 600;
-    store.saveLessonProgress(user.id, Number(lessonId), total, total, true);
     setUserProgress(store.getUserProgress(user.id));
+    void store.syncStateFromServer().then(data => { if (data) setLessons(data.lessons); });
   };
 
   const activeLesson = useMemo(() => {
@@ -1679,6 +1666,7 @@ export default function App() {
   const handleNextLesson = () => {
     if (activeLessonIndex >= 0 && activeLessonIndex < publishedLessons.length - 1) {
       const next = publishedLessons[activeLessonIndex + 1];
+      if (lessonStates[next.id] === "locked" || !next.videoUrl) return;
       setActiveLessonId(next.id);
     } else {
       setScreen("lessons");

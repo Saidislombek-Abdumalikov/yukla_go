@@ -6,7 +6,14 @@ import type {
   UserProfile,
 } from "../types";
 
-export const API_BASE = "http://localhost:5000/api";
+export const API_BASE = (import.meta.env.VITE_API_URL || "/api").replace(/\/$/, "");
+let sessionToken = "";
+let saveQueue: Promise<unknown> = Promise.resolve();
+async function api(path: string, options: RequestInit = {}) {
+ const res = await fetch(`${API_BASE}${path}`, { ...options, headers: { "Content-Type": "application/json", Authorization: `Bearer ${sessionToken}`, ...options.headers }, signal: AbortSignal.timeout(15000) });
+ if (!res.ok) throw new Error(`Server: ${res.status}`);
+ return res.json();
+}
 export const BROADCAST_CHANNEL_NAME = "yukla_go_channel";
 
 export const STORAGE_KEYS = {
@@ -22,7 +29,7 @@ export const STORAGE_KEYS = {
 export const defaultCourse: CourseItem | null = null;
 
 export const defaultSettings: AdminSettings = {
-  defaultCompletionPercent: 95,
+  defaultCompletionPercent: 100,
   autoSaveProgress: true,
   sequentialLessons: true,
   dynamicWatermark: true,
@@ -91,90 +98,21 @@ export const store = {
   async loadUserFromUrlOrStorage(): Promise<{ user: UserProfile | null; error?: "browser_not_allowed" | "not_registered" | "blocked" | "network" }> {
     if (typeof window === "undefined") return { user: null };
 
-    const isLocalhost =
-      window.location.hostname === "localhost" ||
-      window.location.hostname === "127.0.0.1";
-
     const tg = (window as any).Telegram?.WebApp;
-    if (tg) {
-      try {
-        tg.ready();
-        tg.expand();
-      } catch {}
-    }
-
-    const tgUser = tg?.initDataUnsafe?.user;
-    const tgUserId = tgUser?.id;
-
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get("token");
-    const userId = urlParams.get("u") || urlParams.get("id");
-    const code = urlParams.get("code");
-
-    // 1. If inside Telegram Mini App with detected Telegram User ID
-    if (tgUserId) {
-      try {
-        const baseUrl = !isLocalhost ? "" : API_BASE;
-        const res = await fetch(`${baseUrl}/api/user?tg_id=${encodeURIComponent(tgUserId)}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.user) {
-            this.setAuthUser(data.user);
-            return { user: data.user };
-          }
-        } else if (res.status === 404) {
-          this.setAuthUser(null);
-          return { user: null, error: "not_registered" };
-        } else if (res.status === 403) {
-          this.setAuthUser(null);
-          return { user: null, error: "blocked" };
-        }
-      } catch (err) {
-        console.warn("Could not verify Telegram user:", err);
-      }
-    }
-
-    // 2. If token/code/u provided in URL (fallback / link entry)
-    if (token || userId || code) {
-      try {
-        const query = token
-          ? `token=${encodeURIComponent(token)}`
-          : code
-            ? `code=${encodeURIComponent(code)}`
-            : `u=${encodeURIComponent(userId!)}`;
-        const baseUrl = !isLocalhost ? "" : API_BASE;
-        const res = await fetch(`${baseUrl}/api/user?${query}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.user) {
-            this.setAuthUser(data.user);
-            return { user: data.user };
-          }
-        } else if (res.status === 404) {
-          this.setAuthUser(null);
-          return { user: null, error: "not_registered" };
-        } else if (res.status === 403) {
-          this.setAuthUser(null);
-          return { user: null, error: "blocked" };
-        }
-      } catch (err) {
-        console.warn("Could not fetch user from API:", err);
-      }
-    }
-
-    // 3. Localhost Development Mode (for local development on PC)
-    if (isLocalhost) {
-      const stored = this.getAuthUser();
-      return { user: stored };
-    }
-
-    // 4. In Production on Web Browser (Outside Telegram Mini App):
-    // Strictly reject standalone browser entry! Clear any saved session!
-    this.setAuthUser(null);
-    return { user: null, error: "browser_not_allowed" };
+    if (!tg?.initData) return { user: null, error: "browser_not_allowed" };
+    try {
+      tg.ready(); tg.expand();
+      const auth = await api("/auth/telegram", { method: "POST", body: JSON.stringify({ initData: tg.initData }) });
+      sessionToken = auth.token;
+      const data = await api("/user");
+      this.setAuthUser(data.user);
+      safeSetItem(STORAGE_KEYS.PROGRESS, { [data.user.id]: data.progress || {} });
+      return { user: data.user };
+    } catch { this.setAuthUser(null); return { user: null, error: "network" }; }
   },
 
   logout(): void {
+    sessionToken = "";
     try {
       localStorage.removeItem(STORAGE_KEYS.AUTH_USER);
     } catch (e) {
@@ -185,14 +123,23 @@ export const store = {
   // --- Data Accessors ---
   async syncStateFromServer(): Promise<{ courses: CourseItem[]; lessons: LessonItem[]; settings: AdminSettings } | null> {
     try {
-      const baseUrl = typeof window !== "undefined" && window.location.hostname !== "localhost" && window.location.hostname !== "127.0.0.1" ? "" : API_BASE;
-      const res = await fetch(`${baseUrl}/api/state`);
-      if (res.ok) {
-        const data = await res.json();
+      if (!sessionToken) return null;
+      const data = await api("/state");
+      if (data.user) {
+        this.setAuthUser(data.user);
+        safeSetItem(STORAGE_KEYS.PROGRESS, { [data.user.id]: data.progress || {} });
+      }
+      {
         if (Array.isArray(data.courses)) {
           this.setCourses(data.courses);
         }
         if (Array.isArray(data.lessons)) {
+          const old = this.getLessons();
+          data.lessons = data.lessons.map((lesson: LessonItem) => {
+            const prev = old.find(p => String(p.id) === String(lesson.id));
+            return prev?.videoUrl && lesson.videoUrl && prev.mediaKey === lesson.mediaKey && (prev.mediaExpiresAt || 0) > Date.now() + 600000
+              ? { ...lesson, videoUrl: prev.videoUrl, mediaExpiresAt: prev.mediaExpiresAt } : lesson;
+          });
           this.setLessons(data.lessons);
         }
         if (data.settings) {
@@ -260,50 +207,18 @@ export const store = {
     return all[userId] || {};
   },
 
-  saveLessonProgress(
-    userId: string,
-    lessonId: number,
-    current: number,
-    maxWatched: number,
-    completed: boolean
-  ) {
-    const all = this.getAllProgress();
-    const userProgress = all[userId] || {};
-    const prev = userProgress[lessonId];
-
-    userProgress[lessonId] = {
-      current,
-      maxWatched: Math.max(prev?.maxWatched || 0, maxWatched, current),
-      completed: completed || prev?.completed || false,
-      lastUpdated: Date.now(),
-    };
-
-    all[userId] = userProgress;
-    safeSetItem(STORAGE_KEYS.PROGRESS, all);
-
-    this.broadcast({
-      type: "USER_PROGRESS_UPDATED",
-      payload: {
-        userId,
-        lessonId,
-        current,
-        maxWatched: userProgress[lessonId].maxWatched,
-        completed: userProgress[lessonId].completed,
-      },
+  saveLessonProgress(userId: string, lessonId: number, current: number, maxWatched: number, completed: boolean) {
+    const task = saveQueue.catch(() => {}).then(async () => {
+      const result = await api("/progress", { method: "POST", body: JSON.stringify({ lessonId, current, maxWatched }) });
+      const all = this.getAllProgress();
+      all[userId] = { ...(all[userId] || {}), [lessonId]: { ...result.progress, lastUpdated: Date.now() } };
+      safeSetItem(STORAGE_KEYS.PROGRESS, all);
+      const message: AdminSyncMessage = { type: "USER_PROGRESS_UPDATED", payload: { userId, lessonId, ...result.progress } };
+      window.dispatchEvent(new CustomEvent("eucla-progress", { detail: message }));
+      return result.progress;
     });
-
-    // Sync to API
-    fetch(`${API_BASE}/progress`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        userId,
-        lessonId,
-        current,
-        maxWatched: userProgress[lessonId].maxWatched,
-        completed: userProgress[lessonId].completed,
-      }),
-    }).catch(() => {});
+    saveQueue = task;
+    return task;
   },
 
   resetUserProgress(userId: string) {
@@ -331,32 +246,9 @@ export const store = {
     const ch = getBroadcastChannel();
     ch?.addEventListener("message", handleBroadcast);
 
-    let eventSource: EventSource | null = null;
-    try {
-      eventSource = new EventSource(`${API_BASE}/events`);
+    const onProgress = (event: Event) => callback((event as CustomEvent).detail);
+    window.addEventListener("eucla-progress", onProgress);
+    return () => { ch?.removeEventListener("message", handleBroadcast); window.removeEventListener("eucla-progress", onProgress); };
 
-      eventSource.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "INIT" && data.payload) {
-            const state = data.payload;
-            if (state.courses) this.setCourses(state.courses);
-            if (state.lessons) this.setLessons(state.lessons);
-            if (state.settings) this.setSettings(state.settings);
-            if (state.progress) {
-              safeSetItem(STORAGE_KEYS.PROGRESS, state.progress);
-            }
-          }
-          callback(data as AdminSyncMessage);
-        } catch {}
-      };
-    } catch {}
-
-    return () => {
-      ch?.removeEventListener("message", handleBroadcast);
-      if (eventSource) {
-        eventSource.close();
-      }
-    };
   },
 };
