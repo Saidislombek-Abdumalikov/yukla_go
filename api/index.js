@@ -1246,6 +1246,16 @@ async function processTelegramUpdate(update) {
     const text = message.text.trim();
     let user = await getCachedUser(supabase, telegramUserId);
 
+    if (text === "/myid" || text === "/id") {
+      const isAdm = isAdmin(telegramUserId);
+      await sendTelegramMessage(
+        chatId,
+        `🆔 <b>Sizning Telegram ID raqamingiz:</b>\n<code>${telegramUserId}</code>\n\n` +
+          `👤 <b>Status:</b> ${isAdm ? "👑 Administrator" : "Talaba"}`
+      );
+      return true;
+    }
+
     if (text.startsWith("/start")) {
       if (!user) {
         const customerCode = await generateNextCustomerCode(supabase);
