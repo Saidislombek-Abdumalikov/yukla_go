@@ -911,20 +911,27 @@ async function processTelegramUpdate(update) {
     return true;
   }
 
-  // 4. Handle Admin Video Upload (200-300MB+ Direct Upload via Telegram)
-  if (message?.video) {
+  // 4. Handle Admin Video Upload (Video or Video File, up to 2GB)
+  const isVideoMsg = Boolean(message?.video);
+  const isVideoDoc = Boolean(
+    message?.document &&
+      (message.document.mime_type?.startsWith("video/") ||
+        message.document.file_name?.match(/\.(mp4|mov|webm|mkv|avi)$/i))
+  );
+
+  if (isVideoMsg || isVideoDoc) {
     if (!isAdmin(telegramUserId)) {
       await sendTelegramMessage(chatId, "⚠️ Videoni faqat administratorlar yuklashi mumkin.");
       return true;
     }
 
-    const video = message.video;
-    const fileId = video.file_id;
-    const durationSec = video.duration || 0;
+    const videoObj = message.video || message.document;
+    const fileId = videoObj.file_id;
+    const durationSec = message.video?.duration || 0;
     const m = Math.floor(durationSec / 60);
     const s = durationSec % 60;
-    const durationStr = `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-    const sizeMB = (video.file_size / (1024 * 1024)).toFixed(1);
+    const durationStr = durationSec > 0 ? `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}` : "";
+    const sizeMB = (videoObj.file_size / (1024 * 1024)).toFixed(1);
 
     // Save in memory cache
     pendingAdminVideos.set(Number(telegramUserId), {
@@ -940,7 +947,7 @@ async function processTelegramUpdate(update) {
         admin_tg: Number(telegramUserId),
         file_id: fileId,
         duration: durationSec,
-        file_size: video.file_size || 0,
+        file_size: videoObj.file_size || 0,
       });
     } catch (e) {
       console.warn("Failed to record bot_media_upload in DB:", e);
@@ -964,7 +971,7 @@ async function processTelegramUpdate(update) {
       chatId,
       `🎬 <b>Video Telegram serveriga qabul qilindi!</b>\n\n` +
         `📁 <b>Telegram File ID:</b>\n<code>${fileId}</code>\n\n` +
-        `⏱ <b>Davomiyligi:</b> ${durationStr}\n` +
+        (durationStr ? `⏱ <b>Davomiyligi:</b> ${durationStr}\n` : "") +
         `💾 <b>Hajmi:</b> ${sizeMB} MB\n\n` +
         `Ushbu videoni qaysi darsga biriktiramiz?`,
       { inline_keyboard: buttons }
