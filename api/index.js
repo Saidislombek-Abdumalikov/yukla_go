@@ -1247,54 +1247,85 @@ async function processTelegramUpdate(update) {
     let user = await getCachedUser(supabase, telegramUserId);
 
     if (text.startsWith("/start")) {
-      if (!user) {
-        const customerCode = await generateNextCustomerCode(supabase);
-        const fullName =
-          `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
-          from.username ||
-          "Talaba";
+      // 1. If Admin, ensure user exists and show main menu immediately (never ask for phone)
+      if (isAdmin(telegramUserId)) {
+        if (!user) {
+          const customerCode = await generateNextCustomerCode(supabase);
+          const fullName =
+            `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
+            from.username ||
+            "Admin";
 
-        const { data: newUser } = await supabase
-          .from("users")
-          .upsert(
-            {
-              telegram_user_id: telegramUserId,
-              name: fullName,
-              phone: "",
-              customer_code: customerCode,
-              status: "active",
-              onboarding_completed: false,
-              onboarding_step: "phone",
-            },
-            { onConflict: "telegram_user_id" }
-          )
-          .select()
-          .maybeSingle();
+          const { data: newUser } = await supabase
+            .from("users")
+            .upsert(
+              {
+                telegram_user_id: telegramUserId,
+                name: fullName,
+                customer_code: customerCode,
+                status: "active",
+                onboarding_completed: true,
+                onboarding_step: "completed",
+              },
+              { onConflict: "telegram_user_id" }
+            )
+            .select()
+            .maybeSingle();
 
-        user = newUser || user;
-        if (user) {
-          userCache.set(Number(telegramUserId), { user, time: Date.now() });
+          user = newUser || user;
+          if (user) {
+            userCache.set(Number(telegramUserId), { user, time: Date.now() });
+          }
         }
-      }
-
-      // A. Not registered phone yet -> Ask for contact button
-      if (!user || !user.phone) {
-        const welcomeText =
-          `👋 <b>Assalomu alaykum, ${from.first_name || "do‘st"}!</b> 🚀\n\n` +
-          `Yukla Go platformasiga xush kelibsiz!\n` +
-          `Boshlash uchun telefon raqamingizni yuboring 👇`;
-
-        await sendTelegramMessage(chatId, welcomeText, {
-          keyboard: [
-            [{ text: "📱 Telefon raqamimni yuborish", request_contact: true }],
-          ],
-          resize_keyboard: true,
-          one_time_keyboard: true,
-        });
+        await sendMainMenu(chatId, user);
         return true;
       }
 
-      // B. Registered -> Show Physical Reply Keyboard Main Menu
+      // 2. If user already exists in DB, NEVER ask for phone number again! Show main menu!
+      if (user) {
+        await sendMainMenu(chatId, user);
+        return true;
+      }
+
+      // 3. Brand new user: register immediately without blocking on phone
+      const customerCode = await generateNextCustomerCode(supabase);
+      const fullName =
+        `${from.first_name || ""} ${from.last_name || ""}`.trim() ||
+        from.username ||
+        "Talaba";
+
+      const { data: newUser } = await supabase
+        .from("users")
+        .upsert(
+          {
+            telegram_user_id: telegramUserId,
+            name: fullName,
+            phone: "",
+            customer_code: customerCode,
+            status: "active",
+            onboarding_completed: true,
+            onboarding_step: "completed",
+          },
+          { onConflict: "telegram_user_id" }
+        )
+        .select()
+        .maybeSingle();
+
+      user = newUser || {
+        telegram_user_id: telegramUserId,
+        name: fullName,
+        customer_code: customerCode,
+      };
+      if (user) {
+        userCache.set(Number(telegramUserId), { user, time: Date.now() });
+      }
+
+      await sendTelegramMessage(
+        chatId,
+        `👋 <b>Assalomu alaykum, ${from.first_name || "do‘st"}!</b> 🚀\n\n` +
+          `Yukla Go platformasiga xush kelibsiz!\n` +
+          `🆔 <b>Sizning ID:</b> <code>${customerCode}</code>`
+      );
       await sendMainMenu(chatId, user);
       return true;
     }
