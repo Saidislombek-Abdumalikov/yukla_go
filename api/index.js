@@ -103,14 +103,18 @@ async function checkCachedAccess(supabase, userId, courseId) {
   return hasAccess;
 }
 
-function isAdmin(telegramUserId) {
-  if (!telegramUserId) return false;
-  const id = Number(telegramUserId);
+function getAllAdminTelegramIds() {
   const envAdmins = (process.env.ADMIN_TELEGRAM_IDS || "")
     .split(",")
     .map((s) => Number(s.trim()))
     .filter((n) => Number.isInteger(n) && n > 0);
-  return ADMIN_TELEGRAM_IDS.includes(id) || envAdmins.includes(id);
+  return Array.from(new Set([...ADMIN_TELEGRAM_IDS, ...envAdmins]));
+}
+
+function isAdmin(telegramUserId) {
+  if (!telegramUserId) return false;
+  const id = Number(telegramUserId);
+  return getAllAdminTelegramIds().includes(id);
 }
 
 // --- Telegram API Utilities (Persistent HTTP Keep-Alive) ---
@@ -209,6 +213,26 @@ async function answerTelegramCallbackQuery(callbackQueryId, text, showAlert = fa
   });
 }
 
+async function sendTelegramPhoto(chatId, photo, caption, replyMarkup) {
+  return await callTelegram("sendPhoto", {
+    chat_id: chatId,
+    photo,
+    caption,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+  });
+}
+
+async function editTelegramMessageText(chatId, messageId, text, replyMarkup) {
+  return await callTelegram("editMessageText", {
+    chat_id: chatId,
+    message_id: messageId,
+    text,
+    parse_mode: "HTML",
+    reply_markup: replyMarkup,
+  });
+}
+
 // --- Supabase Query Helpers ---
 async function findUserByTelegramId(supabase, telegramUserId) {
   const { data } = await supabase
@@ -301,7 +325,7 @@ async function findUserByAnyId(supabase, uid) {
 }
 
 // --- Bot Menus & Action Handlers ---
-async function getMainMenuKeyboard(supabase) {
+async function getMainMenuKeyboard(supabase, telegramUserId = null) {
   const courses = await getCachedCourses(supabase);
   const keyboard = [];
   const courseList = courses || [];
@@ -313,12 +337,18 @@ async function getMainMenuKeyboard(supabase) {
   }
 
   keyboard.push(["💎 Premium", "👤 Profilim"]);
+
+  if (isAdmin(telegramUserId)) {
+    keyboard.push(["👑 Admin Panel"]);
+  }
+
   return keyboard;
 }
 
 async function sendMainMenu(chatId, user) {
   const supabase = getSupabase();
-  const keyboard = await getMainMenuKeyboard(supabase);
+  const tgId = user?.telegram_user_id || chatId;
+  const keyboard = await getMainMenuKeyboard(supabase, tgId);
 
   await sendTelegramMessage(
     chatId,
@@ -328,6 +358,167 @@ async function sendMainMenu(chatId, user) {
       resize_keyboard: true,
     }
   );
+}
+
+// --- Admin Panel Helpers for Telegram Bot ---
+async function getAdminStats(supabase) {
+  const { data: users } = await supabase
+    .from("users")
+    .select("id, customer_code, name, phone, telegram_user_id, status, created_at")
+    .order("customer_code", { ascending: false });
+
+  const { data: accessList } = await supabase
+    .from("academy_access")
+    .select("user_id, status")
+    .eq("status", "granted");
+
+  const adminIds = getAllAdminTelegramIds();
+  const grantedUserIds = new Set((accessList || []).map((a) => String(a.user_id)));
+
+  const allUsers = users || [];
+  const waitingUsers = allUsers.filter(
+    (u) =>
+      !grantedUserIds.has(String(u.id)) &&
+      !adminIds.includes(Number(u.telegram_user_id))
+  );
+  const grantedUsers = allUsers.filter(
+    (u) =>
+      grantedUserIds.has(String(u.id)) ||
+      adminIds.includes(Number(u.telegram_user_id))
+  );
+
+  return {
+    allUsers,
+    waitingUsers,
+    grantedUsers,
+    totalCount: allUsers.length,
+    waitingCount: waitingUsers.length,
+    grantedCount: grantedUsers.length,
+  };
+}
+
+async function sendAdminDashboard(chatId, messageId = null) {
+  const supabase = getSupabase();
+  const stats = await getAdminStats(supabase);
+
+  const text =
+    `👑 <b>ADMIN BOSHQARUV PANELI</b>\n\n` +
+    `👥 <b>Jami talabalar:</b> ${stats.totalCount} ta\n` +
+    `⏳ <b>Tasdiq kutayotganlar:</b> <b>${stats.waitingCount} ta</b>\n` +
+    `💎 <b>Premium faollar:</b> ${stats.grantedCount} ta\n\n` +
+    `Quyidagi bo‘limlardan birini tanlang 👇`;
+
+  const inline_keyboard = [
+    [
+      {
+        text: `⏳ Tasdiq kutayotganlar (${stats.waitingCount})`,
+        callback_data: "admin_pending",
+      },
+    ],
+    [
+      {
+        text: `👥 Barcha talabalar (${stats.totalCount})`,
+        callback_data: "admin_all_users",
+      },
+    ],
+    [
+      {
+        text: "🔄 Yangilash",
+        callback_data: "admin_dashboard",
+      },
+    ],
+  ];
+
+  if (messageId) {
+    const res = await editTelegramMessageText(chatId, messageId, text, { inline_keyboard });
+    if (res && res.ok) return res;
+  }
+  return await sendTelegramMessage(chatId, text, { inline_keyboard });
+}
+
+async function sendAdminPendingUsers(chatId, messageId = null) {
+  const supabase = getSupabase();
+  const stats = await getAdminStats(supabase);
+
+  if (stats.waitingUsers.length === 0) {
+    const text =
+      `🎉 <b>Tasdiq kutayotgan talabalar yo‘q!</b>\n\n` +
+      `Barcha ro‘yxatdan o‘tgan talabalarga Premium ruxsat berilgan ✅`;
+    const inline_keyboard = [
+      [{ text: "⬅️ Admin Panel", callback_data: "admin_dashboard" }],
+    ];
+    if (messageId) {
+      const res = await editTelegramMessageText(chatId, messageId, text, { inline_keyboard });
+      if (res && res.ok) return res;
+    }
+    return await sendTelegramMessage(chatId, text, { inline_keyboard });
+  }
+
+  let text = `⏳ <b>TASDIQ KUTAYOTGAN TALABALAR (${stats.waitingUsers.length} ta):</b>\n\n`;
+  stats.waitingUsers.slice(0, 10).forEach((u, i) => {
+    const phoneStr = u.phone ? `📱 <code>${u.phone}</code>` : "📱 <i>Tel yo‘q</i>";
+    text += `${i + 1}. <b>${u.name || "Talaba"}</b> (ID: <code>${u.customer_code}</code>)\n   ${phoneStr}\n\n`;
+  });
+  text += `Ruxsat berish uchun talabani tanlang 👇`;
+
+  const inline_keyboard = [];
+  stats.waitingUsers.slice(0, 8).forEach((u) => {
+    const cleanName = (u.name || "Talaba").slice(0, 16);
+    inline_keyboard.push([
+      {
+        text: `✅ ${u.customer_code} - ${cleanName} ga ruxsat`,
+        callback_data: `quickgrant_${u.id}`,
+      },
+    ]);
+  });
+
+  inline_keyboard.push([
+    { text: "🔄 Yangilash", callback_data: "admin_pending" },
+    { text: "⬅️ Admin Panel", callback_data: "admin_dashboard" },
+  ]);
+
+  if (messageId) {
+    const res = await editTelegramMessageText(chatId, messageId, text, { inline_keyboard });
+    if (res && res.ok) return res;
+  }
+  return await sendTelegramMessage(chatId, text, { inline_keyboard });
+}
+
+async function sendAdminAllUsers(chatId, messageId = null) {
+  const supabase = getSupabase();
+  const stats = await getAdminStats(supabase);
+  const adminIds = getAllAdminTelegramIds();
+
+  let text = `👥 <b>BARCHA TALABALAR (${stats.totalCount} ta):</b>\n\n`;
+  const grantedSet = new Set(stats.grantedUsers.map((u) => String(u.id)));
+
+  stats.allUsers.slice(0, 20).forEach((u) => {
+    const isAdm = adminIds.includes(Number(u.telegram_user_id));
+    const isGranted = grantedSet.has(String(u.id)) || isAdm;
+    const badge = isAdm ? "👑 Admin" : isGranted ? "💎 Premium" : "⏳ Kutmoqda";
+    const phone = u.phone ? `<code>${u.phone}</code>` : "-";
+    text += `• <b>${u.customer_code}</b> | ${u.name || "Talaba"} | ${phone}\n   Holat: <b>${badge}</b>\n`;
+  });
+
+  const inline_keyboard = [];
+  if (stats.waitingUsers.length > 0) {
+    inline_keyboard.push([
+      {
+        text: `⏳ Tasdiq kutayotganlar (${stats.waitingUsers.length})`,
+        callback_data: "admin_pending",
+      },
+    ]);
+  }
+  inline_keyboard.push([
+    { text: "🔄 Yangilash", callback_data: "admin_all_users" },
+    { text: "⬅️ Admin Panel", callback_data: "admin_dashboard" },
+  ]);
+
+  if (messageId) {
+    const res = await editTelegramMessageText(chatId, messageId, text, { inline_keyboard });
+    if (res && res.ok) return res;
+  }
+  return await sendTelegramMessage(chatId, text, { inline_keyboard });
 }
 
 async function sendCourseLessonsMenu(chatId, user, course) {
@@ -582,7 +773,7 @@ async function handlePhysicalTugatdim(chatId, user) {
     await playLessonVideo(chatId, user, nextLesson);
   } else {
     // All lessons finished: 1 single message with congratulations and main menu keyboard!
-    const mainKb = await getMainMenuKeyboard(supabase);
+    const mainKb = await getMainMenuKeyboard(supabase, user?.telegram_user_id || chatId);
     await sendTelegramMessage(
       chatId,
       `🏆 <b>TABRIKLAYMIZ, ${user.name}!</b>\n\n` +
@@ -673,6 +864,21 @@ async function processTelegramUpdate(update) {
       return true;
     }
 
+    if (data === "admin_dashboard" && isAdmin(telegramUserId)) {
+      await sendAdminDashboard(chatId, messageId);
+      return true;
+    }
+
+    if (data === "admin_pending" && isAdmin(telegramUserId)) {
+      await sendAdminPendingUsers(chatId, messageId);
+      return true;
+    }
+
+    if (data === "admin_all_users" && isAdmin(telegramUserId)) {
+      await sendAdminAllUsers(chatId, messageId);
+      return true;
+    }
+
     if (data.startsWith("quickgrant_") && isAdmin(telegramUserId)) {
       const targetUserId = data.replace("quickgrant_", "");
       const targetUser = await findUserByAnyId(supabase, targetUserId);
@@ -696,21 +902,30 @@ async function processTelegramUpdate(update) {
         await answerTelegramCallbackQuery(callbackQuery.id, "✅ Premium ruxsat berildi!");
         await sendTelegramMessage(
           chatId,
-          `✅ <b>${targetUser.name}</b> uchun barcha kurslarga Premium ruxsat berildi!`
+          `✅ <b>${targetUser.name}</b> (ID: <code>${targetUser.customer_code}</code>) ga Premium ruxsat muvaffaqiyatli berildi! 🚀`,
+          {
+            inline_keyboard: [
+              [{ text: "⏳ Boshqa kutayotganlar", callback_data: "admin_pending" }],
+              [{ text: "👑 Admin Panel", callback_data: "admin_dashboard" }],
+            ],
+          }
         );
 
         if (targetUser.telegram_user_id) {
-          const mainKb = await getMainMenuKeyboard(supabase);
+          const mainKb = await getMainMenuKeyboard(supabase, targetUser.telegram_user_id);
           await sendTelegramMessage(
             targetUser.telegram_user_id,
-            `💎 <b>Tabriklaymiz!</b> ✨\n\n` +
-              `Sizga Premium ruxsat berildi! Barcha darslar ochiq 🚀`,
+            `💎 <b>Tabriklaymiz, ${targetUser.name}!</b> ✨\n\n` +
+              `Sizga barcha video darslarga to‘liq Premium ruxsat berildi! 🚀\n\n` +
+              `Pastdagi menyu orqali darslarni boshlashingiz mumkin 👇`,
             {
               keyboard: mainKb,
               resize_keyboard: true,
             }
           );
         }
+      } else {
+        await answerTelegramCallbackQuery(callbackQuery.id, "⚠️ Talaba topilmadi!");
       }
       return true;
     }
@@ -903,11 +1118,58 @@ async function processTelegramUpdate(update) {
 
   // 3. Handle Payment Screenshot Upload (Photo)
   if (message?.photo) {
+    const photoArray = message.photo;
+    const largestPhoto = photoArray[photoArray.length - 1];
+    const fileId = largestPhoto?.file_id;
+
+    let student = await getCachedUser(supabase, telegramUserId);
+    if (!student) {
+      student = await findUserByTelegramId(supabase, telegramUserId);
+    }
+
+    const studentName = student?.name || from.first_name || "Talaba";
+    const studentCode = student?.customer_code || "Noma'lum";
+    const studentPhone = student?.phone || "Kiritilmagan";
+
     await sendTelegramMessage(
       chatId,
-      `📸 <b>To‘lov chekini adminga yuboring:</b> @nothing_related\n\n` +
-        `Admin tekshirib, hisobingizga ruxsat beradi ✨`
+      `✅ <b>To‘lov chekingiz adminga yuborildi!</b>\n\n` +
+        `Admin tekshirib, tez orada hisobingizga Premium ruxsat beradi ✨`
     );
+
+    const adminIds = getAllAdminTelegramIds();
+    for (const adminId of adminIds) {
+      try {
+        const caption =
+          `📸 <b>YANGI TO‘LOV CHEKI KELDI!</b>\n\n` +
+          `👤 <b>Talaba:</b> ${studentName}\n` +
+          `🆔 <b>ID:</b> <code>${studentCode}</code>\n` +
+          `📱 <b>Tel:</b> <code>${studentPhone}</code>\n` +
+          `📅 <b>Vaqt:</b> ${new Date().toLocaleString("uz-UZ", { timeZone: "Asia/Tashkent" })}\n\n` +
+          `Tasdiqlash uchun quyidagi tugmani bosing 👇`;
+
+        const replyMarkup = student?.id
+          ? {
+              inline_keyboard: [
+                [
+                  {
+                    text: `✅ ${studentCode} ga Premium ruxsat berish`,
+                    callback_data: `quickgrant_${student.id}`,
+                  },
+                ],
+              ],
+            }
+          : undefined;
+
+        if (fileId) {
+          await sendTelegramPhoto(adminId, fileId, caption, replyMarkup);
+        } else {
+          await sendTelegramMessage(adminId, caption, replyMarkup);
+        }
+      } catch (adminErr) {
+        console.warn(`Failed to notify admin ${adminId}:`, adminErr);
+      }
+    }
     return true;
   }
 
@@ -1105,6 +1367,29 @@ async function processTelegramUpdate(update) {
           `👤 <b>Ism:</b> ${user.name}\n` +
           `📱 <b>Tel:</b> <code>${user.phone || "Kiritilmagan"}</code>\n` +
           `💎 <b>Status:</b> ${isPrem ? "✅ Premium" : "⏳ Oddiy"}`
+      );
+      return true;
+    }
+
+    // 4.1. "👑 Admin Panel" or /admin
+    if (text === "👑 Admin Panel" || text === "/admin" || text.startsWith("/admin")) {
+      if (isAdmin(telegramUserId)) {
+        await sendAdminDashboard(chatId);
+      } else {
+        await sendTelegramMessage(chatId, "🔒 Ushbu bo‘lim faqat administratorlar uchun mo‘ljallangan.");
+      }
+      return true;
+    }
+
+    // 4.2. /id or /myid
+    if (text === "/id" || text === "/myid") {
+      const isAdm = isAdmin(telegramUserId);
+      await sendTelegramMessage(
+        chatId,
+        `🆔 <b>Telegram ID:</b> <code>${telegramUserId}</code>\n` +
+          `👤 <b>Ism:</b> ${user.name}\n` +
+          `📋 <b>Customer ID:</b> <code>${user.customer_code}</code>\n` +
+          `👑 <b>Admin:</b> ${isAdm ? "✅ Administrator" : "❌ Talaba"}`
       );
       return true;
     }
@@ -1530,7 +1815,7 @@ export default async function handler(req, res) {
                 if (courseRow?.title) courseTitle = courseRow.title;
               }
 
-              const mainKb = await getMainMenuKeyboard(supabase);
+              const mainKb = await getMainMenuKeyboard(supabase, user.telegram_user_id);
               await sendTelegramMessage(
                 user.telegram_user_id,
                 `💎 <b>Tabriklaymiz!</b> ✨\n\n` +
